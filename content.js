@@ -371,6 +371,11 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions 
                     catch (err) { console.warn('[Teams Exporter] failed to click hidden-history button', err); }
                     await sleep(400);
                 }
+                // Reassert scroll position after Teams expands hidden blocks (it may jump to bottom)
+                scroller.scrollTop = 0;
+                await new Promise(r => requestAnimationFrame(r));
+                scroller.scrollTop = 0;
+                await sleep(300);
                 // reset stagnation tracking and continue so new content can render next loop
                 stagnantPasses = 0;
                 prevHeight = -1;
