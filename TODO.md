@@ -37,12 +37,12 @@
 - [ ] Display elapsed time in status area (skip remaining estimate)
 - [ ] Prefill `stopAt` input with last-used value
 - [ ] Provide inline validation/error banner pattern
+- [ ] Update extension badge with parsed-message counter during exports
 
 ## Future Enhancements
 - [ ] Plan incremental exports (persist last timestamp, diff collection)
 - [ ] Add participant filtering workflow
 - [ ] Design summary sheet/report for export analytics
-- [ ] Explore in-place editing/marking of parsed messages prior to export
 
 ## Telemetry (Future)
 - [ ] Specify schema for session stats & environment diagnostics
