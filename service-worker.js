@@ -148,8 +148,10 @@ function toHTML(rows, meta = {}) {
     .atts{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; margin-top:8px}
     .att, .att-img{border:1px solid var(--border); border-radius:10px; padding:8px; background:#fff}
     .att a{word-break:break-all; text-decoration:none}
+    .att-meta{margin-top:6px; font-size:12px; color:#6b7280}
     .att-img{padding:0; overflow:hidden}
     .att-img img{display:block; width:100%; height:auto; max-height:340px; object-fit:contain; background:#fff}
+    .att-img .att-meta{padding:8px}
     .reactions{margin-top:6px; font-size:12px; color:#374151}
     .divider{position:relative; text-align:center; margin:18px 0}
     .divider:before, .divider:after{content:""; position:absolute; top:50%; width:42%; height:1px; background:var(--border)}
@@ -188,13 +190,20 @@ function toHTML(rows, meta = {}) {
     });
 
     const attHtml = filteredAtts.map(a => {
+      const metaBits = [];
+      if (a.type) metaBits.push(escapeHtml(a.type));
+      if (a.size) metaBits.push(escapeHtml(a.size));
+      if (a.owner) metaBits.push(escapeHtml(a.owner));
+      if (!metaBits.length && a.metaText) metaBits.push(escapeHtml(a.metaText));
+      const metaHtml = metaBits.length ? `<div class="att-meta">${metaBits.join(' • ')}</div>` : "";
+
       if (isImg(a.href)) {
         return `<div class="att-img"><a href="${a.href}" target="_blank" rel="noopener">
-          <img src="${a.href}" alt="${(a.label || "image").replace(/"/g, "&quot;")}"/>
-        </a></div>`;
+          <img src="${a.href}" alt="${escapeHtml(a.label || "image")}"/>
+        </a>${metaHtml}</div>`;
       }
-      const label = (a.label || a.href || "attachment").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      return `<div class="att"><a href="${a.href || "#"}" target="_blank" rel="noopener">${label}</a></div>`;
+      const label = escapeHtml(a.label || a.href || "attachment");
+      return `<div class="att"><a href="${a.href || "#"}" target="_blank" rel="noopener">${label}</a>${metaHtml}</div>`;
     }).join("");
 
     const reply = m.replyTo

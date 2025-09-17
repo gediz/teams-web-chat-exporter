@@ -154,82 +154,138 @@ function extractReactions(item) {
 // Attachments (robust)
 // --- replace extractAttachments in content.js ---
 function extractAttachments(item, body) {
-    const out = [];
-    const seen = new Set();
-    const push = (href, label) => {
-        if (!href && !label) return;
-        const key = `${href || ''}@@${label || ''}`;
-        if (seen.has(key)) return;
-        seen.add(key);
-        out.push({ href, label });
+    const map = new Map();
+    const merge = (prev, next) => {
+        const merged = { ...prev };
+        if (!merged.href && next.href) merged.href = next.href;
+        if (!merged.label && next.label) merged.label = next.label;
+        for (const field of ['type', 'size', 'owner', 'metaText']) {
+            if (!merged[field] && next[field]) merged[field] = next[field];
+        }
+        return merged;
+    };
+    const guessTypeFromLabel = (label = '') => {
+        const m = label.trim().match(/\.([A-Za-z0-9]{1,6})$/);
+        return m ? m[1].toUpperCase() : null;
+    };
+    const collectMetaText = (node, label) => {
+        const parts = new Set();
+        const add = (val) => {
+            if (!val || typeof val !== 'string') return;
+            const trimmed = val.trim();
+            if (!trimmed) return;
+            parts.add(trimmed);
+        };
+        if (node) {
+            add(node.getAttribute?.('aria-label'));
+            add(node.getAttribute?.('title'));
+            const txt = node.textContent?.trim();
+            if (txt && txt !== label?.trim()) add(txt);
+        }
+        if (!parts.size) return '';
+        return Array.from(parts).join(' • ').replace(/\s+/g, ' ').trim();
+    };
+    const inferOwner = (text = '') => {
+        const match = text.match(/(?:Shared by|Uploaded by|Sent by|From|Owner)\s*:?\s*([^•]+)/i);
+        return match ? match[1].trim() : null;
+    };
+    const inferSize = (text = '') => {
+        const match = text.match(/\b\d+(?:[.,]\d+)?\s*(?:bytes?|KB|MB|GB|TB)\b/i);
+        return match ? match[0].replace(',', '.').trim() : null;
+    };
+    const inferType = (label, text) => {
+        return guessTypeFromLabel(label) || (text ? (text.match(/\b(PDF|DOCX|XLSX|PPTX|TXT|PNG|JPE?G|GIF|ZIP|RAR|CSV|MP4|MP3)\b/i)?.[0]?.toUpperCase() || null) : null);
+    };
+    const push = (sourceNode, data = {}) => {
+        const att = { ...data };
+        if (!att.href && sourceNode?.href) att.href = sourceNode.href;
+        if (!att.label) {
+            const ariaLabel = sourceNode?.getAttribute?.('aria-label');
+            if (ariaLabel) att.label = ariaLabel.split(/\n+/)[0].trim();
+        }
+        if (!att.label && sourceNode?.getAttribute?.('title')) {
+            att.label = sourceNode.getAttribute('title').split(/\n+/)[0].trim();
+        }
+        if (!att.label && sourceNode?.textContent) {
+            const text = sourceNode.textContent.trim();
+            if (text) att.label = text.split(/\n+/)[0].trim();
+        }
+        if (!att.href && !att.label) return;
+
+        const metaText = collectMetaText(sourceNode, att.label);
+        if (metaText) att.metaText = metaText;
+        const type = inferType(att.label || '', metaText);
+        if (type) att.type = type;
+        const size = inferSize(metaText);
+        if (size) att.size = size;
+        const owner = inferOwner(metaText);
+        if (owner) att.owner = owner;
+
+        const key = `${att.href || ''}@@${att.label || ''}`;
+        const prev = map.get(key);
+        map.set(key, prev ? merge(prev, att) : att);
     };
     const parseTitle = (t) => {
         if (!t) return null;
         const parts = t.split(/\n+/).map(s => s.trim()).filter(Boolean);
-        // Common case: "filename.ext\nhttps://sharepoint/..." (or OneDrive)
         if (parts.length >= 2 && /^https?:\/\//i.test(parts[1])) {
-            return { label: parts[0], href: parts[1] };
+            return { label: parts[0], href: parts[1], metaText: parts.slice(2).join(' • ') };
         }
-        // Fallback: extract first URL and use the remainder as label
         const m = t.match(/https?:\/\/\S+/);
         if (m) {
             const url = m[0];
             const label = (parts[0] && parts[0] !== url) ? parts[0] : url;
-            return { label, href: url };
+            return { label, href: url, metaText: parts.slice(1).join(' • ') };
         }
         return null;
     };
 
-    // Collect likely roots
     const roots = [];
     const aria = body?.getAttribute('aria-labelledby') || '';
     const attId = aria.split(/\s+/).find(s => s.startsWith('attachments-'));
     if (attId) {
         const el = document.getElementById(attId);
-        if (el) roots.push(el); // explicit attachments container (covers attachment-only posts)
+        if (el) roots.push(el);
     }
-    // Standard containers seen in your snippets
     ['[data-tid="file-attachment-grid"]', '[data-tid="file-preview-root"]', '[data-tid="attachments"]'].forEach(sel => {
         const el = body && body.querySelector(sel);
         if (el && !roots.includes(el)) roots.push(el);
     });
 
-    // 1) File chiclets / tiles (title or aria-label contains "filename\nURL")
     for (const root of roots) {
-        // Chiclet role
         root.querySelectorAll('[data-testid="file-attachment"], [data-tid^="file-chiclet-"]').forEach(el => {
             const t = el.getAttribute('title') || el.getAttribute('aria-label') || '';
             const parsed = parseTitle(t);
-            if (parsed) push(parsed.href, parsed.label);
-            // Nested anchor fallback
-            el.querySelectorAll('a').forEach(a => push(a.href, a.innerText || a.getAttribute('aria-label') || a.title || a.href));
+            if (parsed) push(el, parsed);
+            el.querySelectorAll('a[href^="http"]').forEach(a => {
+                const label = a.innerText || a.getAttribute('aria-label') || a.title || a.href;
+                push(a, { href: a.href, label });
+            });
         });
-        // Rich preview button (title has filename + URL)
         root.querySelectorAll('button[data-testid="rich-file-preview-button"][title]').forEach(btn => {
             const parsed = parseTitle(btn.getAttribute('title'));
-            if (parsed) push(parsed.href, parsed.label);
+            if (parsed) push(btn, parsed);
         });
-        // Generic anchors under the grid (belt-and-suspenders)
         root.querySelectorAll('a[href^="http"]').forEach(a => {
-            push(a.href, a.innerText || a.getAttribute('aria-label') || a.title || a.href);
+            const label = a.innerText || a.getAttribute('aria-label') || a.title || a.href;
+            push(a, { href: a.href, label });
         });
     }
 
-    // 2) Inline links inside the message content (e.g., OneDrive "safelinks")
     const contentRoot = body && (body.querySelector('[id^="content-"]') || body.querySelector('[data-tid="message-content"]'));
     if (contentRoot) {
         contentRoot.querySelectorAll('a[data-testid="atp-safelink"], a[href^="http"]').forEach(a => {
-            push(a.href, a.innerText || a.getAttribute('aria-label') || a.title || a.href);
+            push(a, { href: a.href, label: a.innerText || a.getAttribute('aria-label') || a.title || a.href });
         });
-        // 3) Posted images in the content
         contentRoot.querySelectorAll('[data-testid="lazy-image-wrapper"] img').forEach(img => {
-            // Avoid tiny UI icons by requiring an http(s) src
             const src = img.getAttribute('src') || '';
-            if (/^https?:\/\//i.test(src)) push(src, img.getAttribute('alt') || 'image');
+            if (/^https?:\/\//i.test(src)) {
+                push(img, { href: src, label: img.getAttribute('alt') || 'image' });
+            }
         });
     }
 
-    return out;
+    return Array.from(map.values());
 }
 
 // Helpers -------------------------------------------------------
