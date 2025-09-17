@@ -6,10 +6,11 @@
 - [x] Prevent premature pagination exit when heights stabilize
 
 ## Scroll Loading Enhancements
-- [ ] Trigger Teams' "load older messages" UI elements during scroll
-- [ ] Persist `orderCtx.lastAuthor` between collection passes
-- [ ] Observe header sentinel with `IntersectionObserver` to detect true top
-- [ ] Add hard timeout/backoff when oldest message id stops changing
+- [x] Trigger Teams' "load older messages" UI elements during scroll
+- [x] Persist `orderCtx.lastAuthor` between collection passes
+- [x] Observe header sentinel with `IntersectionObserver` to detect true top
+- [x] Add hard timeout/backoff when oldest message id stops changing
+- [ ] Ensure post-scroll hydration so empty bubbles/reactions are re-read before export
 
 ## HTML Export Improvements
 - [ ] Render locale-aware absolute timestamps with readable relative labels
