@@ -16,7 +16,7 @@
 - [x] Render locale-aware absolute timestamps with readable relative labels
 - [x] Display replies as emphasized blockquotes with metadata
 - [x] Surface attachment metadata (type, size, owner when available)
-- [ ] Add compact mode toggle (show/hide reactions & attachments)
+- [x] Add compact mode toggle (show/hide reactions & attachments)
 
 ## Other Export Types
 - [ ] Prepend NDJSON header record containing export metadata
