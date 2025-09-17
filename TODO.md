@@ -1,7 +1,7 @@
 # Teams Exporter TODO
 
 ## Critical Issues
-- [ ] Remove all dry-run related code (popup, background, content script)
+- [x] Remove all dry-run related code (popup, background, content script)
 - [ ] Preserve author carry-over across scroll passes
 - [ ] Prevent premature pagination exit when heights stabilize
 
