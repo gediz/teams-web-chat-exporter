@@ -142,7 +142,9 @@ function toHTML(rows, meta = {}) {
     .hdr{color:var(--muted); font-size:12px; margin-bottom:6px}
     .hdr .rel{margin-left:6px; font-style:italic}
     .hdr .edited{font-style:italic}
-    .reply{background:#f8fafc; border-left:3px solid #e5e7eb; padding:6px 8px; border-radius:8px; margin:6px 0; font-size:13px; color:#374151}
+    .reply{background:#f8fafc; border-left:3px solid #d1d5db; padding:8px 10px; border-radius:8px; margin:8px 0; font-size:13px; color:#374151}
+    .reply .reply-meta{display:flex; flex-wrap:wrap; gap:6px; font-size:12px; color:#6b7280; margin-bottom:4px}
+    .reply blockquote{margin:0; padding:0; border:none; color:#1f2937}
     .atts{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; margin-top:8px}
     .att, .att-img{border:1px solid var(--border); border-radius:10px; padding:8px; background:#fff}
     .att a{word-break:break-all; text-decoration:none}
@@ -196,7 +198,10 @@ function toHTML(rows, meta = {}) {
     }).join("");
 
     const reply = m.replyTo
-      ? `<div class="reply">↩︎ <b>${m.replyTo.author || "Unknown"}</b>${m.replyTo.timestamp ? ` — <i>${m.replyTo.timestamp}</i>` : ""}<br>${(m.replyTo.text || "").replace(/\n/g, "<br/>")}</div>`
+      ? `<div class="reply">`
+        + `<div class="reply-meta">↩︎ <strong>${escapeHtml(m.replyTo.author || "Unknown")}</strong>${m.replyTo.timestamp ? `<span>• ${escapeHtml(m.replyTo.timestamp)}</span>` : ""}</div>`
+        + `<blockquote>${autolink(m.replyTo.text || "").replace(/\n/g, "<br/>") || "<i>(no preview)</i>"}</blockquote>`
+        + `</div>`
       : "";
 
     const hasImg = m.avatar && m.avatar.startsWith("data:");
