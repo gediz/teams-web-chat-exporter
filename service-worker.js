@@ -116,8 +116,19 @@ function toHTML(rows, meta = {}) {
     while ((m = urlRe.exec(plain)) !== null) set.add(m[0]);
     return set;
   };
-  const autolink = (plain) =>
-    (plain || "").replace(urlRe, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+  const escapeHtml = (str = "") =>
+    str.replace(/&/g, "&amp;")
+       .replace(/</g, "&lt;")
+       .replace(/>/g, "&gt;")
+       .replace(/"/g, "&quot;")
+       .replace(/'/g, "&#39;");
+  const autolink = (plain) => {
+    const safe = escapeHtml(plain || "");
+    return safe.replace(urlRe, (u) => {
+      const safeUrl = escapeHtml(u);
+      return `<a href="${safeUrl}" target="_blank" rel="noopener">${safeUrl}</a>`;
+    });
+  };
 
   const style = `<style>
     :root { --muted:#6b7280; --border:#e5e7eb; --bg:#ffffff; --chip:#f3f4f6; }
