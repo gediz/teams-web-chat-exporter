@@ -135,6 +135,9 @@ function toHTML(rows, meta = {}) {
     body{font:14px system-ui, -apple-system, Segoe UI, Roboto; background:#fff; color:#111; padding:20px}
     h1{margin:0 0 10px 0}
     .meta{color:var(--muted); margin:0 0 12px 0}
+    .toolbar{margin-bottom:12px; display:flex; gap:8px; align-items:center}
+    .toolbar button{border:1px solid var(--border); background:#f9fafb; color:#111; padding:6px 10px; border-radius:6px; cursor:pointer; font:13px system-ui}
+    .toolbar button:hover{background:#eef2f7}
     .msg{display:flex; gap:10px; margin:12px 0; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--bg)}
     .avt{flex:0 0 36px; width:36px; height:36px; border-radius:50%; background:#eef2f7; overflow:hidden; display:flex; align-items:center; justify-content:center; font-weight:600; color:#334155}
     .avt img{width:36px; height:36px; border-radius:50%; display:block}
@@ -146,7 +149,7 @@ function toHTML(rows, meta = {}) {
     .reply .reply-meta{display:flex; flex-wrap:wrap; gap:6px; font-size:12px; color:#6b7280; margin-bottom:4px}
     .reply blockquote{margin:0; padding:0; border:none; color:#1f2937}
     .atts{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; margin-top:8px}
-    .att, .att-img{border:1px solid var(--border); border-radius:10px; padding:8px; background:#fff}
+    .att, .att-img{border:1px solid var(--border); border-radius:10px; padding:8px; background:#fff; transition:max-height .2s ease, opacity .2s ease}
     .att a{word-break:break-all; text-decoration:none}
     .att-meta{margin-top:6px; font-size:12px; color:#6b7280}
     .att-img{padding:0; overflow:hidden}
@@ -157,10 +160,21 @@ function toHTML(rows, meta = {}) {
     .divider:before, .divider:after{content:""; position:absolute; top:50%; width:42%; height:1px; background:var(--border)}
     .divider:before{left:0} .divider:after{right:0}
     .divider span{display:inline-block; padding:0 10px; color:var(--muted); background:#fff; font-weight:600}
+    .compact .msg{padding:10px}
+    .compact .reactions{display:none}
+    .compact .reply{display:none}
+    .compact .att{max-height:0; opacity:0; pointer-events:none; padding:0; border:none; margin:0}
+    .compact .att-img{max-height:0; opacity:0; pointer-events:none; padding:0; border:none; margin:0}
+    .compact .atts{gap:0; margin-top:0}
+    .compact .avt{display:none}
+    .compact .msg{margin:8px 0; border-color:rgba(0,0,0,0.08)}
   </style>`;
 
   const head = `<h1>${meta.title || "Teams Chat Export"}</h1>
-    <p class="meta"><b>Messages:</b> ${rows.length}${meta.timeRange ? ` &nbsp; <b>Range:</b> ${meta.timeRange}` : ""}</p><hr/>`;
+    <p class="meta"><b>Messages:</b> ${rows.length}${meta.timeRange ? ` &nbsp; <b>Range:</b> ${meta.timeRange}` : ""}</p>
+    <div class="toolbar">
+      <button type="button" data-toggle-compact>Toggle compact view</button>
+    </div><hr/>`;
 
   const body = (rows || []).map(m => {
     // System/date rows
@@ -236,7 +250,31 @@ function toHTML(rows, meta = {}) {
     </div>`;
   }).join("");
 
-  return `<!doctype html><meta charset="utf-8">${style}${head}${body}`;
+  const script = `<script>(function(){
+    const toggleBtn = document.querySelector('[data-toggle-compact]');
+    if (!toggleBtn) return;
+    const root = document.body;
+    const key = 'teamsExporterCompact';
+    const apply = (state) => {
+      if (state) {
+        root.classList.add('compact');
+        toggleBtn.textContent = 'Switch to expanded view';
+      } else {
+        root.classList.remove('compact');
+        toggleBtn.textContent = 'Switch to compact view';
+      }
+    };
+    const stored = localStorage.getItem(key);
+    let compact = stored === '1';
+    apply(compact);
+    toggleBtn.addEventListener('click', () => {
+      compact = !compact;
+      apply(compact);
+      try { localStorage.setItem(key, compact ? '1' : '0'); } catch (_) {}
+    });
+  })();</script>`;
+
+  return `<!doctype html><meta charset="utf-8">${style}${head}${body}${script}`;
 }
 
 
