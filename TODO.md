@@ -28,6 +28,7 @@
 - [ ] Wire "Include threaded replies" toggle to export pipeline
 - [ ] Make HUD overlay optional via toggle
 - [ ] Deduplicate popup `buildAndDownload` logic
+- [ ] Move export orchestration from popup to service worker so downloads complete even if popup closes
 
 ## Roadmap Clarifications
 - [ ] Specify approach for Teams channel export support (selectors, metadata fields, UI toggle)
