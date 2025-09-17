@@ -235,6 +235,55 @@ function extractAttachments(item, body) {
 // Helpers -------------------------------------------------------
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+const cssEscape = (s) => {
+    if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(s);
+    return (s || '').toString().replace(/([\0-\x1f\x7f-\x9f!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1');
+};
+
+async function hydrateSparseMessages(agg, opts) {
+    const sparseIds = [];
+    for (const [id, entry] of agg.entries()) {
+        const msg = entry.message;
+        if (!msg || msg.system) continue;
+        const needsText = !msg.text || !msg.text.trim();
+        if (needsText) {
+            sparseIds.push(id);
+            continue;
+        }
+        if (opts.includeReactions && Array.isArray(msg.reactions) && msg.reactions.length === 0) {
+            const node = document.querySelector(`[data-mid="${cssEscape(id)}"]`);
+            if (node && node.querySelector('[data-tid="diverse-reaction-pill-button"]')) {
+                sparseIds.push(id);
+            }
+        }
+    }
+    if (!sparseIds.length) return;
+
+    await sleep(400);
+
+    for (const id of sparseIds) {
+        const item = document.querySelector(`[data-mid="${cssEscape(id)}"]`)?.closest('[data-tid="chat-pane-item"]');
+        if (!item) continue;
+
+        const existing = agg.get(id);
+        if (!existing) continue;
+
+        const lastAuthorRef = { value: existing.message.author || '' };
+        const ts = existing.message.timestamp ? Date.parse(existing.message.timestamp) : undefined;
+        const tempOrderCtx = {
+            lastTimeMs: Number.isNaN(ts) ? undefined : ts,
+            yearHint: Number.isNaN(ts) ? undefined : new Date(ts).getFullYear(),
+            seqBase: Date.now(),
+            seq: 0,
+            lastAuthor: existing.message.author || ''
+        };
+        const reExtracted = await extractOne(item, { includeSystem: opts.includeSystem, includeReactions: opts.includeReactions }, lastAuthorRef, tempOrderCtx);
+        if (reExtracted?.message) {
+            agg.set(id, { message: { ...existing.message, ...reExtracted.message }, orderKey: existing.orderKey });
+        }
+    }
+}
+
 function parseDateDividerText(txt, yearHint) {
     // "7 September" → try add current year; leave null if unparsable
     const m = txt.match(/^(\d{1,2})\s+([A-Za-z]+)(?:\s+(\d{4}))?$/);
@@ -441,6 +490,8 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions 
     } finally {
         if (observer && headerSentinel) observer.disconnect();
     }
+
+    await hydrateSparseMessages(agg, { includeSystem, includeReactions });
 
     // 2) Build sorted list:
     const entries = Array.from(agg.values());

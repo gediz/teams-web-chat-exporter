@@ -10,7 +10,7 @@
 - [x] Persist `orderCtx.lastAuthor` between collection passes
 - [x] Observe header sentinel with `IntersectionObserver` to detect true top
 - [x] Add hard timeout/backoff when oldest message id stops changing
-- [ ] Ensure post-scroll hydration so empty bubbles/reactions are re-read before export
+- [x] Ensure post-scroll hydration so empty bubbles/reactions are re-read before export
 
 ## HTML Export Improvements
 - [ ] Render locale-aware absolute timestamps with readable relative labels
