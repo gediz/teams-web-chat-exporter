@@ -361,6 +361,25 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions 
             const oldestTime = $('time[datetime]', oldestNode)?.getAttribute('datetime') || null;
             const oldestId = $('[data-tid="chat-pane-message"]', oldestNode)?.getAttribute('data-mid') || oldestNode?.id || null;
 
+            // Expand any collapsed sections that block older history
+            const hiddenButtons = Array.from(document.querySelectorAll('[data-tid="show-hidden-chat-history-btn"]'))
+                .filter(btn => btn && !btn.disabled && btn.offsetParent !== null);
+            if (hiddenButtons.length) {
+                console.debug('[Teams Exporter] expanding hidden history', { count: hiddenButtons.length });
+                for (const btn of hiddenButtons) {
+                    try { btn.click(); }
+                    catch (err) { console.warn('[Teams Exporter] failed to click hidden-history button', err); }
+                    await sleep(400);
+                }
+                // reset stagnation tracking and continue so new content can render next loop
+                stagnantPasses = 0;
+                prevHeight = -1;
+                lastCount = -1;
+                lastOldestId = null;
+                await sleep(600);
+                continue;
+            }
+
             if (passes % 4 === 0) {
                 chrome.runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'scroll', passes, newHeight, messagesVisible: newCount, aggregated: agg.size, oldestTime, oldestId } }).catch(() => { });
                 hud(`scroll pass ${passes} • height ${newHeight} • seen ${agg.size}`);
