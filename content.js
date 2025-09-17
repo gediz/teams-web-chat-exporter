@@ -352,6 +352,13 @@ async function hydrateSparseMessages(agg, opts = {}) {
         pending = nextPending;
         attempts++;
     }
+
+    if (pending.length) {
+        try {
+            console.debug('[Teams Exporter] hydration pending after retries', pending.map(p => p.id));
+        } catch (_) {
+        }
+    }
 }
 
 function parseDateDividerText(txt, yearHint) {
