@@ -343,17 +343,41 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions 
         const nodes = $$('[data-tid="chat-pane-item"]');
         const newCount = nodes.length;
         const newHeight = scroller.scrollHeight;
+        const oldestNode = nodes[0];
+        const oldestTime = $('time[datetime]', oldestNode)?.getAttribute('datetime') || null;
+        const oldestId = $('[data-tid="chat-pane-message"]', oldestNode)?.getAttribute('data-mid') || oldestNode?.id || null;
 
         if (passes % 4 === 0) {
-            chrome.runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'scroll', passes, newHeight, messagesVisible: newCount, aggregated: agg.size } }).catch(() => { });
+            chrome.runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'scroll', passes, newHeight, messagesVisible: newCount, aggregated: agg.size, oldestTime, oldestId } }).catch(() => { });
             hud(`scroll pass ${passes} • height ${newHeight} • seen ${agg.size}`);
+            console.debug('[Teams Exporter] scroll pass', {
+                passes,
+                newHeight,
+                newCount,
+                aggregated: agg.size,
+                oldestTime,
+                oldestId,
+                reason: 'progress report'
+            });
         }
 
         if (stopAtISO) {
             const oldestVisible = $('time[datetime]', nodes[0])?.getAttribute('datetime');
-            if (oldestVisible && oldestVisible <= stopAtISO) break;
+            if (oldestVisible && oldestVisible <= stopAtISO) {
+                console.debug('[Teams Exporter] breaking scroll: stopAt reached', { oldestVisible, stopAtISO });
+                break;
+            }
         }
-        if (newHeight === prevHeight && newCount === lastCount) break;
+        if (newHeight === prevHeight && newCount === lastCount) {
+            console.debug('[Teams Exporter] breaking scroll: height/count stabilized', {
+                passes,
+                newHeight,
+                newCount,
+                oldestTime,
+                oldestId
+            });
+            break;
+        }
         prevHeight = newHeight; lastCount = newCount;
     }
 
