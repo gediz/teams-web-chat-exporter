@@ -2,7 +2,7 @@
 
 ## Critical Issues
 - [x] Remove all dry-run related code (popup, background, content script)
-- [ ] Preserve author carry-over across scroll passes
+- [x] Preserve author carry-over across scroll passes
 - [ ] Prevent premature pagination exit when heights stabilize
 
 ## Scroll Loading Enhancements

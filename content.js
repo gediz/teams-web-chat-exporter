@@ -268,8 +268,11 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
     const tms = ts ? Date.parse(ts) : NaN;
     if (!Number.isNaN(tms)) orderCtx.lastTimeMs = tms, orderCtx.yearHint = new Date(tms).getFullYear();
 
-    const author = resolveAuthor(body, lastAuthorRef.value);
-    if (author) lastAuthorRef.value = author;
+    const author = resolveAuthor(body, lastAuthorRef.value || orderCtx.lastAuthor || '');
+    if (author) {
+        lastAuthorRef.value = author;
+        orderCtx.lastAuthor = author;
+    }
 
     const contentEl = $('[id^="content-"]', body) || $('[data-tid="message-content"]', body) || body;
     const cleanRoot = stripQuotedPreview(contentEl);
@@ -305,6 +308,9 @@ async function collectCurrentVisible(agg, opts, orderCtx) {
         if (!message.system && message.timestamp) {
             const tms = Date.parse(message.timestamp);
             if (!Number.isNaN(tms)) { orderCtx.lastTimeMs = tms; orderCtx.yearHint = new Date(tms).getFullYear(); }
+        }
+        if (!message.system && message.author) {
+            orderCtx.lastAuthor = message.author;
         }
     }
 }
