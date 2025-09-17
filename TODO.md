@@ -13,7 +13,7 @@
 - [x] Ensure post-scroll hydration so empty bubbles/reactions are re-read before export
 
 ## HTML Export Improvements
-- [ ] Render locale-aware absolute timestamps with readable relative labels
+- [x] Render locale-aware absolute timestamps with readable relative labels
 - [ ] Display replies as emphasized blockquotes with metadata
 - [ ] Surface attachment metadata (type, size, owner when available)
 - [ ] Add compact mode toggle (show/hide reactions & attachments)
