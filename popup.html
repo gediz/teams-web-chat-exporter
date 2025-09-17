@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <style>
+        body {
+            font: 14px/1.4 system-ui, sans-serif;
+            min-width: 320px;
+            padding: 12px;
+        }
+
+        button {
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            cursor: pointer;
+        }
+
+        .row {
+            margin: 8px 0;
+        }
+
+        label {
+            display: block;
+            margin: 6px 0 2px;
+        }
+
+        input[type="datetime-local"] {
+            width: 100%;
+        }
+
+        textarea {
+            width: 100%;
+            height: 80px;
+        }
+
+        small {
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+    <h3>Teams Chat Exporter</h3>
+    <div class="row">
+        <label>Stop at (oldest date to load)</label>
+        <input id="stopAt" type="datetime-local" />
+        <small>Leave empty to load all visible history.</small>
+    </div>
+    <div class="row">
+        <label>Export format</label>
+        <select id="format">
+            <option value="json">JSON</option>
+            <option value="csv">CSV</option>
+            <option value="md">Markdown</option>
+            <option value="html">HTML</option>
+            <option value="ndjson">NDJSON</option>
+        </select>
+
+    </div>
+    <div class="row">
+        <label><input id="includeReplies" type="checkbox" checked /> Include threaded replies</label>
+        <label><input id="includeReactions" type="checkbox" checked /> Include reactions</label>
+        <label><input id="includeSystem" type="checkbox" /> Include system messages</label>
+        <label><input id="embedAvatars" type="checkbox"/> Embed avatars (base64)</label>
+    </div>
+    <div class="row">
+        <button id="run">Export current chat</button>
+    </div>
+
+    <div class="row"><small id="status"></small></div>
+
+    <script type="module" src="popup.js"></script>
+</body>
+
+</html>
