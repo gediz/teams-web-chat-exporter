@@ -1,0 +1,41 @@
+{
+    "manifest_version": 3,
+    "name": "Teams Chat Exporter",
+    "version": "0.1.0",
+    "description": "Export chat from Microsoft Teams (web).",
+    "action": {
+        "default_popup": "popup.html"
+    },
+    "permissions": [
+        "scripting",
+        "activeTab",
+        "downloads",
+        "storage"
+    ],
+    "host_permissions": [
+        "https://teams.microsoft.com/*",
+        "https://*.teams.microsoft.com/*",
+        "https://teams.cloud.microsoft/*",
+        "https://*.cloud.microsoft/*",
+        "https://*.microsoft.com/*"
+    ],
+    "background": {
+        "service_worker": "service-worker.js"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://teams.microsoft.com/*",
+                "https://*.teams.microsoft.com/*",
+                "https://teams.cloud.microsoft/*",
+                "https://*.cloud.microsoft/*",
+                "https://*.microsoft.com/*"
+            ],
+            "all_frames": true,
+            "js": [
+                "content.js"
+            ],
+            "run_at": "document_idle"
+        }
+    ]
+}
