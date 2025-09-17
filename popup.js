@@ -45,24 +45,6 @@ async function ensureContentScript(tabId) {
     }
 }
 
-async function buildAndDownload(res, format) {
-    if (!res || res.error) throw new Error(res?.error || "Scrape failed.");
-    setStatus(`Collected ${res.messages.length} messages. Building ${format.toUpperCase()}…`);
-
-    // Ensure background is alive
-    await pingSW();
-
-    // Ask SW to build & download; add a friendly timeout
-    const payload = await Promise.race([
-        chrome.runtime.sendMessage({ type: "BUILD_AND_DOWNLOAD", data: { messages: res.messages, meta: res.meta, format, saveAs: true } }),
-        new Promise((_, rej) => setTimeout(() => rej(new Error("Background did not respond (BUILD_AND_DOWNLOAD timeout).")), 15000))
-    ]);
-
-    if (!payload || payload.error) throw new Error(payload?.error || "Failed to build & download.");
-    setStatus(`Exported ${payload.filename}`);
-}
-
-
 $("#run").addEventListener("click", async () => {
     try {
         setStatus("Preparing…");
@@ -95,20 +77,6 @@ $("#run").addEventListener("click", async () => {
 
         if (!payload || payload.error) throw new Error(payload?.error || "Failed to build & download.");
         setStatus(`Exported ${payload.filename}`);
-    } catch (e) {
-        setStatus(e.message);
-    }
-});
-
-$("#dryrun").addEventListener("click", async () => {
-    try {
-        setStatus("Dry run: extracting visible messages…");
-        const tab = await getActiveTeamsTab();
-        await ensureContentScript(tab.id); // 👈 critical
-
-        const format = $("#format").value;
-        const res = await chrome.tabs.sendMessage(tab.id, { type: "SCRAPE_TEAMS_DRYRUN" });
-        await buildAndDownload(res, format);
     } catch (e) {
         setStatus(e.message);
     }
