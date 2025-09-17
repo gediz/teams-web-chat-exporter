@@ -329,56 +329,93 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions 
     await collectCurrentVisible(agg, { includeSystem, includeReactions }, orderCtx);
 
     // 1) Scroll to top repeatedly to load older history, collecting each pass
-    let prevHeight = -1, lastCount = -1, passes = 0;
-    const maxPasses = 150, dwellMs = 700;
+    let prevHeight = -1;
+    let lastCount = -1;
+    let passes = 0;
+    let stagnantPasses = 0;
+    let lastOldestId = null;
+    const dwellMs = 700;
 
-    while (passes < maxPasses) {
-        passes++;
-        scroller.scrollTop = 0;
-        await new Promise(r => requestAnimationFrame(r));
-        await sleep(dwellMs);
+    const headerSentinel = document.querySelector('[data-tid="message-pane-header"]');
+    let topReached = false;
+    const observer = headerSentinel ? new IntersectionObserver((entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting) topReached = true;
+    }, { root: scroller, threshold: 0.01 }) : null;
+    if (observer && headerSentinel) observer.observe(headerSentinel);
 
-        await collectCurrentVisible(agg, { includeSystem, includeReactions }, orderCtx);
+    try {
+        while (true) {
+            passes++;
+            scroller.scrollTop = 0;
+            await new Promise(r => requestAnimationFrame(r));
+            await sleep(dwellMs);
 
-        const nodes = $$('[data-tid="chat-pane-item"]');
-        const newCount = nodes.length;
-        const newHeight = scroller.scrollHeight;
-        const oldestNode = nodes[0];
-        const oldestTime = $('time[datetime]', oldestNode)?.getAttribute('datetime') || null;
-        const oldestId = $('[data-tid="chat-pane-message"]', oldestNode)?.getAttribute('data-mid') || oldestNode?.id || null;
+            await collectCurrentVisible(agg, { includeSystem, includeReactions }, orderCtx);
 
-        if (passes % 4 === 0) {
-            chrome.runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'scroll', passes, newHeight, messagesVisible: newCount, aggregated: agg.size, oldestTime, oldestId } }).catch(() => { });
-            hud(`scroll pass ${passes} • height ${newHeight} • seen ${agg.size}`);
-            console.debug('[Teams Exporter] scroll pass', {
-                passes,
-                newHeight,
-                newCount,
-                aggregated: agg.size,
-                oldestTime,
-                oldestId,
-                reason: 'progress report'
-            });
-        }
+            const nodes = $$('[data-tid="chat-pane-item"]');
+            if (!nodes.length) break;
+            const newCount = nodes.length;
+            const newHeight = scroller.scrollHeight;
+            const oldestNode = nodes[0];
+            const oldestTime = $('time[datetime]', oldestNode)?.getAttribute('datetime') || null;
+            const oldestId = $('[data-tid="chat-pane-message"]', oldestNode)?.getAttribute('data-mid') || oldestNode?.id || null;
 
-        if (stopAtISO) {
-            const oldestVisible = $('time[datetime]', nodes[0])?.getAttribute('datetime');
-            if (oldestVisible && oldestVisible <= stopAtISO) {
-                console.debug('[Teams Exporter] breaking scroll: stopAt reached', { oldestVisible, stopAtISO });
+            if (passes % 4 === 0) {
+                chrome.runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'scroll', passes, newHeight, messagesVisible: newCount, aggregated: agg.size, oldestTime, oldestId } }).catch(() => { });
+                hud(`scroll pass ${passes} • height ${newHeight} • seen ${agg.size}`);
+                console.debug('[Teams Exporter] scroll pass', {
+                    passes,
+                    newHeight,
+                    newCount,
+                    aggregated: agg.size,
+                    oldestTime,
+                    oldestId,
+                    reason: 'progress report'
+                });
+            }
+
+            if (stopAtISO) {
+                const oldestVisible = $('time[datetime]', nodes[0])?.getAttribute('datetime');
+                if (oldestVisible && oldestVisible <= stopAtISO) {
+                    console.debug('[Teams Exporter] breaking scroll: stopAt reached', { oldestVisible, stopAtISO });
+                    break;
+                }
+            }
+
+            const heightUnchanged = newHeight === prevHeight;
+            const countUnchanged = newCount === lastCount;
+            const oldestUnchanged = oldestId && lastOldestId === oldestId;
+
+            if (heightUnchanged && countUnchanged) {
+                stagnantPasses++;
+                console.debug('[Teams Exporter] scroll metrics unchanged', { passes, stagnantPasses, newHeight, newCount });
+            } else if (oldestUnchanged) {
+                stagnantPasses++;
+                console.debug('[Teams Exporter] oldest id unchanged', { passes, stagnantPasses, oldestId });
+            } else {
+                stagnantPasses = 0;
+            }
+
+            if (oldestId && lastOldestId !== oldestId) {
+                lastOldestId = oldestId;
+            }
+
+            prevHeight = newHeight;
+            lastCount = newCount;
+
+            if (topReached && stagnantPasses >= 3) {
+                console.debug('[Teams Exporter] breaking scroll: header sentinel reached & stagnant', { passes, oldestId, stagnantPasses });
+                break;
+            }
+
+            if (!topReached && stagnantPasses >= 12) {
+                console.debug('[Teams Exporter] breaking scroll: stagnation threshold', { passes, oldestId, stagnantPasses });
                 break;
             }
         }
-        if (newHeight === prevHeight && newCount === lastCount) {
-            console.debug('[Teams Exporter] breaking scroll: height/count stabilized', {
-                passes,
-                newHeight,
-                newCount,
-                oldestTime,
-                oldestId
-            });
-            break;
-        }
-        prevHeight = newHeight; lastCount = newCount;
+    } finally {
+        if (observer && headerSentinel) observer.disconnect();
     }
 
     // 2) Build sorted list:
