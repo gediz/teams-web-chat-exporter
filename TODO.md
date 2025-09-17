@@ -3,7 +3,7 @@
 ## Critical Issues
 - [x] Remove all dry-run related code (popup, background, content script)
 - [x] Preserve author carry-over across scroll passes
-- [ ] Prevent premature pagination exit when heights stabilize
+- [x] Prevent premature pagination exit when heights stabilize
 
 ## Scroll Loading Enhancements
 - [ ] Trigger Teams' "load older messages" UI elements during scroll
