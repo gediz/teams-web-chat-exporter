@@ -30,16 +30,19 @@
 - [ ] Deduplicate popup `buildAndDownload` logic
 
 ## Roadmap Clarifications
-- [ ] Define requirements for channel (Teams) export support
-- [ ] Revisit incremental export scope
-- [ ] Evaluate participant filter feasibility
-- [ ] Outline summary sheet/report requirements
+- [ ] Specify approach for Teams channel export support (selectors, metadata fields, UI toggle)
 
 ## UX Polish
-- [ ] Disable Export button during runs and show spinner/progress indicator
-- [ ] Display elapsed time and estimated remaining time in status area
+- [ ] Disable Export button during runs and show spinner indicator
+- [ ] Display elapsed time in status area (skip remaining estimate)
 - [ ] Prefill `stopAt` input with last-used value
 - [ ] Provide inline validation/error banner pattern
+
+## Future Enhancements
+- [ ] Plan incremental exports (persist last timestamp, diff collection)
+- [ ] Add participant filtering workflow
+- [ ] Design summary sheet/report for export analytics
+- [ ] Explore in-place editing/marking of parsed messages prior to export
 
 ## Telemetry (Future)
 - [ ] Specify schema for session stats & environment diagnostics
