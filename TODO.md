@@ -15,7 +15,7 @@
 ## HTML Export Improvements
 - [x] Render locale-aware absolute timestamps with readable relative labels
 - [x] Display replies as emphasized blockquotes with metadata
-- [ ] Surface attachment metadata (type, size, owner when available)
+- [x] Surface attachment metadata (type, size, owner when available)
 - [ ] Add compact mode toggle (show/hide reactions & attachments)
 
 ## Other Export Types
