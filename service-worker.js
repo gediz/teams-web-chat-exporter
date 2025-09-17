@@ -84,6 +84,27 @@ function toHTML(rows, meta = {}) {
     if (isNaN(d)) return s;
     return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short", hour12: false }).format(d);
   };
+  const relFmt = typeof Intl !== "undefined" && Intl.RelativeTimeFormat ? new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }) : null;
+  const relLabel = (s) => {
+    if (!s || !relFmt) return "";
+    const d = new Date(s);
+    if (isNaN(d)) return "";
+    const diffMs = Date.now() - d.getTime();
+    const tense = diffMs >= 0 ? -1 : 1; // negative -> past
+    const absMs = Math.abs(diffMs);
+    const minute = 60 * 1000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+    const month = 30 * day;
+    const year = 365 * day;
+    const choose = (value, unit) => relFmt.format(value * tense, unit);
+    if (absMs < minute) return choose(Math.round(absMs / 1000) || 0, "second");
+    if (absMs < hour) return choose(Math.round(absMs / minute), "minute");
+    if (absMs < day) return choose(Math.round(absMs / hour), "hour");
+    if (absMs < month) return choose(Math.round(absMs / day), "day");
+    if (absMs < year) return choose(Math.round(absMs / month), "month");
+    return choose(Math.round(absMs / year), "year");
+  };
   const initials = (name="") => (name.trim().split(/\s+/).map(p=>p[0]).join("").slice(0,2) || "•");
 
   // --- NEW: URL helpers
@@ -108,6 +129,7 @@ function toHTML(rows, meta = {}) {
     .avt img{width:36px; height:36px; border-radius:50%; display:block}
     .main{flex:1}
     .hdr{color:var(--muted); font-size:12px; margin-bottom:6px}
+    .hdr .rel{margin-left:6px; font-style:italic}
     .hdr .edited{font-style:italic}
     .reply{background:#f8fafc; border-left:3px solid #e5e7eb; padding:6px 8px; border-radius:8px; margin:6px 0; font-size:13px; color:#374151}
     .atts{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; margin-top:8px}
@@ -170,7 +192,11 @@ function toHTML(rows, meta = {}) {
     const avatarEl = hasImg ? `<img src="${m.avatar}" alt="avatar"/>` : `${initials(m.author || "")}`;
 
     const hdrTs = fmtTs(m.timestamp);
-    const hdr = `${m.author || "Unknown"} — ${hdrTs ? `<span title="${m.timestamp}">${hdrTs}</span>` : (m.timestamp || "")}${
+    const relTs = relLabel(m.timestamp);
+    const timeHtml = hdrTs
+      ? `<span title="${m.timestamp}">${hdrTs}</span>${relTs ? `<span class="rel">(${relTs})</span>` : ""}`
+      : (m.timestamp || "");
+    const hdr = `${m.author || "Unknown"} — ${timeHtml}${
       m.edited ? ` <span class="edited">• edited</span>` : ""
     }${reactions ? ` — ${reactions}` : ""}`;
 
