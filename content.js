@@ -240,47 +240,117 @@ const cssEscape = (s) => {
     return (s || '').toString().replace(/([\0-\x1f\x7f-\x9f!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1');
 };
 
-async function hydrateSparseMessages(agg, opts) {
-    const sparseIds = [];
+const normalizeText = (s) => (s ?? '').replace(/\u00a0/g, ' ');
+const isPlaceholderText = (s) => {
+    const clean = normalizeText(s).trim();
+    if (!clean) return true;
+    return /^loading(?:\.\.\.?|…)?$/i.test(clean);
+};
+const textScore = (s) => normalizeText(s).trim().length;
+const preferText = (prev, next) => {
+    if (next == null) return prev;
+    const nextPlaceholder = isPlaceholderText(next);
+    const prevPlaceholder = isPlaceholderText(prev);
+    if (nextPlaceholder && !prevPlaceholder) return prev;
+    if (!nextPlaceholder && prevPlaceholder) return next;
+    if (nextPlaceholder && prevPlaceholder) return prev;
+    const prevLen = textScore(prev);
+    const nextLen = textScore(next);
+    return nextLen >= prevLen ? next : prev;
+};
+
+const findPaneItemByMessageId = (id) => {
+    if (!id) return null;
+    const msgNode = document.querySelector(`[data-mid="${cssEscape(id)}"]`);
+    return msgNode?.closest('[data-tid="chat-pane-item"]') || null;
+};
+
+async function hydrateSparseMessages(agg, opts = {}) {
+    if (!agg || agg.size === 0) return;
+
+    const needsHydration = (message, item) => {
+        const textNeeds = isPlaceholderText(message.text);
+        let reactionsNeed = false;
+        if (opts.includeReactions) {
+            const hadReactions = Array.isArray(message.reactions) && message.reactions.length > 0;
+            if (!hadReactions && item?.querySelector('[data-tid="diverse-reaction-pill-button"]')) {
+                reactionsNeed = true;
+            }
+        }
+        return { textNeeds, reactionsNeed, needs: textNeeds || reactionsNeed };
+    };
+
+    let pending = [];
+
     for (const [id, entry] of agg.entries()) {
         const msg = entry.message;
         if (!msg || msg.system) continue;
-        const needsText = !msg.text || !msg.text.trim();
-        if (needsText) {
-            sparseIds.push(id);
-            continue;
-        }
-        if (opts.includeReactions && Array.isArray(msg.reactions) && msg.reactions.length === 0) {
-            const node = document.querySelector(`[data-mid="${cssEscape(id)}"]`);
-            if (node && node.querySelector('[data-tid="diverse-reaction-pill-button"]')) {
-                sparseIds.push(id);
-            }
-        }
-    }
-    if (!sparseIds.length) return;
-
-    await sleep(400);
-
-    for (const id of sparseIds) {
-        const item = document.querySelector(`[data-mid="${cssEscape(id)}"]`)?.closest('[data-tid="chat-pane-item"]');
+        const item = findPaneItemByMessageId(id);
         if (!item) continue;
+        const status = needsHydration(msg, item);
+        if (status.needs) pending.push({ id, item });
+    }
 
-        const existing = agg.get(id);
-        if (!existing) continue;
+    if (!pending.length) return;
 
-        const lastAuthorRef = { value: existing.message.author || '' };
-        const ts = existing.message.timestamp ? Date.parse(existing.message.timestamp) : undefined;
-        const tempOrderCtx = {
-            lastTimeMs: Number.isNaN(ts) ? undefined : ts,
-            yearHint: Number.isNaN(ts) ? undefined : new Date(ts).getFullYear(),
-            seqBase: Date.now(),
-            seq: 0,
-            lastAuthor: existing.message.author || ''
-        };
-        const reExtracted = await extractOne(item, { includeSystem: opts.includeSystem, includeReactions: opts.includeReactions }, lastAuthorRef, tempOrderCtx);
-        if (reExtracted?.message) {
-            agg.set(id, { message: { ...existing.message, ...reExtracted.message }, orderKey: existing.orderKey });
+    let attempts = 0;
+    while (pending.length && attempts < 3) {
+        await sleep(attempts === 0 ? 450 : 650);
+        const nextPending = [];
+
+        for (const task of pending) {
+            const { id } = task;
+            const existing = agg.get(id);
+            if (!existing) continue;
+
+            const item = findPaneItemByMessageId(id) || task.item;
+            if (!item) continue;
+
+            const lastAuthorRef = { value: existing.message.author || '' };
+            const ts = existing.message.timestamp ? Date.parse(existing.message.timestamp) : undefined;
+            const tempOrderCtx = {
+                lastTimeMs: Number.isNaN(ts) ? undefined : ts,
+                yearHint: Number.isNaN(ts) ? undefined : new Date(ts).getFullYear(),
+                seqBase: Date.now(),
+                seq: 0,
+                lastAuthor: existing.message.author || ''
+            };
+
+            const reExtracted = await extractOne(item, { includeSystem: opts.includeSystem, includeReactions: opts.includeReactions }, lastAuthorRef, tempOrderCtx);
+            if (!reExtracted?.message) {
+                nextPending.push(task);
+                continue;
+            }
+
+            const merged = { ...existing.message };
+            merged.text = preferText(existing.message.text, reExtracted.message.text);
+
+            if (opts.includeReactions) {
+                const newReacts = reExtracted.message.reactions || [];
+                const prevCount = Array.isArray(merged.reactions) ? merged.reactions.length : 0;
+                if (newReacts.length && newReacts.length >= prevCount) {
+                    merged.reactions = newReacts;
+                }
+            }
+
+            const newAttachments = reExtracted.message.attachments || [];
+            const prevAttCount = Array.isArray(merged.attachments) ? merged.attachments.length : 0;
+            if (newAttachments.length && newAttachments.length >= prevAttCount) {
+                merged.attachments = newAttachments;
+            }
+
+            if (!merged.replyTo && reExtracted.message.replyTo) merged.replyTo = reExtracted.message.replyTo;
+            if (!merged.avatar && reExtracted.message.avatar) merged.avatar = reExtracted.message.avatar;
+            merged.edited = merged.edited || reExtracted.message.edited;
+
+            agg.set(id, { message: merged, orderKey: existing.orderKey });
+
+            const status = needsHydration(merged, item);
+            if (status.needs) nextPending.push({ id, item });
         }
+
+        pending = nextPending;
+        attempts++;
     }
 }
 
