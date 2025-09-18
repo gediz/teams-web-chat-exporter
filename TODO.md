@@ -20,7 +20,7 @@
 
 ## Other Export Types
 - [ ] Prepend NDJSON header record containing export metadata
-- [ ] Expand CSV reactions/attachments into dedicated columns
+- [x] Expand CSV reactions/attachments into dedicated columns
 - [ ] Enrich JSON export with computed fields (e.g., `timestampMs`, `dayBucket`)
 - [ ] Remove Markdown export option and supporting code
 
