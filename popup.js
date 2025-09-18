@@ -2,6 +2,7 @@
 const $ = (s) => document.querySelector(s);
 const statusEl = $("#status");
 const setStatus = (t) => (statusEl.textContent = t);
+const runBtn = $("#run");
 
 function isTeamsUrl(u) {
     return /^https:\/\/(.*\.)?(teams\.microsoft\.com|cloud\.microsoft)\//.test(u || "");
@@ -39,8 +40,11 @@ async function getActiveTeamsTab() {
     return tab;
 }
 
-$("#run").addEventListener("click", async () => {
+runBtn.addEventListener("click", async () => {
+    if (runBtn.disabled) return;
+    const originalText = runBtn.querySelector(".label")?.textContent || "Export current chat";
     try {
+        setBusy(true, "Exporting…");
         setStatus("Preparing…");
         const tab = await getActiveTeamsTab();
         await pingSW(); // ensure SW is alive
@@ -70,6 +74,8 @@ $("#run").addEventListener("click", async () => {
         setStatus(`Exported ${response.filename}`);
     } catch (e) {
         setStatus(e.message);
+    } finally {
+        setBusy(false, originalText);
     }
 });
 
@@ -78,4 +84,17 @@ async function pingSW(timeoutMs = 4000) {
         chrome.runtime.sendMessage({ type: "PING_SW" }),
         new Promise((_, rej) => setTimeout(() => rej(new Error("No response from background (PING_SW timeout)")), timeoutMs))
     ]);
+}
+
+function setBusy(state, labelText) {
+    const labelEl = runBtn.querySelector(".label");
+    if (state) {
+        runBtn.classList.add("busy");
+        runBtn.disabled = true;
+        if (labelEl) labelEl.textContent = labelText;
+    } else {
+        runBtn.classList.remove("busy");
+        runBtn.disabled = false;
+        if (labelEl) labelEl.textContent = labelText;
+    }
 }
