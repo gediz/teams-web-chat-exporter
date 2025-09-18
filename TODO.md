@@ -26,7 +26,7 @@
 ## Scope Cleanup
 - [x] Remove unused `util.js` helpers
 - [x] Wire "Include threaded replies" toggle to export pipeline
-- [ ] Make HUD overlay optional via toggle
+- [x] Make HUD overlay optional via toggle
 - [ ] Deduplicate popup `buildAndDownload` logic
 - [ ] Move export orchestration from popup to service worker so downloads complete even if popup closes
 

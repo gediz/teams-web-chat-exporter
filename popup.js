@@ -58,11 +58,12 @@ $("#run").addEventListener("click", async () => {
         const includeReactions = $("#includeReactions").checked;
         const includeSystem = $("#includeSystem").checked;
         const embedAvatars = $("#embedAvatars").checked;
+        const showHud = $("#showHud").checked;
 
         setStatus("Running auto-scroll + scrape…");
         const res = await chrome.tabs.sendMessage(tab.id, {
             type: "SCRAPE_TEAMS",
-            options: { stopAt, includeReplies, includeReactions, includeSystem }
+            options: { stopAt, includeReplies, includeReactions, includeSystem, showHud }
         });
 
         setStatus(`Collected ${res.messages.length} messages. Building ${format.toUpperCase()}…`);
