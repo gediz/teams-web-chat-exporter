@@ -30,9 +30,6 @@
 - [x] Deduplicate popup `buildAndDownload` logic
 - [x] Move export orchestration from popup to service worker so downloads complete even if popup closes
 
-## Roadmap Clarifications
-- [ ] Specify approach for Teams channel export support (selectors, metadata fields, UI toggle)
-
 ## UX Polish
 - [ ] Disable Export button during runs and show spinner indicator
 - [ ] Display elapsed time in status area (skip remaining estimate)
