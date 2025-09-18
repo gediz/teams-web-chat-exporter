@@ -17,6 +17,19 @@ chrome.runtime.onMessage.addListener((msg) => {
         } else if (p.phase === "hud") {
             // no-op; HUD updates are in-page
         }
+    } else if (msg.type === "EXPORT_STATUS") {
+        const phase = msg.phase;
+        if (phase === "starting") {
+            setStatus("Starting export…");
+        } else if (phase === "scrape:start") {
+            setStatus("Running auto-scroll + scrape…");
+        } else if (phase === "scrape:complete") {
+            setStatus(`Collected ${msg.messages ?? 0} messages. Building…`);
+        } else if (phase === "complete" && msg.filename) {
+            setStatus(`Exported ${msg.filename}`);
+        } else if (phase === "error") {
+            setStatus(msg.error || "Export failed.");
+        }
     }
 });
 
@@ -26,30 +39,10 @@ async function getActiveTeamsTab() {
     return tab;
 }
 
-// Try to ping the content script. If it doesn't respond, inject it, then try again.
-async function ensureContentScript(tabId) {
-    try {
-        const pong = await chrome.tabs.sendMessage(tabId, { type: "PING" });
-        if (pong && pong.ok) return;
-    } catch (_) {
-        // no listener yet
-    }
-    await chrome.scripting.executeScript({
-        target: { tabId, allFrames: true },
-        files: ["content.js"],
-    });
-    // ping again
-    const pong2 = await chrome.tabs.sendMessage(tabId, { type: "PING" });
-    if (!pong2 || !pong2.ok) {
-        throw new Error("Content script did not load in this tab/frame.");
-    }
-}
-
 $("#run").addEventListener("click", async () => {
     try {
         setStatus("Preparing…");
         const tab = await getActiveTeamsTab();
-        await ensureContentScript(tab.id);
         await pingSW(); // ensure SW is alive
 
         const stopAt = $("#stopAt").value ? new Date($("#stopAt").value).toISOString() : null;
@@ -60,24 +53,21 @@ $("#run").addEventListener("click", async () => {
         const embedAvatars = $("#embedAvatars").checked;
         const showHud = $("#showHud").checked;
 
-        setStatus("Running auto-scroll + scrape…");
-        const res = await chrome.tabs.sendMessage(tab.id, {
-            type: "SCRAPE_TEAMS",
-            options: { stopAt, includeReplies, includeReactions, includeSystem, showHud }
+        setStatus("Export running… you can close this popup.");
+        const response = await chrome.runtime.sendMessage({
+            type: "START_EXPORT",
+            data: {
+                tabId: tab.id,
+                scrapeOptions: { stopAt, includeReplies, includeReactions, includeSystem, showHud },
+                buildOptions: { format, saveAs: true, embedAvatars }
+            }
         });
 
-        setStatus(`Collected ${res.messages.length} messages. Building ${format.toUpperCase()}…`);
-        const payload = await Promise.race([
-            chrome.runtime.sendMessage({
-                type: "BUILD_AND_DOWNLOAD",
-                data: { messages: res.messages, meta: res.meta, format, saveAs: true, embedAvatars }
+        if (!response || response.error) {
+            throw new Error(response?.error || "Export failed.");
+        }
 
-            }),
-            new Promise((_, rej) => setTimeout(() => rej(new Error("Background did not respond (BUILD_AND_DOWNLOAD timeout).")), 15000))
-        ]);
-
-        if (!payload || payload.error) throw new Error(payload?.error || "Failed to build & download.");
-        setStatus(`Exported ${payload.filename}`);
+        setStatus(`Exported ${response.filename}`);
     } catch (e) {
         setStatus(e.message);
     }
