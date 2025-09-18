@@ -55,7 +55,6 @@ The extension requires:
 - `popup.html/js` - User interface
 - `content.js` - Teams page scraping logic
 - `service-worker.js` - Background processing and file generation
-- `util.js` - Export format utilities
 
 ## Notes
 

@@ -21,11 +21,10 @@
 ## Other Export Types
 - [x] Remove NDJSON export format (minimize maintenance)
 - [x] Expand CSV reactions/attachments into dedicated columns
-- [ ] Enrich JSON export with computed fields (e.g., `timestampMs`, `dayBucket`)
 - [x] Remove Markdown export option and supporting code
 
 ## Scope Cleanup
-- [ ] Remove unused `util.js` helpers
+- [x] Remove unused `util.js` helpers
 - [ ] Wire "Include threaded replies" toggle to export pipeline
 - [ ] Make HUD overlay optional via toggle
 - [ ] Deduplicate popup `buildAndDownload` logic
