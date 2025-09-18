@@ -54,7 +54,7 @@ $("#run").addEventListener("click", async () => {
 
         const stopAt = $("#stopAt").value ? new Date($("#stopAt").value).toISOString() : null;
         const format = $("#format").value;
-        const includeReplies = $("#includeReplies").checked;      // (placeholder; we’ll use reply context)
+        const includeReplies = $("#includeReplies").checked;
         const includeReactions = $("#includeReactions").checked;
         const includeSystem = $("#includeSystem").checked;
         const embedAvatars = $("#embedAvatars").checked;

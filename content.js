@@ -464,7 +464,7 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
     const reactions = opts.includeReactions ? await extractReactions(item) : [];
 
     const attachments = extractAttachments(item, body);
-    const replyTo = extractReplyContext(item, body);
+    const replyTo = opts.includeReplies === false ? null : extractReplyContext(item, body);
 
     const mid = body.getAttribute('data-mid') || item.id || `${ts}#${author}`;
     const msg = { id: mid, author, timestamp: ts, text, reactions, attachments, edited, avatar, replyTo, system: false };
@@ -497,7 +497,7 @@ async function collectCurrentVisible(agg, opts, orderCtx) {
     }
 }
 
-async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions }) {
+async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions, includeReplies = true }) {
     const scroller = getScroller();
     if (!scroller) throw new Error('Scroller not found');
 
@@ -508,7 +508,7 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions 
     scroller.scrollTop = scroller.scrollHeight;
     await new Promise(r => requestAnimationFrame(r));
     await sleep(300);
-    await collectCurrentVisible(agg, { includeSystem, includeReactions }, orderCtx);
+    await collectCurrentVisible(agg, { includeSystem, includeReactions, includeReplies }, orderCtx);
 
     // 1) Scroll to top repeatedly to load older history, collecting each pass
     let prevHeight = -1;
@@ -533,7 +533,7 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions 
             await new Promise(r => requestAnimationFrame(r));
             await sleep(dwellMs);
 
-            await collectCurrentVisible(agg, { includeSystem, includeReactions }, orderCtx);
+            await collectCurrentVisible(agg, { includeSystem, includeReactions, includeReplies }, orderCtx);
 
             const nodes = $$('[data-tid="chat-pane-item"]');
             if (!nodes.length) break;
@@ -663,10 +663,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         try {
             if (msg.type === 'PING') { sendResponse({ ok: true }); return; }
             if (msg.type === 'SCRAPE_TEAMS') {
-                const { stopAt, includeReactions, includeSystem } = msg.options || {};
+                const { stopAt, includeReactions, includeSystem, includeReplies } = msg.options || {};
+                const scrapeOpts = { stopAtISO: stopAt, includeSystem, includeReactions, includeReplies: includeReplies !== false };
                 console.debug('[Teams Exporter] SCRAPE_TEAMS', location.href, msg.options);
                 hud('starting…');
-                const messages = await autoScrollAggregate({ stopAtISO: stopAt, includeSystem, includeReactions });
+                const messages = await autoScrollAggregate(scrapeOpts);
                 chrome.runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'extract', messagesExtracted: messages.length } }).catch(() => { });
                 hud(`extracted ${messages.length} messages`);
                 // meta can keep title; add timeRange later if you want
