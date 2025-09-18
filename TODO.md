@@ -19,10 +19,10 @@
 - [x] Add compact mode toggle (show/hide reactions & attachments)
 
 ## Other Export Types
-- [ ] Prepend NDJSON header record containing export metadata
+- [x] Remove NDJSON export format (minimize maintenance)
 - [x] Expand CSV reactions/attachments into dedicated columns
 - [ ] Enrich JSON export with computed fields (e.g., `timestampMs`, `dayBucket`)
-- [ ] Remove Markdown export option and supporting code
+- [x] Remove Markdown export option and supporting code
 
 ## Scope Cleanup
 - [ ] Remove unused `util.js` helpers
