@@ -84,16 +84,6 @@ function toCSV(messages) {
     return [header.join(','), ...rows].join('\n');
 }
 
-function toMD(rows, meta = {}) {
-    const head = `# ${meta.title || "Teams Chat Export"}\n\n_Messages_: ${rows.length}\n${meta.timeRange ? `_Time range_: ${meta.timeRange}\n` : ``}\n---\n`;
-    const body = (rows || []).map(m => {
-        const r = (m.reactions || []).join(' ');
-        const at = (m.attachments || []).map(a => `\n  - [${a.label || a.href}](${a.href || "#"})`).join('');
-        return `- **${m.author || 'Unknown'}** — _${m.timestamp || ''}_ ${r}\n\n  ${m.text || ''}${at}\n`;
-    }).join('\n');
-    return head + body;
-}
-
 function toHTML(rows, meta = {}) {
   const isImg = (url = "") => /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(url);
   const fmtTs = (s) => {
@@ -325,9 +315,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
             if (format === "json") { filename = `${base}.json`; mime = "application/json"; content = JSON.stringify({ meta, messages }, null, 2); }
             else if (format === "csv") { filename = `${base}.csv`; mime = "text/csv"; content = toCSV(messages); }
-            else if (format === "md") { filename = `${base}.md`; mime = "text/markdown"; content = toMD(messages, meta); }
             else if (format === "html") { filename = `${base}.html`; mime="text/html"; content = toHTML(rows, meta); }
-            else if (format === "ndjson") { filename = `${base}.ndjson`; mime = "application/x-ndjson"; content = (messages || []).map(m => JSON.stringify(m)).join("\n"); }
             else { sendResponse({ error: "Unknown format: " + format }); return; }
 
             const url = textToDataUrl(content, mime);
@@ -340,7 +328,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             } catch (e) {
                 log("download error", e?.message || String(e));
                 // Try with an ultra-safe fallback name
-                const safe = `${sanitizeBase("teams-chat")}-${Date.now()}.${format === "ndjson" ? "ndjson" : format === "md" ? "md" : format === "html" ? "html" : format === "csv" ? "csv" : "json"}`;
+                const safe = `${sanitizeBase("teams-chat")}-${Date.now()}.${format === "html" ? "html" : format === "csv" ? "csv" : "json"}`;
                 try {
                     const id2 = await chrome.downloads.download({ url, filename: safe, saveAs });
                     sendResponse({ ok: true, filename: safe, id: id2 });
