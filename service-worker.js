@@ -5,6 +5,8 @@ log("boot");
 chrome.runtime.onInstalled.addListener(() => log("onInstalled"));
 chrome.runtime.onStartup?.addListener(() => log("onStartup"));
 
+const activeExports = new Map(); // tabId -> { startedAt }
+
 function sanitizeBase(name) {
     const raw = (name || "teams-chat").toString();
     const cleaned = raw.replace(/[<>:"/\\|?*\x00-\x1F]/g, "-").replace(/\s+/g, " ").trim().replace(/[. ]+$/g, "");
@@ -293,51 +295,164 @@ function textToDataUrl(text, mime) {
     return `data:${mime};base64,${b64}`;
 }
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    (async () => {
-        if (!msg || !msg.type) return;
-
-        if (msg.type === "PING_SW") { sendResponse({ ok: true, now: Date.now() }); return; }
-
-        if (msg.type === "BUILD_AND_DOWNLOAD") {
-            const { messages = [], meta = {}, format = "json", saveAs = true, embedAvatars = false } = msg.data || {};
-
-            let rows = messages;
-            if (format === "html" && embedAvatars) {
-                try {
-                    rows = await embedAvatarsInRows(messages);
-                } catch (_) {
-                    rows = messages; // fall back silently
-                }
-            }
-            const base = `${sanitizeBase(meta.title)}-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-            let filename, mime, content;
-
-            if (format === "json") { filename = `${base}.json`; mime = "application/json"; content = JSON.stringify({ meta, messages }, null, 2); }
-            else if (format === "csv") { filename = `${base}.csv`; mime = "text/csv"; content = toCSV(messages); }
-            else if (format === "html") { filename = `${base}.html`; mime="text/html"; content = toHTML(rows, meta); }
-            else { sendResponse({ error: "Unknown format: " + format }); return; }
-
-            const url = textToDataUrl(content, mime);
-            log("BUILD_AND_DOWNLOAD", { format, bytes: content.length, filename });
-
-            try {
-                const id = await chrome.downloads.download({ url, filename, saveAs });
-                log("download started", { id, filename });
-                sendResponse({ ok: true, filename, id });
-            } catch (e) {
-                log("download error", e?.message || String(e));
-                // Try with an ultra-safe fallback name
-                const safe = `${sanitizeBase("teams-chat")}-${Date.now()}.${format === "html" ? "html" : format === "csv" ? "csv" : "json"}`;
-                try {
-                    const id2 = await chrome.downloads.download({ url, filename: safe, saveAs });
-                    sendResponse({ ok: true, filename: safe, id: id2 });
-                } catch (e2) {
-                    sendResponse({ error: e2?.message || String(e2) });
-                }
-            }
+const sendMessageToTab = (tabId, msg) => new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, msg, (resp) => {
+        const err = chrome.runtime.lastError;
+        if (err) {
+            reject(new Error(err.message || 'Failed to reach tab context'));
             return;
         }
+        resolve(resp);
+    });
+});
+
+async function ensureContentScript(tabId) {
+    try {
+        const pong = await sendMessageToTab(tabId, { type: 'PING' });
+        if (pong?.ok) return;
+    } catch (_) {
+        // fallback to injection
+    }
+    await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content.js'] });
+    const pong2 = await sendMessageToTab(tabId, { type: 'PING' });
+    if (!pong2?.ok) throw new Error('Content script did not respond after injection');
+}
+
+async function requestScrape(tabId, options) {
+    const res = await sendMessageToTab(tabId, { type: 'SCRAPE_TEAMS', options });
+    if (!res) throw new Error('No response from content script');
+    if (res.error) throw new Error(res.error);
+    return res;
+}
+
+async function buildAndDownload({ messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false }) {
+    let rows = messages;
+    if (format === 'html' && embedAvatars) {
+        try {
+            rows = await embedAvatarsInRows(messages);
+        } catch (e) {
+            log('embed avatars failed', e?.message || e);
+            rows = messages;
+        }
+    }
+
+    const baseTitle = sanitizeBase(meta.title || 'teams-chat');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const base = `${baseTitle}-${stamp}`;
+    let filename, mime, content;
+
+    if (format === 'json') {
+        filename = `${base}.json`;
+        mime = 'application/json';
+        const payload = { meta: { ...meta, count: messages.length }, messages };
+        content = JSON.stringify(payload, null, 2);
+    } else if (format === 'csv') {
+        filename = `${base}.csv`;
+        mime = 'text/csv';
+        content = toCSV(messages);
+    } else if (format === 'html') {
+        filename = `${base}.html`;
+        mime = 'text/html';
+        content = toHTML(rows, { ...meta, count: messages.length });
+    } else {
+        throw new Error('Unknown format: ' + format);
+    }
+
+    const url = textToDataUrl(content, mime);
+    log('download build', { format, bytes: content.length, filename });
+
+    try {
+        const id = await chrome.downloads.download({ url, filename, saveAs });
+        log('download started', { id, filename });
+        return { ok: true, filename, id };
+    } catch (e) {
+        log('download primary failed', e?.message || e);
+        const safe = `${sanitizeBase('teams-chat')}-${Date.now()}.${format === 'html' ? 'html' : format === 'csv' ? 'csv' : 'json'}`;
+        try {
+            const id2 = await chrome.downloads.download({ url, filename: safe, saveAs });
+            return { ok: true, filename: safe, id: id2 };
+        } catch (e2) {
+            log('download fallback failed', e2?.message || e2);
+            throw new Error(e2?.message || String(e2));
+        }
+    }
+}
+
+function broadcastStatus(payload) {
+    chrome.runtime.sendMessage({ type: 'EXPORT_STATUS', ...payload }).catch(() => { });
+}
+
+function handleBuildAndDownloadMessage(msg, sendResponse) {
+    (async () => {
+        try {
+            const result = await buildAndDownload(msg.data || {});
+            sendResponse(result);
+        } catch (err) {
+            sendResponse({ error: err?.message || String(err) });
+        }
     })();
-    return true; // keep SW alive for async sendResponse
+}
+
+function handleStartExportMessage(msg, sendResponse) {
+    const data = msg.data || {};
+    const tabId = data.tabId;
+    if (typeof tabId !== 'number') {
+        sendResponse({ error: 'Missing tabId for export request' });
+        return;
+    }
+    if (activeExports.has(tabId)) {
+        sendResponse({ error: 'An export is already running for this tab' });
+        return;
+    }
+
+    const scrapeOptions = data.scrapeOptions || {};
+    const buildOptions = data.buildOptions || {};
+
+    activeExports.set(tabId, { startedAt: Date.now() });
+    broadcastStatus({ tabId, phase: 'starting' });
+
+    (async () => {
+        try {
+            await ensureContentScript(tabId);
+            broadcastStatus({ tabId, phase: 'scrape:start' });
+            const scrapeRes = await requestScrape(tabId, scrapeOptions);
+            broadcastStatus({ tabId, phase: 'scrape:complete', messages: scrapeRes.messages?.length || 0 });
+
+            const buildRes = await buildAndDownload({
+                messages: scrapeRes.messages || [],
+                meta: scrapeRes.meta || {},
+                format: buildOptions.format || 'json',
+                saveAs: buildOptions.saveAs !== false,
+                embedAvatars: Boolean(buildOptions.embedAvatars)
+            });
+
+            broadcastStatus({ tabId, phase: 'complete', filename: buildRes.filename });
+            sendResponse({ ok: true, filename: buildRes.filename, downloadId: buildRes.id });
+        } catch (err) {
+            const message = err?.message || String(err);
+            broadcastStatus({ tabId, phase: 'error', error: message });
+            sendResponse({ error: message });
+        } finally {
+            activeExports.delete(tabId);
+        }
+    })();
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (!msg || !msg.type) return;
+
+    if (msg.type === 'PING_SW') {
+        sendResponse({ ok: true, now: Date.now() });
+        return;
+    }
+
+    if (msg.type === 'BUILD_AND_DOWNLOAD') {
+        handleBuildAndDownloadMessage(msg, sendResponse);
+        return true;
+    }
+
+    if (msg.type === 'START_EXPORT') {
+        handleStartExportMessage(msg, sendResponse);
+        return true;
+    }
 });
