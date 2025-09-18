@@ -15,6 +15,38 @@
             border-radius: 8px;
             border: 1px solid #ccc;
             cursor: pointer;
+            transition: opacity 0.2s ease;
+            position: relative;
+        }
+
+        button[disabled] {
+            cursor: default;
+            opacity: 0.7;
+        }
+
+        button .spinner {
+            display: none;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(0, 0, 0, 0.2);
+            border-top-color: rgba(0, 0, 0, 0.6);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 6px;
+        }
+
+        button.busy .spinner {
+            display: inline-block;
+            vertical-align: middle;
+        }
+
+        button.busy .label {
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
 
         .row {
@@ -65,7 +97,7 @@
         <label><input id="showHud" type="checkbox" checked/> Show in-page progress HUD</label>
     </div>
     <div class="row">
-        <button id="run">Export current chat</button>
+        <button id="run"><span class="spinner" aria-hidden="true"></span><span class="label">Export current chat</span></button>
     </div>
 
     <div class="row"><small id="status"></small></div>
