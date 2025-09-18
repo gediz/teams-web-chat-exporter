@@ -48,22 +48,81 @@ async function embedAvatarsInRows(rows) {
 }
 
 
+const CSV_MAX_REACTIONS = 5;
+const CSV_MAX_ATTACHMENTS = 5;
+
 function toCSV(messages) {
-    const header = ['id', 'author', 'timestamp', 'text', 'reactions', 'attachments'].join(',');
+    const header = [
+        'id',
+        'author',
+        'timestamp',
+        'text',
+        'edited',
+        'system'
+    ];
+
+    for (let i = 1; i <= CSV_MAX_REACTIONS; i++) {
+        header.push(`reaction_${i}_emoji`, `reaction_${i}_count`, `reaction_${i}_reactors`);
+    }
+    header.push('reactions_overflow');
+
+    for (let i = 1; i <= CSV_MAX_ATTACHMENTS; i++) {
+        header.push(
+            `attachment_${i}_label`,
+            `attachment_${i}_url`,
+            `attachment_${i}_type`,
+            `attachment_${i}_size`,
+            `attachment_${i}_owner`
+        );
+    }
+    header.push('attachments_overflow');
+
     const rows = (messages || []).map(m => {
-        const reactions = (m.reactions || []).map(r => r.reactors?.length ? `${r.emoji} ${r.count} [${r.reactors.join('; ')}]` : `${r.emoji} ${r.count}`).join('|');
-        const attachments = (m.attachments || []).map(a => (a.label ? `${a.label}=>${a.href || ''}` : (a.href || ''))).join('|');
-        const flat = [
-            m.id,
-            m.author,
-            m.timestamp,
-            (m.text || '').replaceAll('\n', '\\n'),
-            reactions,
-            attachments
-        ];
-        return flat.map(v => `"${(v ?? '').toString().replaceAll('"', '""')}"`).join(',');
+        const row = [];
+        const text = (m.text || '').replaceAll('\n', '\\n');
+        row.push(
+            m.id ?? '',
+            m.author ?? '',
+            m.timestamp ?? '',
+            text,
+            m.edited ? 'true' : 'false',
+            m.system ? 'true' : 'false'
+        );
+
+        const reactions = Array.isArray(m.reactions) ? m.reactions : [];
+        for (let i = 0; i < CSV_MAX_REACTIONS; i++) {
+            const rx = reactions[i];
+            if (rx) {
+                row.push(rx.emoji ?? '', String(rx.count ?? ''), Array.isArray(rx.reactors) ? rx.reactors.join('; ') : '');
+            } else {
+                row.push('', '', '');
+            }
+        }
+        const overflowReactions = reactions.slice(CSV_MAX_REACTIONS);
+        row.push(overflowReactions.length ? JSON.stringify(overflowReactions) : '');
+
+        const attachments = Array.isArray(m.attachments) ? m.attachments : [];
+        for (let i = 0; i < CSV_MAX_ATTACHMENTS; i++) {
+            const at = attachments[i];
+            if (at) {
+                row.push(
+                    at.label ?? '',
+                    at.href ?? '',
+                    at.type ?? '',
+                    at.size ?? '',
+                    at.owner ?? ''
+                );
+            } else {
+                row.push('', '', '', '', '');
+            }
+        }
+        const overflowAttachments = attachments.slice(CSV_MAX_ATTACHMENTS);
+        row.push(overflowAttachments.length ? JSON.stringify(overflowAttachments) : '');
+
+        return row.map(v => `"${(v ?? '').toString().replaceAll('"', '""')}"`).join(',');
     });
-    return [header, ...rows].join('\n');
+
+    return [header.join(','), ...rows].join('\n');
 }
 
 function toMD(rows, meta = {}) {
