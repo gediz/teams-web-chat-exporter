@@ -2,9 +2,32 @@
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const $ = (sel, root = document) => root.querySelector(sel);
 
+let hudEnabled = true;
+
+function clearHUD() {
+    const existing = document.getElementById("__teamsExporterHUD");
+    if (existing) existing.remove();
+}
+
 // HUD -----------------------------------------------------------
-function ensureHUD() { let hud = document.getElementById("__teamsExporterHUD"); if (!hud) { hud = document.createElement("div"); hud.id = "__teamsExporterHUD"; hud.style.cssText = "position:fixed;right:12px;top:12px;z-index:999999;font:12px/1.3 system-ui,sans-serif;color:#111;background:rgba(255,255,255,.92);border:1px solid #ddd;border-radius:8px;padding:8px 10px;box-shadow:0 2px 8px rgba(0,0,0,.15);pointer-events:none;"; hud.textContent = "Teams Exporter: idle"; document.body.appendChild(hud); } return hud; }
-function hud(text) { ensureHUD().textContent = `Teams Exporter: ${text}`; chrome.runtime.sendMessage({ type: "SCRAPE_PROGRESS", payload: { phase: "hud", text } }).catch(() => { }); }
+function ensureHUD() {
+    if (!hudEnabled) return null;
+    let hud = document.getElementById("__teamsExporterHUD");
+    if (!hud) {
+        hud = document.createElement("div");
+        hud.id = "__teamsExporterHUD";
+        hud.style.cssText = "position:fixed;right:12px;top:12px;z-index:999999;font:12px/1.3 system-ui,sans-serif;color:#111;background:rgba(255,255,255,.92);border:1px solid #ddd;border-radius:8px;padding:8px 10px;box-shadow:0 2px 8px rgba(0,0,0,.15);pointer-events:none;";
+        hud.textContent = "Teams Exporter: idle";
+        document.body.appendChild(hud);
+    }
+    return hud;
+}
+function hud(text) {
+    if (!hudEnabled) return;
+    const hudNode = ensureHUD();
+    if (hudNode) hudNode.textContent = `Teams Exporter: ${text}`;
+    chrome.runtime.sendMessage({ type: "SCRAPE_PROGRESS", payload: { phase: "hud", text } }).catch(() => { });
+}
 
 // Core DOM hooks ------------------------------------------------
 function getScroller() {
@@ -663,7 +686,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         try {
             if (msg.type === 'PING') { sendResponse({ ok: true }); return; }
             if (msg.type === 'SCRAPE_TEAMS') {
-                const { stopAt, includeReactions, includeSystem, includeReplies } = msg.options || {};
+                const { stopAt, includeReactions, includeSystem, includeReplies, showHud } = msg.options || {};
+                hudEnabled = showHud !== false;
+                if (!hudEnabled) clearHUD();
                 const scrapeOpts = { stopAtISO: stopAt, includeSystem, includeReactions, includeReplies: includeReplies !== false };
                 console.debug('[Teams Exporter] SCRAPE_TEAMS', location.href, msg.options);
                 hud('starting…');
