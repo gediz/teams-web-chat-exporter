@@ -48,9 +48,6 @@ async function embedAvatarsInRows(rows) {
 }
 
 
-const CSV_MAX_REACTIONS = 5;
-const CSV_MAX_ATTACHMENTS = 5;
-
 function toCSV(messages) {
     const header = [
         'id',
@@ -58,24 +55,10 @@ function toCSV(messages) {
         'timestamp',
         'text',
         'edited',
-        'system'
+        'system',
+        'reactions_json',
+        'attachments_json'
     ];
-
-    for (let i = 1; i <= CSV_MAX_REACTIONS; i++) {
-        header.push(`reaction_${i}_emoji`, `reaction_${i}_count`, `reaction_${i}_reactors`);
-    }
-    header.push('reactions_overflow');
-
-    for (let i = 1; i <= CSV_MAX_ATTACHMENTS; i++) {
-        header.push(
-            `attachment_${i}_label`,
-            `attachment_${i}_url`,
-            `attachment_${i}_type`,
-            `attachment_${i}_size`,
-            `attachment_${i}_owner`
-        );
-    }
-    header.push('attachments_overflow');
 
     const rows = (messages || []).map(m => {
         const row = [];
@@ -90,34 +73,10 @@ function toCSV(messages) {
         );
 
         const reactions = Array.isArray(m.reactions) ? m.reactions : [];
-        for (let i = 0; i < CSV_MAX_REACTIONS; i++) {
-            const rx = reactions[i];
-            if (rx) {
-                row.push(rx.emoji ?? '', String(rx.count ?? ''), Array.isArray(rx.reactors) ? rx.reactors.join('; ') : '');
-            } else {
-                row.push('', '', '');
-            }
-        }
-        const overflowReactions = reactions.slice(CSV_MAX_REACTIONS);
-        row.push(overflowReactions.length ? JSON.stringify(overflowReactions) : '');
+        row.push(reactions.length ? JSON.stringify(reactions) : '');
 
         const attachments = Array.isArray(m.attachments) ? m.attachments : [];
-        for (let i = 0; i < CSV_MAX_ATTACHMENTS; i++) {
-            const at = attachments[i];
-            if (at) {
-                row.push(
-                    at.label ?? '',
-                    at.href ?? '',
-                    at.type ?? '',
-                    at.size ?? '',
-                    at.owner ?? ''
-                );
-            } else {
-                row.push('', '', '', '', '');
-            }
-        }
-        const overflowAttachments = attachments.slice(CSV_MAX_ATTACHMENTS);
-        row.push(overflowAttachments.length ? JSON.stringify(overflowAttachments) : '');
+        row.push(attachments.length ? JSON.stringify(attachments) : '');
 
         return row.map(v => `"${(v ?? '').toString().replaceAll('"', '""')}"`).join(',');
     });
