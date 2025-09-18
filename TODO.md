@@ -45,6 +45,7 @@
 - [ ] Plan incremental exports (persist last timestamp, diff collection)
 - [ ] Add participant filtering workflow
 - [ ] Design summary sheet/report for export analytics
+- [ ] Investigate PDF export option
 
 ## Telemetry (Future)
 - [ ] Specify schema for session stats & environment diagnostics
