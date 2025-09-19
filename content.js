@@ -496,12 +496,41 @@ async function hydrateSparseMessages(agg, opts = {}) {
 }
 
 function parseDateDividerText(txt, yearHint) {
-    // "7 September" → try add current year; leave null if unparsable
-    const m = txt.match(/^(\d{1,2})\s+([A-Za-z]+)(?:\s+(\d{4}))?$/);
-    if (!m) return null;
-    const y = m[3] || yearHint || String(new Date().getFullYear());
-    const d = Date.parse(`${m[1]} ${m[2]} ${y}`);
-    return Number.isNaN(d) ? null : d;
+    if (!txt) return null;
+    const monthMap = {
+        january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+        july: 7, august: 8, september: 9, october: 10, november: 11, december: 12
+    };
+
+    const clean = txt.trim().replace(/\s+/g, ' ');
+    const currentYear = typeof yearHint === 'number' ? yearHint : (yearHint ? Number(yearHint) : new Date().getFullYear());
+
+    const tryBuild = (dayStr, monthStr, yearStr) => {
+        if (!dayStr || !monthStr) return null;
+        const day = Number(dayStr);
+        if (!Number.isFinite(day)) return null;
+        const monthIdx = monthMap[monthStr.toLowerCase()];
+        if (!monthIdx) return null;
+        const year = yearStr ? Number(yearStr) : currentYear;
+        if (!Number.isFinite(year)) return null;
+        const dt = new Date(year, monthIdx - 1, day);
+        if (Number.isNaN(dt.getTime())) return null;
+        return dt.getTime();
+    };
+
+    let m = clean.match(/^(?:[A-Za-z]+,\s*)?([A-Za-z]+)\s+(\d{1,2})(?:,\s*(\d{4}))?$/);
+    if (m) {
+        const ts = tryBuild(m[2], m[1], m[3]);
+        if (ts != null) return ts;
+    }
+
+    m = clean.match(/^(\d{1,2})\s+([A-Za-z]+)(?:\s+(\d{4}))?$/);
+    if (m) {
+        const ts = tryBuild(m[1], m[2], m[3]);
+        if (ts != null) return ts;
+    }
+
+    return null;
 }
 
 // Extract one item into a message object + an orderKey
@@ -737,19 +766,32 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
         filtered = entries.filter(entry => {
             const ts = entry.tsMs ?? (entry.message?.timestamp ? parseTimeStamp(entry.message.timestamp) : null);
             if (entry.kind === 'system') {
-                // keep system divider if any subsequent message we kept shares the same day bucket
-                const idx = entries.indexOf(entry);
-                const hasFollowing = entries.slice(idx + 1).some(e => {
-                    if (e.kind !== 'message') return false;
-                    const msgTs = e.tsMs ?? (e.message?.timestamp ? parseTimeStamp(e.message.timestamp) : null);
-                    if (msgTs == null) return true;
-                    return stopLimit == null || msgTs >= stopLimit;
-                });
-                return hasFollowing;
+                if (ts == null) return false;
+                return ts >= stopLimit;
             }
             if (ts == null) return true;
             return ts >= stopLimit;
         });
+
+        const firstMessageIdx = filtered.findIndex(entry => entry.kind === 'message');
+        if (firstMessageIdx > 0) {
+            const firstMessage = filtered[firstMessageIdx];
+            const firstTs = firstMessage.tsMs ?? (firstMessage.message?.timestamp ? parseTimeStamp(firstMessage.message.timestamp) : null);
+            const idxInEntries = entries.indexOf(firstMessage);
+            for (let i = idxInEntries - 1; i >= 0; i--) {
+                const candidate = entries[i];
+                if (candidate.kind === 'system') {
+                    const ts = candidate.tsMs ?? (candidate.message?.timestamp ? parseTimeStamp(candidate.message.timestamp) : null);
+                    if (ts != null && ts >= stopLimit && (firstTs == null || ts <= firstTs)) {
+                        if (!filtered.includes(candidate)) {
+                            filtered.splice(firstMessageIdx, 0, candidate);
+                        }
+                    }
+                    break;
+                }
+                if (candidate.kind === 'message') break;
+            }
+        }
     }
 
     return filtered.map(e => e.message);
