@@ -15,6 +15,16 @@ function hasChatMessageSurface() {
     );
 }
 
+function parseTimeStamp(value) {
+    if (!value) return null;
+    const ts = Date.parse(value);
+    if (!Number.isNaN(ts)) return ts;
+    // Teams sometimes uses without timezone; treat as local.
+    const normalized = value.replace(/ /g, 'T');
+    const ts2 = Date.parse(normalized);
+    return Number.isNaN(ts2) ? null : ts2;
+}
+
 function checkChatContext() {
     const navSelected = isChatNavSelected();
     const hasSurface = hasChatMessageSurface();
@@ -592,6 +602,8 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
     }, { root: scroller, threshold: 0.01 }) : null;
     if (observer && headerSentinel) observer.observe(headerSentinel);
 
+    const stopLimit = typeof stopAtISO === 'string' ? parseTimeStamp(stopAtISO) : null;
+
     try {
         while (true) {
             passes++;
@@ -606,7 +618,9 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
             const newCount = nodes.length;
             const newHeight = scroller.scrollHeight;
             const oldestNode = nodes[0];
-            const oldestTime = $('time[datetime]', oldestNode)?.getAttribute('datetime') || null;
+            const oldestTimeAttr = $('time[datetime]', oldestNode)?.getAttribute('datetime') || null;
+            const oldestTime = oldestTimeAttr;
+            const oldestTs = parseTimeStamp(oldestTimeAttr);
             const oldestId = $('[data-tid="chat-pane-message"]', oldestNode)?.getAttribute('data-mid') || oldestNode?.id || null;
 
             // Expand any collapsed sections that block older history
@@ -643,17 +657,15 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
                 newCount,
                 aggregated: seen,
                 oldestTime,
+                oldestTs,
                 oldestId,
                 elapsedMs,
                 reason: 'progress report'
             });
 
-            if (stopAtISO) {
-                const oldestVisible = $('time[datetime]', nodes[0])?.getAttribute('datetime');
-                if (oldestVisible && oldestVisible <= stopAtISO) {
-                    console.debug('[Teams Exporter] breaking scroll: stopAt reached', { oldestVisible, stopAtISO });
-                    break;
-                }
+            if (stopLimit != null && oldestTs != null && oldestTs <= stopLimit) {
+                console.debug('[Teams Exporter] breaking scroll: stopAt reached', { oldestVisible: oldestTimeAttr, stopAtISO });
+                break;
             }
 
             const heightUnchanged = newHeight === prevHeight;
@@ -697,7 +709,22 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
     const entries = Array.from(agg.values());
     entries.sort((a, b) => a.orderKey - b.orderKey); // timestamps first; dividers placed near their discovery/parsed time
 
-    return entries.map(e => e.message);
+    let filtered = entries;
+    if (stopLimit != null) {
+        filtered = entries.filter(entry => {
+            const msg = entry.message;
+            if (!msg || msg.system) {
+                const ts = msg?.timestamp ? parseTimeStamp(msg.timestamp) : null;
+                if (ts == null) return true;
+                return ts >= stopLimit;
+            }
+            const ts = msg.timestamp ? parseTimeStamp(msg.timestamp) : null;
+            if (ts == null) return true;
+            return ts >= stopLimit;
+        });
+    }
+
+    return filtered.map(e => e.message);
 }
 
 // Remove quoted/preview blocks from a cloned content node so root "text" doesn't include them
