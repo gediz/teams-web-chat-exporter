@@ -535,6 +535,25 @@ function parseDateDividerText(txt, yearHint) {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+const controlTimeRe = /(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i;
+
+function parseControlTimestamp(text, yearHint) {
+    if (!text) return null;
+    const match = controlTimeRe.exec(text);
+    if (!match) return null;
+    let [, month, day, hour, minute, period] = match;
+    month = Number(month);
+    day = Number(day);
+    hour = Number(hour);
+    minute = Number(minute);
+    if (!Number.isFinite(month) || !Number.isFinite(day) || !Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+    if (period?.toUpperCase() === 'PM' && hour < 12) hour += 12;
+    if (period?.toUpperCase() === 'AM' && hour === 12) hour = 0;
+    const baseYear = typeof yearHint === 'number' ? yearHint : new Date().getFullYear();
+    const date = new Date(baseYear, month - 1, day, hour, minute, 0, 0);
+    return Number.isNaN(date.getTime()) ? null : date.getTime();
+}
+
 function startOfLocalDay(ts) {
     const d = new Date(ts);
     d.setHours(0, 0, 0, 0);
@@ -599,7 +618,8 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
         const bodyMid = wrapper?.id || $('[data-mid]', item)?.getAttribute('data-mid') || item.getAttribute('data-mid');
         const dividerId = (bodyMid || text || 'system').toLowerCase();
         const numericMid = bodyMid && Number(bodyMid);
-        const parsedTs = parseDateDividerText(text, orderCtx.yearHint);
+        let parsedTs = parseDateDividerText(text, orderCtx.yearHint);
+        if (!Number.isFinite(parsedTs)) parsedTs = parseControlTimestamp(text, orderCtx.yearHint);
         const approxMs = Number.isFinite(parsedTs)
             ? parsedTs
             : Number.isFinite(numericMid)
@@ -845,6 +865,13 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
     }
 
     let filtered = entries.filter(entry => entry.kind !== 'day-divider');
+    filtered.sort((a, b) => {
+        const aTs = (a.tsMs ?? a.anchorTs ?? a.orderKey ?? 0);
+        const bTs = (b.tsMs ?? b.anchorTs ?? b.orderKey ?? 0);
+        if (aTs !== bTs) return aTs - bTs;
+        return a.orderKey - b.orderKey;
+    });
+
     if (stopLimit != null) {
         filtered = filtered.filter(entry => {
             const ts = entry.anchorTs ?? entry.tsMs ?? (entry.message?.timestamp ? parseTimeStamp(entry.message.timestamp) : null);
