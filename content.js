@@ -865,6 +865,9 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
                 currentDayKey = dayKey;
             }
         }
+        if (msg && msg.system && (!msg.text || msg.text.trim().toLowerCase() === 'system')) {
+            continue;
+        }
         finalMessages.push(msg);
     }
 
