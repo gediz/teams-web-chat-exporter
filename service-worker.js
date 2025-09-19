@@ -409,6 +409,7 @@ function broadcastStatus(payload) {
         }
     }
     chrome.runtime.sendMessage({ type: 'EXPORT_STATUS', ...enriched }).catch(() => { });
+    updateBadgeForStatus(payload);
 }
 
 function handleBuildAndDownloadMessage(msg, sendResponse) {
@@ -451,6 +452,7 @@ function handleStartExportMessage(msg, sendResponse) {
             startedAt = Date.now();
             updateActiveExport(tabId, { startedAt, phase: 'starting', lastStatus: null });
             broadcastStatus({ tabId, phase: 'starting', startedAt });
+            setBadge('0', '#2563eb');
 
             broadcastStatus({ tabId, phase: 'scrape:start' });
             const scrapeRes = await requestScrape(tabId, scrapeOptions);
@@ -473,9 +475,61 @@ function handleStartExportMessage(msg, sendResponse) {
         } finally {
             if (startedAt) {
                 activeExports.delete(tabId);
+                clearBadgeSoon();
             }
         }
     })();
+}
+
+function updateBadgeForStatus(payload) {
+    try {
+        const phase = payload?.phase;
+        if (phase === 'scroll') {
+            const seen = payload?.seen ?? payload?.aggregated ?? payload?.messagesVisible;
+            if (typeof seen === 'number' && seen >= 0) {
+                setBadge(String(seen));
+            }
+        } else if (phase === 'scrape:complete') {
+            const total = payload?.messages ?? payload?.messagesExtracted;
+            if (typeof total === 'number') setBadge(String(total));
+        } else if (phase === 'complete') {
+            setBadge('✔', '#16a34a');
+            clearBadgeSoon(2000);
+        } else if (phase === 'error') {
+            setBadge('!', '#dc2626');
+            clearBadgeSoon(3000);
+        } else if (phase === 'scrape:start') {
+            setBadge('…', '#2563eb');
+        }
+    } catch (_) {
+        // ignore badge errors
+    }
+}
+
+function setBadge(text, color = '#1d4ed8') {
+    try {
+        chrome.action.setBadgeBackgroundColor({ color });
+        chrome.action.setBadgeText({ text: text || '' });
+    } catch (_) {
+        // ignore
+    }
+}
+
+function clearBadge() {
+    try {
+        chrome.action.setBadgeText({ text: '' });
+    } catch (_) {
+        // ignore
+    }
+}
+
+let clearBadgeTimer = null;
+function clearBadgeSoon(delay = 0) {
+    if (clearBadgeTimer) clearTimeout(clearBadgeTimer);
+    clearBadgeTimer = setTimeout(() => {
+        clearBadge();
+        clearBadgeTimer = null;
+    }, delay);
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
