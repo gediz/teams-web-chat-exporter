@@ -475,7 +475,6 @@ function handleStartExportMessage(msg, sendResponse) {
         } finally {
             if (startedAt) {
                 activeExports.delete(tabId);
-                clearBadgeSoon();
             }
         }
     })();
