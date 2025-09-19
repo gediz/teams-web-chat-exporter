@@ -166,10 +166,10 @@ function toHTML(rows, meta = {}) {
     .hdr .edited{font-style:italic}
     .reply{background:#f8fafc; border-left:3px solid #d1d5db; padding:8px 10px; border-radius:8px; margin:8px 0; font-size:13px; color:#374151}
     .reply .reply-meta{display:flex; flex-wrap:wrap; gap:6px; font-size:12px; color:#6b7280; margin-bottom:4px}
-    .reply blockquote{margin:0; padding:0; border:none; color:#1f2937}
+    .reply blockquote{margin:0; padding:0; border:none; color:#1f2937; word-wrap:break-word; overflow-wrap:anywhere}
     .atts{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; margin-top:8px}
     .att, .att-img{border:1px solid var(--border); border-radius:10px; padding:8px; background:#fff; transition:max-height .2s ease, opacity .2s ease}
-    .att a{word-break:break-all; text-decoration:none}
+    .att a{word-break:break-word; overflow-wrap:anywhere; text-decoration:none}
     .att-meta{margin-top:6px; font-size:12px; color:#6b7280}
     .att-img{padding:0; overflow:hidden}
     .att-img img{display:block; width:100%; height:auto; max-height:340px; object-fit:contain; background:#fff}
@@ -187,6 +187,7 @@ function toHTML(rows, meta = {}) {
     .compact .atts{gap:0; margin-top:0}
     .compact .avt{display:none}
     .compact .msg{margin:8px 0; border-color:rgba(0,0,0,0.08)}
+    .main > div{word-break:break-word; overflow-wrap:anywhere}
   </style>`;
 
   const head = `<h1>${meta.title || "Teams Chat Export"}</h1>
