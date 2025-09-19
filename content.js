@@ -834,12 +834,12 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
         }
 
         if (nextMessageTs != null) {
-            entry.anchorTs = nextMessageTs;
             if (entry.tsMs == null || entry.tsMs >= nextMessageTs) {
-                entry.tsMs = nextMessageTs - 1;
-            }
-            if (entry.tsMs != null) {
-                entry.orderKey = entry.tsMs - 0.1;
+                entry.anchorTs = nextMessageTs;
+                entry.tsMs = (entry.tsMs == null ? nextMessageTs : entry.tsMs) - 1;
+                if (entry.tsMs != null) {
+                    entry.orderKey = entry.tsMs - 0.1;
+                }
             }
         }
     }
