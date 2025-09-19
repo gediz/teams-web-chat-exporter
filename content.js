@@ -3,6 +3,7 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const $ = (sel, root = document) => root.querySelector(sel);
 
 let hudEnabled = true;
+let currentRunStartedAt = null;
 
 function clearHUD() {
     const existing = document.getElementById("__teamsExporterHUD");
@@ -22,11 +23,28 @@ function ensureHUD() {
     }
     return hud;
 }
-function hud(text) {
+function hud(text, { includeElapsed = true } = {}) {
     if (!hudEnabled) return;
     const hudNode = ensureHUD();
-    if (hudNode) hudNode.textContent = `Teams Exporter: ${text}`;
+    if (hudNode) {
+        let final = `Teams Exporter: ${text}`;
+        if (includeElapsed !== false && currentRunStartedAt) {
+            final += ` • elapsed ${formatElapsed(Date.now() - currentRunStartedAt)}`;
+        }
+        hudNode.textContent = final;
+    }
     chrome.runtime.sendMessage({ type: "SCRAPE_PROGRESS", payload: { phase: "hud", text } }).catch(() => { });
+}
+
+function formatElapsed(ms) {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) {
+        return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 // Core DOM hooks ------------------------------------------------
@@ -590,19 +608,20 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
                 continue;
             }
 
-            if (passes % 4 === 0) {
-                chrome.runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'scroll', passes, newHeight, messagesVisible: newCount, aggregated: agg.size, oldestTime, oldestId } }).catch(() => { });
-                hud(`scroll pass ${passes} • height ${newHeight} • seen ${agg.size}`);
-                console.debug('[Teams Exporter] scroll pass', {
-                    passes,
-                    newHeight,
-                    newCount,
-                    aggregated: agg.size,
-                    oldestTime,
-                    oldestId,
-                    reason: 'progress report'
-                });
-            }
+            const elapsedMs = currentRunStartedAt ? Date.now() - currentRunStartedAt : null;
+            const seen = agg.size;
+            chrome.runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'scroll', passes, newHeight, messagesVisible: newCount, aggregated: seen, seen, oldestTime, oldestId, elapsedMs } }).catch(() => { });
+            hud(`scroll pass ${passes} • seen ${seen}`);
+            console.debug('[Teams Exporter] scroll pass', {
+                passes,
+                newHeight,
+                newCount,
+                aggregated: seen,
+                oldestTime,
+                oldestId,
+                elapsedMs,
+                reason: 'progress report'
+            });
 
             if (stopAtISO) {
                 const oldestVisible = $('time[datetime]', nodes[0])?.getAttribute('datetime');
@@ -691,16 +710,19 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
                 if (!hudEnabled) clearHUD();
                 const scrapeOpts = { stopAtISO: stopAt, includeSystem, includeReactions, includeReplies: includeReplies !== false };
                 console.debug('[Teams Exporter] SCRAPE_TEAMS', location.href, msg.options);
+                currentRunStartedAt = Date.now();
                 hud('starting…');
                 const messages = await autoScrollAggregate(scrapeOpts);
                 chrome.runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'extract', messagesExtracted: messages.length } }).catch(() => { });
                 hud(`extracted ${messages.length} messages`);
+                currentRunStartedAt = null;
                 // meta can keep title; add timeRange later if you want
                 sendResponse({ messages, meta: { count: messages.length, title: document.title } });
             }
         } catch (e) {
             console.error('[Teams Exporter] Error:', e);
             hud(`error: ${e.message}`);
+            currentRunStartedAt = null;
             sendResponse({ error: e?.message || String(e) });
         }
     })();
