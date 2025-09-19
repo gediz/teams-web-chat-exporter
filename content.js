@@ -475,8 +475,9 @@ async function hydrateSparseMessages(agg, opts = {}) {
             if (!merged.avatar && reExtracted.message.avatar) merged.avatar = reExtracted.message.avatar;
             merged.edited = merged.edited || reExtracted.message.edited;
 
-            const newTsMs = reExtracted.tsMs ?? existing.tsMs ?? (merged.timestamp ? parseTimeStamp(merged.timestamp) : null);
-            agg.set(id, { message: merged, orderKey: existing.orderKey, tsMs: newTsMs });
+            const newTsMs = reExtracted?.tsMs ?? existing.tsMs ?? (merged.timestamp ? parseTimeStamp(merged.timestamp) : null);
+            const kind = existing.kind ?? reExtracted?.kind;
+            agg.set(id, { message: merged, orderKey: existing.orderKey, tsMs: newTsMs, kind });
 
             const status = needsHydration(merged, item);
             if (status.needs) nextPending.push({ id, item });
@@ -519,7 +520,8 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
         return {
             message: { id: dividerId, author: '[system]', timestamp: '', text, reactions: [], attachments: [], edited: false, avatar: null, replyTo: null, system: true },
             orderKey: approxMs,
-            tsMs: approxMs
+            tsMs: approxMs,
+            kind: 'system'
         };
     }
 
@@ -549,7 +551,7 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
 
     const orderKey = !Number.isNaN(tms) ? tms : (orderCtx.seqBase + orderCtx.seq++);
     const tsMs = !Number.isNaN(tms) ? tms : null;
-    return { message: msg, orderKey, tsMs };
+    return { message: msg, orderKey, tsMs, kind: 'message' };
 }
 
 // Aggregate while scrolling so virtualization can’t drop items
@@ -563,9 +565,9 @@ async function collectCurrentVisible(agg, opts, orderCtx) {
 
         const extracted = await extractOne(item, opts, lastAuthorRef, orderCtx);
         if (!extracted) continue;
-        const { message, orderKey, tsMs } = extracted;
+        const { message, orderKey, tsMs, kind } = extracted;
 
-        agg.set(message.id, { message, orderKey, tsMs });
+        agg.set(message.id, { message, orderKey, tsMs, kind });
         if (!message.system && message.timestamp) {
             const tms = Date.parse(message.timestamp);
             if (!Number.isNaN(tms)) { orderCtx.lastTimeMs = tms; orderCtx.yearHint = new Date(tms).getFullYear(); }
@@ -725,10 +727,34 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
     if (stopLimit != null) {
         filtered = entries.filter(entry => {
             const msg = entry.message;
+            const kind = entry.kind;
             const ts = entry.tsMs ?? (msg?.timestamp ? parseTimeStamp(msg.timestamp) : null);
+            if (kind === 'system') {
+                if (ts == null) return true;
+                return ts >= stopLimit;
+            }
             if (ts == null) return true;
             return ts >= stopLimit;
         });
+        const firstMessageIdx = filtered.findIndex(entry => entry.kind !== 'system');
+        if (firstMessageIdx >= 0) {
+            const firstMessage = filtered[firstMessageIdx];
+            const idxInEntries = entries.indexOf(firstMessage);
+            if (idxInEntries > 0) {
+                for (let i = idxInEntries - 1; i >= 0; i--) {
+                    if (entries[i].kind === 'system') {
+                        const blocker = entries[i];
+                        const alreadyIncluded = filtered.includes(blocker);
+                        if (!alreadyIncluded) {
+                            filtered.splice(firstMessageIdx, 0, blocker);
+                        }
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     return filtered.map(e => e.message);
