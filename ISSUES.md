@@ -10,3 +10,9 @@ exported file: issue-02-exported-file.html
 3. instead of stopAt, why not let user provide a date range?
 
 4. is a "stop" button needed? or is it better to close tab?
+
+5. if "seen" message is 0, why still invoke "save file" dialog? is it necessary?
+
+6. If tab is refreshed, reset badge
+
+7. After >999 make it like 1k, 1.2k, 5k, etc. humanize big numbers.
