@@ -437,13 +437,21 @@ function handleStartExportMessage(msg, sendResponse) {
     const scrapeOptions = data.scrapeOptions || {};
     const buildOptions = data.buildOptions || {};
 
-    const startedAt = Date.now();
-    updateActiveExport(tabId, { startedAt, phase: 'starting', lastStatus: null });
-    broadcastStatus({ tabId, phase: 'starting', startedAt });
-
     (async () => {
+        let startedAt;
         try {
             await ensureContentScript(tabId);
+            const ctx = await sendMessageToTab(tabId, { type: 'CHECK_CHAT_CONTEXT' });
+            if (!ctx?.ok) {
+                const message = ctx?.reason || 'Open a chat conversation before exporting.';
+                sendResponse({ error: message });
+                return;
+            }
+
+            startedAt = Date.now();
+            updateActiveExport(tabId, { startedAt, phase: 'starting', lastStatus: null });
+            broadcastStatus({ tabId, phase: 'starting', startedAt });
+
             broadcastStatus({ tabId, phase: 'scrape:start' });
             const scrapeRes = await requestScrape(tabId, scrapeOptions);
             broadcastStatus({ tabId, phase: 'scrape:complete', messages: scrapeRes.messages?.length || 0 });
@@ -463,7 +471,9 @@ function handleStartExportMessage(msg, sendResponse) {
             broadcastStatus({ tabId, phase: 'error', error: message });
             sendResponse({ error: message });
         } finally {
-            activeExports.delete(tabId);
+            if (startedAt) {
+                activeExports.delete(tabId);
+            }
         }
     })();
 }

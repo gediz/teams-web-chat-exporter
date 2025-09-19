@@ -5,6 +5,31 @@ const $ = (sel, root = document) => root.querySelector(sel);
 let hudEnabled = true;
 let currentRunStartedAt = null;
 
+function isChatNavSelected() {
+    return Boolean(document.querySelector('[data-tid="app-bar-wrapper"] button[aria-label="Chat"][aria-pressed="true"]'));
+}
+
+function hasChatMessageSurface() {
+    return Boolean(
+        document.querySelector('[data-tid="message-pane-list-viewport"], [data-tid="chat-message-list"], [data-tid="chat-pane"]')
+    );
+}
+
+function checkChatContext() {
+    const navSelected = isChatNavSelected();
+    const hasSurface = hasChatMessageSurface();
+
+    if (navSelected && hasSurface) {
+        return { ok: true };
+    }
+
+    if (!navSelected) {
+        return { ok: false, reason: 'Switch to the Chat app in Teams before exporting.' };
+    }
+
+    return { ok: false, reason: 'Open a chat conversation before exporting.' };
+}
+
 function clearHUD() {
     const existing = document.getElementById("__teamsExporterHUD");
     if (existing) existing.remove();
@@ -704,6 +729,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     (async () => {
         try {
             if (msg.type === 'PING') { sendResponse({ ok: true }); return; }
+            if (msg.type === 'CHECK_CHAT_CONTEXT') { sendResponse(checkChatContext()); return; }
             if (msg.type === 'SCRAPE_TEAMS') {
                 const { stopAt, includeReactions, includeSystem, includeReplies, showHud } = msg.options || {};
                 hudEnabled = showHud !== false;
