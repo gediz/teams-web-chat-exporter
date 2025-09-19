@@ -726,35 +726,21 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
     let filtered = entries;
     if (stopLimit != null) {
         filtered = entries.filter(entry => {
-            const msg = entry.message;
-            const kind = entry.kind;
-            const ts = entry.tsMs ?? (msg?.timestamp ? parseTimeStamp(msg.timestamp) : null);
-            if (kind === 'system') {
-                if (ts == null) return true;
-                return ts >= stopLimit;
+            const ts = entry.tsMs ?? (entry.message?.timestamp ? parseTimeStamp(entry.message.timestamp) : null);
+            if (entry.kind === 'system') {
+                // keep system divider if any subsequent message we kept shares the same day bucket
+                const idx = entries.indexOf(entry);
+                const hasFollowing = entries.slice(idx + 1).some(e => {
+                    if (e.kind !== 'message') return false;
+                    const msgTs = e.tsMs ?? (e.message?.timestamp ? parseTimeStamp(e.message.timestamp) : null);
+                    if (msgTs == null) return true;
+                    return stopLimit == null || msgTs >= stopLimit;
+                });
+                return hasFollowing;
             }
             if (ts == null) return true;
             return ts >= stopLimit;
         });
-        const firstMessageIdx = filtered.findIndex(entry => entry.kind !== 'system');
-        if (firstMessageIdx >= 0) {
-            const firstMessage = filtered[firstMessageIdx];
-            const idxInEntries = entries.indexOf(firstMessage);
-            if (idxInEntries > 0) {
-                for (let i = idxInEntries - 1; i >= 0; i--) {
-                    if (entries[i].kind === 'system') {
-                        const blocker = entries[i];
-                        const alreadyIncluded = filtered.includes(blocker);
-                        if (!alreadyIncluded) {
-                            filtered.splice(firstMessageIdx, 0, blocker);
-                        }
-                        break;
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
     }
 
     return filtered.map(e => e.message);
