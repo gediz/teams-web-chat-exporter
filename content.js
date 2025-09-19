@@ -547,7 +547,8 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
         const dividerId = (bodyMid || text || 'system').toLowerCase();
         const numericMid = bodyMid && Number(bodyMid);
 
-        let approxMs = parseDateDividerText(text, orderCtx.yearHint);
+        const parsedTs = parseDateDividerText(text, orderCtx.yearHint);
+        let approxMs = parsedTs;
         if (!Number.isFinite(approxMs)) {
             if (Number.isFinite(numericMid)) {
                 approxMs = numericMid;
@@ -556,10 +557,10 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
             } else {
                 approxMs = orderCtx.systemCursor++;
             }
+        } else {
+            orderCtx.lastTimeMs = approxMs;
+            orderCtx.yearHint = new Date(approxMs).getFullYear();
         }
-
-        orderCtx.lastTimeMs = approxMs;
-        orderCtx.yearHint = new Date(approxMs).getFullYear();
         return {
             message: { id: dividerId, author: '[system]', timestamp: '', text, reactions: [], attachments: [], edited: false, avatar: null, replyTo: null, system: true },
             orderKey: approxMs,
@@ -766,10 +767,30 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
     const entries = Array.from(agg.values());
     entries.sort((a, b) => a.orderKey - b.orderKey); // timestamps first; dividers placed near their discovery/parsed time
 
+    // Align system dividers just before the next message when their timestamp is ambiguous
+    let nextMessageTs = null;
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const entry = entries[i];
+        if (entry.kind === 'message') {
+            if (entry.tsMs != null) nextMessageTs = entry.tsMs;
+            continue;
+        }
+
+        if (nextMessageTs != null) {
+            entry.anchorTs = nextMessageTs;
+            if (entry.tsMs == null || entry.tsMs >= nextMessageTs) {
+                entry.tsMs = nextMessageTs - 1;
+            }
+            if (entry.tsMs != null) {
+                entry.orderKey = entry.tsMs - 0.1;
+            }
+        }
+    }
+
     let filtered = entries;
     if (stopLimit != null) {
         filtered = entries.filter(entry => {
-            const ts = entry.tsMs ?? (entry.message?.timestamp ? parseTimeStamp(entry.message.timestamp) : null);
+            const ts = entry.anchorTs ?? entry.tsMs ?? (entry.message?.timestamp ? parseTimeStamp(entry.message.timestamp) : null);
             if (entry.kind === 'system') {
                 if (ts == null) return false;
                 return ts >= stopLimit;
