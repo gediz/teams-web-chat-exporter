@@ -5,7 +5,16 @@ log("boot");
 chrome.runtime.onInstalled.addListener(() => log("onInstalled"));
 chrome.runtime.onStartup?.addListener(() => log("onStartup"));
 
-const activeExports = new Map(); // tabId -> { startedAt }
+const activeExports = new Map(); // tabId -> { startedAt, lastStatus }
+const TERMINAL_PHASES = new Set(['complete', 'error']);
+
+function updateActiveExport(tabId, patch = {}) {
+    if (tabId == null) return;
+    const prev = activeExports.get(tabId) || {};
+    const next = { ...prev, ...patch };
+    activeExports.set(tabId, next);
+    return next;
+}
 
 function sanitizeBase(name) {
     const raw = (name || "teams-chat").toString();
@@ -379,6 +388,19 @@ async function buildAndDownload({ messages = [], meta = {}, format = 'json', sav
 }
 
 function broadcastStatus(payload) {
+    const tabId = payload?.tabId;
+    if (tabId != null) {
+        const phase = payload?.phase;
+        if (phase) {
+            if (TERMINAL_PHASES.has(phase)) {
+                updateActiveExport(tabId, { lastStatus: payload, phase, completedAt: Date.now() });
+            } else {
+                updateActiveExport(tabId, { lastStatus: payload, phase });
+            }
+        } else {
+            updateActiveExport(tabId, { lastStatus: payload });
+        }
+    }
     chrome.runtime.sendMessage({ type: 'EXPORT_STATUS', ...payload }).catch(() => { });
 }
 
@@ -408,7 +430,7 @@ function handleStartExportMessage(msg, sendResponse) {
     const scrapeOptions = data.scrapeOptions || {};
     const buildOptions = data.buildOptions || {};
 
-    activeExports.set(tabId, { startedAt: Date.now() });
+    updateActiveExport(tabId, { startedAt: Date.now(), phase: 'starting', lastStatus: null });
     broadcastStatus({ tabId, phase: 'starting' });
 
     (async () => {
@@ -454,5 +476,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'START_EXPORT') {
         handleStartExportMessage(msg, sendResponse);
         return true;
+    }
+
+    if (msg.type === 'GET_EXPORT_STATUS') {
+        const tabId = typeof msg.tabId === 'number' ? msg.tabId : sender?.tab?.id;
+        if (typeof tabId !== 'number') {
+            sendResponse({ active: false });
+            return;
+        }
+        const info = activeExports.get(tabId) || null;
+        sendResponse({ active: Boolean(info), info });
+        return;
     }
 });
