@@ -4,6 +4,7 @@ const statusEl = $("#status");
 const runBtn = $("#run");
 const bannerEl = $("#banner");
 const bannerMessageEl = bannerEl?.querySelector(".alert-message");
+const quickRangeButtons = Array.from(document.querySelectorAll('#quickRanges .chip'));
 
 const DEFAULT_RUN_LABEL = runBtn.querySelector(".label")?.textContent || "Export current chat";
 const BUSY_LABEL_EXPORTING = "Exporting…";
@@ -23,6 +24,7 @@ const controls = {
 
 const DEFAULT_OPTIONS = {
     stopAt: "",
+    stopAtISO: "",
     format: "json",
     includeReplies: true,
     includeReactions: true,
@@ -72,7 +74,7 @@ runBtn.addEventListener("click", async () => {
         currentTabId = tab.id;
         await pingSW(); // ensure SW is alive
 
-        const stopAt = $("#stopAt").value ? new Date($("#stopAt").value).toISOString() : null;
+        const stopAt = getValidatedStopAtISO();
         const format = $("#format").value;
         const includeReplies = $("#includeReplies").checked;
         const includeReactions = $("#includeReactions").checked;
@@ -134,18 +136,26 @@ async function loadStoredOptions() {
 }
 
 function applyOptions(opts) {
-    controls.stopAt.value = opts.stopAt || "";
+    let stopLocal = opts.stopAt || isoToLocalInput(opts.stopAtISO) || "";
+    if (stopLocal.includes('T') && !stopLocal.includes(' ')) {
+        stopLocal = stopLocal.replace('T', ' ');
+    }
+    controls.stopAt.value = stopLocal;
     controls.format.value = opts.format || DEFAULT_OPTIONS.format;
     controls.includeReplies.checked = Boolean(opts.includeReplies);
     controls.includeReactions.checked = Boolean(opts.includeReactions);
     controls.includeSystem.checked = Boolean(opts.includeSystem);
     controls.embedAvatars.checked = Boolean(opts.embedAvatars);
     controls.showHud.checked = Boolean(opts.showHud);
+    updateQuickRangeActive();
 }
 
 function collectOptions() {
+    const stopLocal = (controls.stopAt.value || "").trim();
+    const stopIso = stopLocal ? localInputToISO(stopLocal) : "";
     return {
-        stopAt: controls.stopAt.value || "",
+        stopAt: stopLocal,
+        stopAtISO: stopIso,
         format: controls.format.value || DEFAULT_OPTIONS.format,
         includeReplies: controls.includeReplies.checked,
         includeReactions: controls.includeReactions.checked,
@@ -168,6 +178,13 @@ function wireOptionPersistence() {
     for (const el of inputs) {
         el.addEventListener("change", () => {
             persistOptions();
+            if (el === controls.stopAt) updateQuickRangeActive();
+        });
+    }
+
+    for (const btn of quickRangeButtons) {
+        btn.addEventListener("click", () => {
+            handleQuickRange(btn.dataset.range || "none");
         });
     }
 }
@@ -320,6 +337,120 @@ function normalizeStart(value) {
         if (!Number.isNaN(date)) return date;
     }
     return null;
+}
+
+function getValidatedStopAtISO() {
+    const raw = (controls.stopAt.value || "").trim();
+    if (!raw) return null;
+    const iso = localInputToISO(raw);
+    if (!iso) {
+        const message = "Enter a valid stop date/time.";
+        showErrorBanner(message);
+        throw new Error(message);
+    }
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) {
+        const message = "Enter a valid stop date/time.";
+        showErrorBanner(message);
+        throw new Error(message);
+    }
+    if (date.getTime() > Date.now()) {
+        const message = "Stop date can't be in the future.";
+        showErrorBanner(message);
+        throw new Error(message);
+    }
+    return iso;
+}
+
+function localInputToISO(localValue) {
+    if (!localValue) return "";
+    let normalized = localValue.trim();
+    if (!normalized) return "";
+    normalized = normalized.replace(/\//g, '-');
+    normalized = normalized.replace(/\s+/g, ' ');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+        normalized += ' 00:00';
+    }
+    if (normalized.includes(' ')) {
+        normalized = normalized.replace(' ', 'T');
+    }
+    const date = new Date(normalized);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toISOString();
+}
+
+function isoToLocalInput(isoValue) {
+    if (!isoValue) return "";
+    const date = new Date(isoValue);
+    if (Number.isNaN(date.getTime())) return "";
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+function handleQuickRange(range) {
+    const normalized = range || "none";
+    if (normalized === "none") {
+        controls.stopAt.value = "";
+        persistOptions();
+        updateQuickRangeActive();
+        return;
+    }
+
+    const now = new Date();
+    let offsetMs = 0;
+    if (normalized.endsWith("d")) {
+        const days = Number(normalized.replace("d", ""));
+        if (!Number.isNaN(days)) {
+            offsetMs = days * 24 * 60 * 60 * 1000;
+        }
+    }
+
+    if (offsetMs > 0) {
+        const target = new Date(now.getTime() - offsetMs);
+        controls.stopAt.value = isoToLocalInput(target.toISOString());
+    } else {
+        controls.stopAt.value = "";
+    }
+
+    persistOptions();
+    updateQuickRangeActive();
+}
+
+function updateQuickRangeActive() {
+    if (!quickRangeButtons.length) return;
+    const raw = (controls.stopAt.value || "").trim();
+    let active = "none";
+    if (raw) {
+        const iso = localInputToISO(raw);
+        if (iso) {
+            const date = new Date(iso);
+            const now = Date.now();
+            const diff = now - date.getTime();
+            const oneMinute = 60 * 1000;
+            const ranges = [
+                { key: "1d", ms: 24 * 60 * 60 * 1000 },
+                { key: "7d", ms: 7 * 24 * 60 * 60 * 1000 },
+                { key: "30d", ms: 30 * 24 * 60 * 60 * 1000 }
+            ];
+            for (const r of ranges) {
+                if (Math.abs(diff - r.ms) <= 30 * oneMinute) { // within 30 minutes tolerance
+                    active = r.key;
+                    break;
+                }
+            }
+        }
+    }
+    for (const btn of quickRangeButtons) {
+        if ((btn.dataset.range || "none") === active) {
+            btn.classList.add("active");
+        } else {
+            btn.classList.remove("active");
+        }
+    }
 }
 
 function showErrorBanner(message, { persist = true } = {}) {

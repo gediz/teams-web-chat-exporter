@@ -53,6 +53,33 @@
             margin: 8px 0;
         }
 
+        #quickRanges {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        #quickRanges .chip {
+            border-radius: 16px;
+            padding: 4px 10px;
+            font-size: 12px;
+            border: 1px solid #d1d5db;
+            background: #f8fafc;
+            cursor: pointer;
+            transition: background 0.2s ease, border-color 0.2s ease;
+        }
+
+        #quickRanges .chip:hover {
+            background: #eef2ff;
+            border-color: #a5b4fc;
+        }
+
+        #quickRanges .chip.active {
+            background: #4338ca;
+            border-color: #4338ca;
+            color: #fff;
+        }
+
         .alert {
             display: none;
             margin: 8px 0;
@@ -84,8 +111,12 @@
             margin: 6px 0 2px;
         }
 
-        input[type="datetime-local"] {
+        #stopAt {
             width: 100%;
+            padding: 6px 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
         }
 
         textarea {
@@ -107,8 +138,14 @@
     </div>
     <div class="row">
         <label>Stop at (oldest date to load)</label>
-        <input id="stopAt" type="datetime-local" />
+        <input id="stopAt" type="text" placeholder="YYYY-MM-DD HH:MM (local time)" autocomplete="off" />
         <small>Leave empty to load all visible history.</small>
+    </div>
+    <div class="row" id="quickRanges" aria-label="Quick ranges">
+        <button type="button" class="chip" data-range="none">No limit</button>
+        <button type="button" class="chip" data-range="1d">Last 24h</button>
+        <button type="button" class="chip" data-range="7d">Last 7d</button>
+        <button type="button" class="chip" data-range="30d">Last 30d</button>
     </div>
     <div class="row">
         <label>Export format</label>
