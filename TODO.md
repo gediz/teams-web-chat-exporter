@@ -34,7 +34,7 @@
 - [x] Disable Export button during runs and show spinner indicator
 - [x] Display elapsed time in status area
 - [x] Prefill `stopAt` input with last-used value
-- [ ] Provide inline validation/error banner pattern
+- [x] Provide inline validation/error banner pattern
 - [ ] Implement stricter option validation (e.g., ensure stop date is valid & Teams tab available)
 - [ ] Update extension badge with parsed-message counter during exports
 
