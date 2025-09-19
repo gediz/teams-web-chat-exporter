@@ -543,18 +543,23 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
         if (!opts.includeSystem) return null;
         const wrapper = $('.fui-Divider__wrapper', item); // "7 September", "Monday", etc. :contentReference[oaicite:6]{index=6}
         const text = (wrapper?.innerText || item.innerText || '').trim() || 'system';
-        const dividerId = (wrapper?.id || '').trim() || text.toLowerCase();
+        const bodyMid = wrapper?.id || $('[data-mid]', item)?.getAttribute('data-mid') || item.getAttribute('data-mid');
+        const dividerId = (bodyMid || text || 'system').toLowerCase();
+        const numericMid = bodyMid && Number(bodyMid);
+
         let approxMs = parseDateDividerText(text, orderCtx.yearHint);
-        if (approxMs == null) {
-            if (typeof orderCtx.lastTimeMs === 'number') {
+        if (!Number.isFinite(approxMs)) {
+            if (Number.isFinite(numericMid)) {
+                approxMs = numericMid;
+            } else if (typeof orderCtx.lastTimeMs === 'number') {
                 approxMs = orderCtx.lastTimeMs - 1;
             } else {
                 approxMs = orderCtx.systemCursor++;
             }
-        } else {
-            orderCtx.lastTimeMs = approxMs;
-            orderCtx.yearHint = new Date(approxMs).getFullYear();
         }
+
+        orderCtx.lastTimeMs = approxMs;
+        orderCtx.yearHint = new Date(approxMs).getFullYear();
         return {
             message: { id: dividerId, author: '[system]', timestamp: '', text, reactions: [], attachments: [], edited: false, avatar: null, replyTo: null, system: true },
             orderKey: approxMs,
