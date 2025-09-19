@@ -533,6 +533,44 @@ function parseDateDividerText(txt, yearHint) {
     return null;
 }
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function startOfLocalDay(ts) {
+    const d = new Date(ts);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+}
+
+function formatDayLabelForExport(ts) {
+    const dayStart = startOfLocalDay(ts);
+    const todayStart = startOfLocalDay(Date.now());
+    const diffDays = Math.round((todayStart - dayStart) / MS_PER_DAY);
+
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays === -1) return 'Tomorrow';
+    if (diffDays >= -6 && diffDays <= 6) {
+        return new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(new Date(ts));
+    }
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date(ts));
+}
+
+function makeDayDivider(dayKey, ts) {
+    const label = formatDayLabelForExport(ts);
+    return {
+        id: `day-${dayKey}`,
+        author: '[system]',
+        timestamp: '',
+        text: label,
+        reactions: [],
+        attachments: [],
+        edited: false,
+        avatar: null,
+        replyTo: null,
+        system: true
+    };
+}
+
 // Extract one item into a message object + an orderKey
 async function extractOne(item, opts, lastAuthorRef, orderCtx) {
     const body = $('[data-tid="chat-pane-message"]', item) || item;
@@ -541,31 +579,43 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
     // Date/system divider
     if (isSystem) {
         if (!opts.includeSystem) return null;
-        const wrapper = $('.fui-Divider__wrapper', item) || $('[data-tid="control-message-renderer"]', item); // dividers and control messages
+        const dividerWrapper = $('.fui-Divider__wrapper', item);
+        const controlRenderer = $('[data-tid="control-message-renderer"]', item);
+
+        if (dividerWrapper && !controlRenderer) {
+            const text = (dividerWrapper.innerText || '').trim() || 'system';
+            const bodyMid = dividerWrapper.id || $('[data-mid]', item)?.getAttribute('data-mid') || item.getAttribute('data-mid');
+            const numericMid = bodyMid && Number(bodyMid);
+            const parsedTs = parseDateDividerText(text, orderCtx.yearHint);
+            return {
+                kind: 'day-divider',
+                label: text,
+                tsMs: Number.isFinite(parsedTs) ? parsedTs : (Number.isFinite(numericMid) ? numericMid : null)
+            };
+        }
+
+        const wrapper = controlRenderer || dividerWrapper || item;
         const text = (wrapper?.innerText || item.innerText || '').trim() || 'system';
         const bodyMid = wrapper?.id || $('[data-mid]', item)?.getAttribute('data-mid') || item.getAttribute('data-mid');
         const dividerId = (bodyMid || text || 'system').toLowerCase();
         const numericMid = bodyMid && Number(bodyMid);
-
         const parsedTs = parseDateDividerText(text, orderCtx.yearHint);
-        let approxMs = parsedTs;
-        if (!Number.isFinite(approxMs)) {
-            if (Number.isFinite(numericMid)) {
-                approxMs = numericMid;
-            } else if (typeof orderCtx.lastTimeMs === 'number') {
-                approxMs = orderCtx.lastTimeMs - 1;
-            } else {
-                approxMs = orderCtx.systemCursor++;
-            }
-        } else {
-            orderCtx.lastTimeMs = approxMs;
-            orderCtx.yearHint = new Date(approxMs).getFullYear();
+        const approxMs = Number.isFinite(parsedTs)
+            ? parsedTs
+            : Number.isFinite(numericMid)
+                ? numericMid
+                : typeof orderCtx.lastTimeMs === 'number'
+                    ? orderCtx.lastTimeMs - 1
+                    : orderCtx.systemCursor++;
+        if (Number.isFinite(parsedTs)) {
+            orderCtx.lastTimeMs = parsedTs;
+            orderCtx.yearHint = new Date(parsedTs).getFullYear();
         }
         return {
             message: { id: dividerId, author: '[system]', timestamp: '', text, reactions: [], attachments: [], edited: false, avatar: null, replyTo: null, system: true },
             orderKey: approxMs,
             tsMs: approxMs,
-            kind: 'system'
+            kind: 'system-control'
         };
     }
 
@@ -609,6 +659,13 @@ async function collectCurrentVisible(agg, opts, orderCtx) {
 
         const extracted = await extractOne(item, opts, lastAuthorRef, orderCtx);
         if (!extracted) continue;
+        if (extracted.kind === 'day-divider') {
+            if (Number.isFinite(extracted.tsMs)) {
+                orderCtx.lastTimeMs = extracted.tsMs;
+                orderCtx.yearHint = new Date(extracted.tsMs).getFullYear();
+            }
+            continue;
+        }
         const { message, orderKey, tsMs, kind } = extracted;
 
         agg.set(message.id, { message, orderKey, tsMs, kind });
@@ -787,40 +844,31 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
         }
     }
 
-    let filtered = entries;
+    let filtered = entries.filter(entry => entry.kind !== 'day-divider');
     if (stopLimit != null) {
-        filtered = entries.filter(entry => {
+        filtered = filtered.filter(entry => {
             const ts = entry.anchorTs ?? entry.tsMs ?? (entry.message?.timestamp ? parseTimeStamp(entry.message.timestamp) : null);
-            if (entry.kind === 'system') {
-                if (ts == null) return false;
-                return ts >= stopLimit;
-            }
             if (ts == null) return true;
             return ts >= stopLimit;
         });
-
-        const firstMessageIdx = filtered.findIndex(entry => entry.kind === 'message');
-        if (firstMessageIdx > 0) {
-            const firstMessage = filtered[firstMessageIdx];
-            const firstTs = firstMessage.tsMs ?? (firstMessage.message?.timestamp ? parseTimeStamp(firstMessage.message.timestamp) : null);
-            const idxInEntries = entries.indexOf(firstMessage);
-            for (let i = idxInEntries - 1; i >= 0; i--) {
-                const candidate = entries[i];
-                if (candidate.kind === 'system') {
-                    const ts = candidate.tsMs ?? (candidate.message?.timestamp ? parseTimeStamp(candidate.message.timestamp) : null);
-                    if (ts != null && ts >= stopLimit && (firstTs == null || ts <= firstTs)) {
-                        if (!filtered.includes(candidate)) {
-                            filtered.splice(firstMessageIdx, 0, candidate);
-                        }
-                    }
-                    break;
-                }
-                if (candidate.kind === 'message') break;
-            }
-        }
     }
 
-    return filtered.map(e => e.message);
+    const finalMessages = [];
+    let currentDayKey = null;
+    for (const entry of filtered) {
+        const msg = entry.message;
+        const ts = entry.tsMs ?? (msg?.timestamp ? parseTimeStamp(msg.timestamp) : null);
+        if (ts != null) {
+            const dayKey = startOfLocalDay(ts);
+            if (dayKey !== currentDayKey) {
+                finalMessages.push(makeDayDivider(dayKey, ts));
+                currentDayKey = dayKey;
+            }
+        }
+        finalMessages.push(msg);
+    }
+
+    return finalMessages;
 }
 
 // Remove quoted/preview blocks from a cloned content node so root "text" doesn't include them
