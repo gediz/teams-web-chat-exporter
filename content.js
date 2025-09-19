@@ -475,7 +475,8 @@ async function hydrateSparseMessages(agg, opts = {}) {
             if (!merged.avatar && reExtracted.message.avatar) merged.avatar = reExtracted.message.avatar;
             merged.edited = merged.edited || reExtracted.message.edited;
 
-            agg.set(id, { message: merged, orderKey: existing.orderKey });
+            const newTsMs = reExtracted.tsMs ?? existing.tsMs ?? (merged.timestamp ? parseTimeStamp(merged.timestamp) : null);
+            agg.set(id, { message: merged, orderKey: existing.orderKey, tsMs: newTsMs });
 
             const status = needsHydration(merged, item);
             if (status.needs) nextPending.push({ id, item });
@@ -517,7 +518,8 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
         if (approxMs == null) approxMs = (orderCtx.lastTimeMs ?? Date.now()) + 1; // place after last seen
         return {
             message: { id: dividerId, author: '[system]', timestamp: '', text, reactions: [], attachments: [], edited: false, avatar: null, replyTo: null, system: true },
-            orderKey: approxMs
+            orderKey: approxMs,
+            tsMs: approxMs
         };
     }
 
@@ -546,7 +548,8 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
     const msg = { id: mid, author, timestamp: ts, text, reactions, attachments, edited, avatar, replyTo, system: false };
 
     const orderKey = !Number.isNaN(tms) ? tms : (orderCtx.seqBase + orderCtx.seq++);
-    return { message: msg, orderKey };
+    const tsMs = !Number.isNaN(tms) ? tms : null;
+    return { message: msg, orderKey, tsMs };
 }
 
 // Aggregate while scrolling so virtualization can’t drop items
@@ -560,9 +563,9 @@ async function collectCurrentVisible(agg, opts, orderCtx) {
 
         const extracted = await extractOne(item, opts, lastAuthorRef, orderCtx);
         if (!extracted) continue;
-        const { message, orderKey } = extracted;
+        const { message, orderKey, tsMs } = extracted;
 
-        agg.set(message.id, { message, orderKey });
+        agg.set(message.id, { message, orderKey, tsMs });
         if (!message.system && message.timestamp) {
             const tms = Date.parse(message.timestamp);
             if (!Number.isNaN(tms)) { orderCtx.lastTimeMs = tms; orderCtx.yearHint = new Date(tms).getFullYear(); }
@@ -649,8 +652,17 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
 
             const elapsedMs = currentRunStartedAt ? Date.now() - currentRunStartedAt : null;
             const seen = agg.size;
-            chrome.runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'scroll', passes, newHeight, messagesVisible: newCount, aggregated: seen, seen, oldestTime, oldestId, elapsedMs } }).catch(() => { });
-            hud(`scroll pass ${passes} • seen ${seen}`);
+            let filteredSeen = seen;
+            if (stopLimit != null) {
+                filteredSeen = 0;
+                for (const entry of agg.values()) {
+                    const candidate = entry?.tsMs ?? (entry?.message?.timestamp ? parseTimeStamp(entry.message.timestamp) : null);
+                    if (candidate == null || candidate >= stopLimit) filteredSeen++;
+                }
+            }
+
+            chrome.runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'scroll', passes, newHeight, messagesVisible: newCount, aggregated: seen, seen: filteredSeen, filteredSeen, oldestTime, oldestId, elapsedMs } }).catch(() => { });
+            hud(`scroll pass ${passes} • seen ${filteredSeen}`);
             console.debug('[Teams Exporter] scroll pass', {
                 passes,
                 newHeight,
@@ -713,12 +725,7 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
     if (stopLimit != null) {
         filtered = entries.filter(entry => {
             const msg = entry.message;
-            if (!msg || msg.system) {
-                const ts = msg?.timestamp ? parseTimeStamp(msg.timestamp) : null;
-                if (ts == null) return true;
-                return ts >= stopLimit;
-            }
-            const ts = msg.timestamp ? parseTimeStamp(msg.timestamp) : null;
+            const ts = entry.tsMs ?? (msg?.timestamp ? parseTimeStamp(msg.timestamp) : null);
             if (ts == null) return true;
             return ts >= stopLimit;
         });

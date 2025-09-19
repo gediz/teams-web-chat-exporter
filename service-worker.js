@@ -503,7 +503,7 @@ function updateBadgeForStatus(payload) {
 
 function updateBadgeForProgress(progress) {
     if (!progress) return;
-    const seen = progress.seen ?? progress.aggregated ?? progress.messagesVisible;
+    const seen = progress.filteredSeen ?? progress.seen ?? progress.aggregated ?? progress.messagesVisible;
     if (typeof seen === 'number' && seen >= 0) {
         setBadge(String(seen));
     }
