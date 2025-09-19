@@ -36,7 +36,14 @@
 - [x] Prefill `stopAt` input with last-used value
 - [x] Provide inline validation/error banner pattern
 - [x] Implement stricter option validation (e.g., ensure stop date is valid & Teams tab available)
-- [ ] Update extension badge with parsed-message counter during exports
+- [x] Update extension badge with parsed-message counter during exports
+
+## Possible Optimizations
+- [ ] Declare an explicit `action.default_icon` in the manifest so Chrome always renders badge text
+- [ ] Cache parsed timestamps in aggregation map to avoid repeated `Date.parse` calls during filtering
+- [ ] Debounce popup option persistence to reduce `chrome.storage` writes while typing
+- [ ] Rate-limit badge updates so rapid scroll passes don’t spam `setBadge`
+- [ ] Clear badge immediately when chat-context check fails before an export starts
 
 ## Future Enhancements
 - [ ] Plan incremental exports (persist last timestamp, diff collection)
