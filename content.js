@@ -516,7 +516,16 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
         const text = (wrapper?.innerText || item.innerText || '').trim() || 'system';
         const dividerId = (wrapper?.id || '').trim() || text.toLowerCase();
         let approxMs = parseDateDividerText(text, orderCtx.yearHint);
-        if (approxMs == null) approxMs = (orderCtx.lastTimeMs ?? Date.now()) + 1; // place after last seen
+        if (approxMs == null) {
+            if (typeof orderCtx.lastTimeMs === 'number') {
+                approxMs = orderCtx.lastTimeMs - 1;
+            } else {
+                approxMs = orderCtx.systemCursor++;
+            }
+        } else {
+            orderCtx.lastTimeMs = approxMs;
+            orderCtx.yearHint = new Date(approxMs).getFullYear();
+        }
         return {
             message: { id: dividerId, author: '[system]', timestamp: '', text, reactions: [], attachments: [], edited: false, avatar: null, replyTo: null, system: true },
             orderKey: approxMs,
@@ -583,7 +592,7 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
     if (!scroller) throw new Error('Scroller not found');
 
     const agg = new Map();         // id -> {message, orderKey}
-    const orderCtx = { lastTimeMs: undefined, yearHint: undefined, seqBase: Date.now(), seq: 0, lastAuthor: '' };
+    const orderCtx = { lastTimeMs: undefined, yearHint: undefined, seqBase: Date.now(), seq: 0, lastAuthor: '', systemCursor: -9e15 };
 
     // 0) Pre-capture bottom (newest window)
     scroller.scrollTop = scroller.scrollHeight;
