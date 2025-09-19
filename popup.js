@@ -41,7 +41,8 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === "SCRAPE_PROGRESS") {
         const p = msg.payload || {};
         if (p.phase === "scroll") {
-            setStatus(`Scrolling… pass ${p.passes} • height ${p.newHeight} • visible msgs ${p.messagesVisible}`);
+            const seen = p.seen ?? p.aggregated ?? p.messagesVisible ?? 0;
+            setStatus(`Scrolling… pass ${p.passes} • seen ${seen}`);
         } else if (p.phase === "extract") {
             setStatus(`Extracting… found ${p.messagesExtracted} messages`);
         } else if (p.phase === "hud") {

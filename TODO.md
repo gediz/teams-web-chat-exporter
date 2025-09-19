@@ -32,8 +32,8 @@
 
 ## UX Polish
 - [x] Disable Export button during runs and show spinner indicator
-- [ ] Display elapsed time in status area (skip remaining estimate)
-- [ ] Prefill `stopAt` input with last-used value
+- [x] Display elapsed time in status area
+- [x] Prefill `stopAt` input with last-used value
 - [ ] Provide inline validation/error banner pattern
 - [ ] Update extension badge with parsed-message counter during exports
 
