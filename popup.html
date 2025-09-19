@@ -53,6 +53,32 @@
             margin: 8px 0;
         }
 
+        .alert {
+            display: none;
+            margin: 8px 0;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .alert.show {
+            display: block;
+        }
+
+        .alert.error {
+            background: #fef2f2;
+            border-color: #fca5a5;
+            color: #b91c1c;
+        }
+
+        .alert .alert-title {
+            font-weight: 600;
+            display: block;
+            margin-bottom: 4px;
+        }
+
         label {
             display: block;
             margin: 6px 0 2px;
@@ -75,6 +101,10 @@
 
 <body>
     <h3>Teams Chat Exporter</h3>
+    <div id="banner" class="alert error" role="alert" aria-live="assertive">
+        <span class="alert-title">Error</span>
+        <span class="alert-message"></span>
+    </div>
     <div class="row">
         <label>Stop at (oldest date to load)</label>
         <input id="stopAt" type="datetime-local" />

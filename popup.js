@@ -2,11 +2,14 @@
 const $ = (s) => document.querySelector(s);
 const statusEl = $("#status");
 const runBtn = $("#run");
+const bannerEl = $("#banner");
+const bannerMessageEl = bannerEl?.querySelector(".alert-message");
 
 const DEFAULT_RUN_LABEL = runBtn.querySelector(".label")?.textContent || "Export current chat";
 const BUSY_LABEL_EXPORTING = "Exporting…";
 const BUSY_LABEL_BUILDING = "Building…";
 const STORAGE_KEY = "teamsExporterOptions";
+const ERROR_STORAGE_KEY = "teamsExporterLastError";
 
 const controls = {
     stopAt: $("#stopAt"),
@@ -62,6 +65,7 @@ async function getActiveTeamsTab() {
 runBtn.addEventListener("click", async () => {
     if (runBtn.disabled) return;
     try {
+        hideErrorBanner({ clearStorage: true });
         setBusy(true, BUSY_LABEL_EXPORTING);
         setStatus("Preparing…");
         const tab = await getActiveTeamsTab();
@@ -91,8 +95,10 @@ runBtn.addEventListener("click", async () => {
         }
 
         setStatus(`Exported ${response.filename}`);
+        hideErrorBanner({ clearStorage: true });
     } catch (e) {
         setStatus(e.message);
+        showErrorBanner(e?.message || "Export failed.");
     } finally {
         setBusy(false);
     }
@@ -175,6 +181,7 @@ function handleExportStatus(msg) {
 
     const phase = msg?.phase;
     if (phase === "starting") {
+        hideErrorBanner({ clearStorage: true });
         const startedAt = normalizeStart(msg.startedAt);
         setBusy(true, BUSY_LABEL_EXPORTING);
         setStatus("Starting export…", { startElapsedAt: startedAt });
@@ -191,9 +198,11 @@ function handleExportStatus(msg) {
         } else {
             setStatus("Export complete.", { stopElapsed: true });
         }
+        hideErrorBanner({ clearStorage: true });
     } else if (phase === "error") {
         setBusy(false);
         setStatus(msg.error || "Export failed.", { stopElapsed: true });
+        showErrorBanner(msg.error || "Export failed.");
     }
 }
 
@@ -204,6 +213,14 @@ async function init() {
     const opts = await loadStoredOptions();
     applyOptions(opts);
     wireOptionPersistence();
+
+    const persistedError = await loadPersistedError();
+    if (persistedError?.message) {
+        showErrorBanner(persistedError.message, { persist: false });
+        if (!statusBaseText) {
+            setStatus(persistedError.message);
+        }
+    }
 
     try {
         const tab = await getActiveTeamsTab();
@@ -303,4 +320,49 @@ function normalizeStart(value) {
         if (!Number.isNaN(date)) return date;
     }
     return null;
+}
+
+function showErrorBanner(message, { persist = true } = {}) {
+    if (!bannerEl) return;
+    const finalMessage = message || "Something went wrong.";
+    const currentMessage = bannerMessageEl?.textContent || "";
+    if (bannerEl.classList.contains("show") && currentMessage === finalMessage) {
+        if (persist) persistError(finalMessage);
+        return;
+    }
+    if (bannerMessageEl) bannerMessageEl.textContent = finalMessage;
+    bannerEl.classList.add("show");
+    if (persist) persistError(finalMessage);
+}
+
+function hideErrorBanner({ clearStorage = false } = {}) {
+    if (!bannerEl) return;
+    bannerEl.classList.remove("show");
+    if (bannerMessageEl) bannerMessageEl.textContent = "";
+    if (clearStorage) clearPersistedError();
+}
+
+async function persistError(message) {
+    try {
+        await chrome.storage.local.set({ [ERROR_STORAGE_KEY]: { message, timestamp: Date.now() } });
+    } catch (_) {
+        // ignore storage failures
+    }
+}
+
+async function clearPersistedError() {
+    try {
+        await chrome.storage.local.remove(ERROR_STORAGE_KEY);
+    } catch (_) {
+        // ignore storage failures
+    }
+}
+
+async function loadPersistedError() {
+    try {
+        const res = await chrome.storage.local.get(ERROR_STORAGE_KEY);
+        return res?.[ERROR_STORAGE_KEY] || null;
+    } catch (_) {
+        return null;
+    }
 }
