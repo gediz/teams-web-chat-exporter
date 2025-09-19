@@ -1,8 +1,35 @@
 // ===== popup.js (replace) =====
 const $ = (s) => document.querySelector(s);
 const statusEl = $("#status");
-const setStatus = (t) => (statusEl.textContent = t);
 const runBtn = $("#run");
+const setStatus = (t) => (statusEl.textContent = t);
+
+const DEFAULT_RUN_LABEL = runBtn.querySelector(".label")?.textContent || "Export current chat";
+const BUSY_LABEL_EXPORTING = "Exporting…";
+const BUSY_LABEL_BUILDING = "Building…";
+const STORAGE_KEY = "teamsExporterOptions";
+
+const controls = {
+    stopAt: $("#stopAt"),
+    format: $("#format"),
+    includeReplies: $("#includeReplies"),
+    includeReactions: $("#includeReactions"),
+    includeSystem: $("#includeSystem"),
+    embedAvatars: $("#embedAvatars"),
+    showHud: $("#showHud")
+};
+
+const DEFAULT_OPTIONS = {
+    stopAt: "",
+    format: "json",
+    includeReplies: true,
+    includeReactions: true,
+    includeSystem: false,
+    embedAvatars: false,
+    showHud: true
+};
+
+let currentTabId = null;
 
 function isTeamsUrl(u) {
     return /^https:\/\/(.*\.)?(teams\.microsoft\.com|cloud\.microsoft)\//.test(u || "");
@@ -19,18 +46,7 @@ chrome.runtime.onMessage.addListener((msg) => {
             // no-op; HUD updates are in-page
         }
     } else if (msg.type === "EXPORT_STATUS") {
-        const phase = msg.phase;
-        if (phase === "starting") {
-            setStatus("Starting export…");
-        } else if (phase === "scrape:start") {
-            setStatus("Running auto-scroll + scrape…");
-        } else if (phase === "scrape:complete") {
-            setStatus(`Collected ${msg.messages ?? 0} messages. Building…`);
-        } else if (phase === "complete" && msg.filename) {
-            setStatus(`Exported ${msg.filename}`);
-        } else if (phase === "error") {
-            setStatus(msg.error || "Export failed.");
-        }
+        handleExportStatus(msg);
     }
 });
 
@@ -42,11 +58,11 @@ async function getActiveTeamsTab() {
 
 runBtn.addEventListener("click", async () => {
     if (runBtn.disabled) return;
-    const originalText = runBtn.querySelector(".label")?.textContent || "Export current chat";
     try {
-        setBusy(true, "Exporting…");
+        setBusy(true, BUSY_LABEL_EXPORTING);
         setStatus("Preparing…");
         const tab = await getActiveTeamsTab();
+        currentTabId = tab.id;
         await pingSW(); // ensure SW is alive
 
         const stopAt = $("#stopAt").value ? new Date($("#stopAt").value).toISOString() : null;
@@ -75,7 +91,7 @@ runBtn.addEventListener("click", async () => {
     } catch (e) {
         setStatus(e.message);
     } finally {
-        setBusy(false, originalText);
+        setBusy(false);
     }
 });
 
@@ -86,15 +102,119 @@ async function pingSW(timeoutMs = 4000) {
     ]);
 }
 
-function setBusy(state, labelText) {
+function setBusy(state, labelText = BUSY_LABEL_EXPORTING) {
     const labelEl = runBtn.querySelector(".label");
     if (state) {
         runBtn.classList.add("busy");
         runBtn.disabled = true;
-        if (labelEl) labelEl.textContent = labelText;
+        if (labelEl) labelEl.textContent = labelText || BUSY_LABEL_EXPORTING;
     } else {
         runBtn.classList.remove("busy");
         runBtn.disabled = false;
-        if (labelEl) labelEl.textContent = labelText;
+        if (labelEl) labelEl.textContent = DEFAULT_RUN_LABEL;
+    }
+}
+
+async function loadStoredOptions() {
+    try {
+        const stored = await chrome.storage.local.get(STORAGE_KEY);
+        return { ...DEFAULT_OPTIONS, ...(stored?.[STORAGE_KEY] || {}) };
+    } catch (_) {
+        return { ...DEFAULT_OPTIONS };
+    }
+}
+
+function applyOptions(opts) {
+    controls.stopAt.value = opts.stopAt || "";
+    controls.format.value = opts.format || DEFAULT_OPTIONS.format;
+    controls.includeReplies.checked = Boolean(opts.includeReplies);
+    controls.includeReactions.checked = Boolean(opts.includeReactions);
+    controls.includeSystem.checked = Boolean(opts.includeSystem);
+    controls.embedAvatars.checked = Boolean(opts.embedAvatars);
+    controls.showHud.checked = Boolean(opts.showHud);
+}
+
+function collectOptions() {
+    return {
+        stopAt: controls.stopAt.value || "",
+        format: controls.format.value || DEFAULT_OPTIONS.format,
+        includeReplies: controls.includeReplies.checked,
+        includeReactions: controls.includeReactions.checked,
+        includeSystem: controls.includeSystem.checked,
+        embedAvatars: controls.embedAvatars.checked,
+        showHud: controls.showHud.checked
+    };
+}
+
+async function persistOptions() {
+    try {
+        await chrome.storage.local.set({ [STORAGE_KEY]: collectOptions() });
+    } catch (_) {
+        // no-op if storage fails
+    }
+}
+
+function wireOptionPersistence() {
+    const inputs = Object.values(controls).filter(Boolean);
+    for (const el of inputs) {
+        el.addEventListener("change", () => {
+            persistOptions();
+        });
+    }
+}
+
+function handleExportStatus(msg) {
+    const tabId = msg?.tabId;
+    if (typeof tabId === "number") {
+        if (currentTabId && tabId !== currentTabId) return;
+        if (!currentTabId) currentTabId = tabId;
+    }
+
+    const phase = msg?.phase;
+    if (phase === "starting") {
+        setBusy(true, BUSY_LABEL_EXPORTING);
+        setStatus("Starting export…");
+    } else if (phase === "scrape:start") {
+        setBusy(true, BUSY_LABEL_EXPORTING);
+        setStatus("Running auto-scroll + scrape…");
+    } else if (phase === "scrape:complete") {
+        setBusy(true, BUSY_LABEL_BUILDING);
+        setStatus(`Collected ${msg.messages ?? 0} messages. Building…`);
+    } else if (phase === "complete") {
+        setBusy(false);
+        if (msg.filename) {
+            setStatus(`Exported ${msg.filename}`);
+        } else {
+            setStatus("Export complete.");
+        }
+    } else if (phase === "error") {
+        setBusy(false);
+        setStatus(msg.error || "Export failed.");
+    }
+}
+
+init();
+
+async function init() {
+    setBusy(false);
+    const opts = await loadStoredOptions();
+    applyOptions(opts);
+    wireOptionPersistence();
+
+    try {
+        const tab = await getActiveTeamsTab();
+        currentTabId = tab.id;
+        const status = await chrome.runtime.sendMessage({ type: "GET_EXPORT_STATUS", tabId: currentTabId });
+        if (status?.active) {
+            const last = status.info?.lastStatus;
+            if (last) {
+                handleExportStatus(last);
+            } else {
+                setBusy(true, BUSY_LABEL_EXPORTING);
+                setStatus("Export running…");
+            }
+        }
+    } catch (err) {
+        // Not on Teams tab; ignore until user clicks Export
     }
 }

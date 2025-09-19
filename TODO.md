@@ -31,7 +31,7 @@
 - [x] Move export orchestration from popup to service worker so downloads complete even if popup closes
 
 ## UX Polish
-- [ ] Disable Export button during runs and show spinner indicator
+- [x] Disable Export button during runs and show spinner indicator
 - [ ] Display elapsed time in status area (skip remaining estimate)
 - [ ] Prefill `stopAt` input with last-used value
 - [ ] Provide inline validation/error banner pattern
