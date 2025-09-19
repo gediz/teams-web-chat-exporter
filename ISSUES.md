@@ -10,3 +10,5 @@ actual snippet: issue-02-system-message-order-mismatch.html
 exported file: issue-02-exported-file.html
 
 3. instead of stopAt, why not let user provide a date range?
+
+4. is a "stop" button needed? or is it better to close tab?
