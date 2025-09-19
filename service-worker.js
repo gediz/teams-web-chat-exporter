@@ -484,12 +484,7 @@ function handleStartExportMessage(msg, sendResponse) {
 function updateBadgeForStatus(payload) {
     try {
         const phase = payload?.phase;
-        if (phase === 'scroll') {
-            const seen = payload?.seen ?? payload?.aggregated ?? payload?.messagesVisible;
-            if (typeof seen === 'number' && seen >= 0) {
-                setBadge(String(seen));
-            }
-        } else if (phase === 'scrape:complete') {
+        if (phase === 'scrape:complete') {
             const total = payload?.messages ?? payload?.messagesExtracted;
             if (typeof total === 'number') setBadge(String(total));
         } else if (phase === 'complete') {
@@ -503,6 +498,14 @@ function updateBadgeForStatus(payload) {
         }
     } catch (_) {
         // ignore badge errors
+    }
+}
+
+function updateBadgeForProgress(progress) {
+    if (!progress) return;
+    const seen = progress.seen ?? progress.aggregated ?? progress.messagesVisible;
+    if (typeof seen === 'number' && seen >= 0) {
+        setBadge(String(seen));
     }
 }
 
@@ -548,6 +551,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'START_EXPORT') {
         handleStartExportMessage(msg, sendResponse);
         return true;
+    }
+
+    if (msg.type === 'SCRAPE_PROGRESS') {
+        updateBadgeForProgress(msg.payload || msg);
+        return;
     }
 
     if (msg.type === 'GET_EXPORT_STATUS') {
