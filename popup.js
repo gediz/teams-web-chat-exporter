@@ -2,7 +2,6 @@
 const $ = (s) => document.querySelector(s);
 const statusEl = $("#status");
 const runBtn = $("#run");
-const setStatus = (t) => (statusEl.textContent = t);
 
 const DEFAULT_RUN_LABEL = runBtn.querySelector(".label")?.textContent || "Export current chat";
 const BUSY_LABEL_EXPORTING = "Exporting…";
@@ -30,6 +29,9 @@ const DEFAULT_OPTIONS = {
 };
 
 let currentTabId = null;
+let startedAtMs = null;
+let elapsedTimerId = null;
+let statusBaseText = "";
 
 function isTeamsUrl(u) {
     return /^https:\/\/(.*\.)?(teams\.microsoft\.com|cloud\.microsoft)\//.test(u || "");
@@ -172,8 +174,9 @@ function handleExportStatus(msg) {
 
     const phase = msg?.phase;
     if (phase === "starting") {
+        const startedAt = normalizeStart(msg.startedAt);
         setBusy(true, BUSY_LABEL_EXPORTING);
-        setStatus("Starting export…");
+        setStatus("Starting export…", { startElapsedAt: startedAt });
     } else if (phase === "scrape:start") {
         setBusy(true, BUSY_LABEL_EXPORTING);
         setStatus("Running auto-scroll + scrape…");
@@ -183,13 +186,13 @@ function handleExportStatus(msg) {
     } else if (phase === "complete") {
         setBusy(false);
         if (msg.filename) {
-            setStatus(`Exported ${msg.filename}`);
+            setStatus(`Exported ${msg.filename}`, { stopElapsed: true });
         } else {
-            setStatus("Export complete.");
+            setStatus("Export complete.", { stopElapsed: true });
         }
     } else if (phase === "error") {
         setBusy(false);
-        setStatus(msg.error || "Export failed.");
+        setStatus(msg.error || "Export failed.", { stopElapsed: true });
     }
 }
 
@@ -207,6 +210,11 @@ async function init() {
         const status = await chrome.runtime.sendMessage({ type: "GET_EXPORT_STATUS", tabId: currentTabId });
         if (status?.active) {
             const last = status.info?.lastStatus;
+            const startedAt = normalizeStart(status.info?.startedAt);
+            if (startedAt) {
+                startedAtMs = startedAt;
+                ensureElapsedTimer();
+            }
             if (last) {
                 handleExportStatus(last);
             } else {
@@ -217,4 +225,81 @@ async function init() {
     } catch (err) {
         // Not on Teams tab; ignore until user clicks Export
     }
+}
+
+function setStatus(text, { startElapsedAt, stopElapsed } = {}) {
+    statusBaseText = text || "";
+
+    if (typeof startElapsedAt === "number" && !Number.isNaN(startElapsedAt)) {
+        startedAtMs = startElapsedAt;
+        ensureElapsedTimer();
+        updateStatusText();
+        return;
+    }
+
+    if (stopElapsed) {
+        if (startedAtMs) {
+            const finalText = `${statusBaseText}${formatElapsedSuffix(Date.now() - startedAtMs)}`;
+            statusBaseText = finalText;
+        }
+        startedAtMs = null;
+        clearElapsedTimer();
+        statusEl.textContent = statusBaseText;
+        return;
+    }
+
+    updateStatusText();
+}
+
+function updateStatusText() {
+    let text = statusBaseText;
+    if (startedAtMs) {
+        text += formatElapsedSuffix(Date.now() - startedAtMs);
+    }
+    statusEl.textContent = text;
+}
+
+function ensureElapsedTimer() {
+    if (elapsedTimerId != null) return;
+    elapsedTimerId = setInterval(() => {
+        if (!startedAtMs) {
+            clearElapsedTimer();
+            return;
+        }
+        updateStatusText();
+    }, 1000);
+    updateStatusText();
+}
+
+function clearElapsedTimer() {
+    if (elapsedTimerId != null) {
+        clearInterval(elapsedTimerId);
+        elapsedTimerId = null;
+    }
+}
+
+function formatElapsedSuffix(ms) {
+    return ` — Elapsed: ${formatElapsed(ms)}`;
+}
+
+function formatElapsed(ms) {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) {
+        return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function normalizeStart(value) {
+    if (typeof value === "number" && !Number.isNaN(value)) return value;
+    if (typeof value === "string") {
+        const parsed = Number(value);
+        if (!Number.isNaN(parsed)) return parsed;
+        const date = Date.parse(value);
+        if (!Number.isNaN(date)) return date;
+    }
+    return null;
 }

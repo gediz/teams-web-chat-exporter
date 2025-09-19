@@ -388,20 +388,27 @@ async function buildAndDownload({ messages = [], meta = {}, format = 'json', sav
 }
 
 function broadcastStatus(payload) {
+    let enriched = { ...payload };
     const tabId = payload?.tabId;
     if (tabId != null) {
         const phase = payload?.phase;
+        let info;
         if (phase) {
+            const record = { ...payload };
             if (TERMINAL_PHASES.has(phase)) {
-                updateActiveExport(tabId, { lastStatus: payload, phase, completedAt: Date.now() });
+                info = updateActiveExport(tabId, { lastStatus: record, phase, completedAt: Date.now() });
             } else {
-                updateActiveExport(tabId, { lastStatus: payload, phase });
+                info = updateActiveExport(tabId, { lastStatus: record, phase });
             }
         } else {
-            updateActiveExport(tabId, { lastStatus: payload });
+            info = updateActiveExport(tabId, { lastStatus: { ...payload } });
+        }
+        const startedAt = info?.startedAt;
+        if (startedAt && enriched.startedAt == null) {
+            enriched = { ...enriched, startedAt };
         }
     }
-    chrome.runtime.sendMessage({ type: 'EXPORT_STATUS', ...payload }).catch(() => { });
+    chrome.runtime.sendMessage({ type: 'EXPORT_STATUS', ...enriched }).catch(() => { });
 }
 
 function handleBuildAndDownloadMessage(msg, sendResponse) {
@@ -430,8 +437,9 @@ function handleStartExportMessage(msg, sendResponse) {
     const scrapeOptions = data.scrapeOptions || {};
     const buildOptions = data.buildOptions || {};
 
-    updateActiveExport(tabId, { startedAt: Date.now(), phase: 'starting', lastStatus: null });
-    broadcastStatus({ tabId, phase: 'starting' });
+    const startedAt = Date.now();
+    updateActiveExport(tabId, { startedAt, phase: 'starting', lastStatus: null });
+    broadcastStatus({ tabId, phase: 'starting', startedAt });
 
     (async () => {
         try {
