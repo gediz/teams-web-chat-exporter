@@ -541,7 +541,7 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
     // Date/system divider
     if (isSystem) {
         if (!opts.includeSystem) return null;
-        const wrapper = $('.fui-Divider__wrapper', item); // "7 September", "Monday", etc. :contentReference[oaicite:6]{index=6}
+        const wrapper = $('.fui-Divider__wrapper', item) || $('[data-tid="control-message-renderer"]', item); // dividers and control messages
         const text = (wrapper?.innerText || item.innerText || '').trim() || 'system';
         const bodyMid = wrapper?.id || $('[data-mid]', item)?.getAttribute('data-mid') || item.getAttribute('data-mid');
         const dividerId = (bodyMid || text || 'system').toLowerCase();
