@@ -880,22 +880,43 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
         });
     }
 
-    const finalMessages = [];
-    let currentDayKey = null;
+    const buckets = new Map();
+    const noDate = [];
+
     for (const entry of filtered) {
         const msg = entry.message;
-        const ts = entry.tsMs ?? (msg?.timestamp ? parseTimeStamp(msg.timestamp) : null);
-        if (ts != null) {
-            const dayKey = startOfLocalDay(ts);
-            if (dayKey !== currentDayKey) {
-                finalMessages.push(makeDayDivider(dayKey, ts));
-                currentDayKey = dayKey;
-            }
-        }
-        if (msg && msg.system && (!msg.text || msg.text.trim().toLowerCase() === 'system')) {
+        if (!msg) continue;
+        if (msg.system && (!msg.text || msg.text.trim().toLowerCase() === 'system')) {
             continue;
         }
-        finalMessages.push(msg);
+        const ts = entry.anchorTs ?? entry.tsMs ?? (msg.timestamp ? parseTimeStamp(msg.timestamp) : null);
+        if (ts == null) {
+            noDate.push({ ts: Number.MIN_SAFE_INTEGER, message: msg });
+            continue;
+        }
+        const dayKey = startOfLocalDay(ts);
+        if (!buckets.has(dayKey)) {
+            buckets.set(dayKey, []);
+        }
+        buckets.get(dayKey).push({ ts, message: msg });
+    }
+
+    const finalMessages = [];
+    const sortedDayKeys = Array.from(buckets.keys()).sort((a, b) => a - b);
+    for (const dayKey of sortedDayKeys) {
+        const items = buckets.get(dayKey);
+        if (!items || !items.length) continue;
+        const representativeTs = items[0].ts;
+        finalMessages.push(makeDayDivider(dayKey, representativeTs));
+        items.sort((a, b) => a.ts - b.ts);
+        for (const item of items) {
+            finalMessages.push(item.message);
+        }
+    }
+
+    noDate.sort((a, b) => a.ts - b.ts);
+    for (const entry of noDate) {
+        finalMessages.push(entry.message);
     }
 
     return finalMessages;
