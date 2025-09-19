@@ -603,7 +603,7 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
 
         if (dividerWrapper && !controlRenderer) {
             const text = (dividerWrapper.innerText || '').trim() || 'system';
-            const bodyMid = dividerWrapper.id || $('[data-mid]', item)?.getAttribute('data-mid') || item.getAttribute('data-mid');
+            const bodyMid = dividerWrapper.getAttribute?.('data-mid') || $('[data-mid]', dividerWrapper)?.getAttribute('data-mid') || item.getAttribute('data-mid') || dividerWrapper.id;
             const numericMid = bodyMid && Number(bodyMid);
             const parsedTs = parseDateDividerText(text, orderCtx.yearHint);
             return {
@@ -615,7 +615,7 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
 
         const wrapper = controlRenderer || dividerWrapper || item;
         const text = (wrapper?.innerText || item.innerText || '').trim() || 'system';
-        const bodyMid = wrapper?.id || $('[data-mid]', item)?.getAttribute('data-mid') || item.getAttribute('data-mid');
+        const bodyMid = wrapper?.getAttribute?.('data-mid') || $('[data-mid]', wrapper || item)?.getAttribute('data-mid') || item.getAttribute('data-mid') || wrapper?.id;
         const dividerId = (bodyMid || text || 'system').toLowerCase();
         const numericMid = bodyMid && Number(bodyMid);
         let parsedTs = parseDateDividerText(text, orderCtx.yearHint);
@@ -674,7 +674,7 @@ async function collectCurrentVisible(agg, opts, orderCtx) {
     const lastAuthorRef = { value: orderCtx.lastAuthor || '' };
     for (let i = 0; i < nodes.length; i++) {
         const item = nodes[i];
-        const idCandidate = $('[data-tid="chat-pane-message"]', item)?.getAttribute('data-mid') || $('.fui-Divider__wrapper', item)?.id || item.id || `node-${i}`;
+        const idCandidate = $('[data-tid="chat-pane-message"]', item)?.getAttribute('data-mid') || $('[data-tid="control-message-renderer"]', item)?.getAttribute('data-mid') || $('.fui-Divider__wrapper', item)?.id || item.id || `node-${i}`;
         if (agg.has(idCandidate)) continue;
 
         const extracted = await extractOne(item, opts, lastAuthorRef, orderCtx);
