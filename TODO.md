@@ -44,7 +44,6 @@
 
 ## Possible Optimizations
 - [x] Declare an explicit `action.default_icon` in the manifest so Chrome always renders badge text
-- [ ] Clear badge immediately when chat-context check fails before an export starts
 
 ## Future Enhancements
 - [ ] Plan incremental exports (persist last timestamp, diff collection)
