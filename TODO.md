@@ -41,6 +41,8 @@
 - [x] Skip file download when no messages were collected (show banner instead)
 - [x] Reset extension badge when tab is refreshed or background restarts
 - [x] Humanize badge counts above 999 (e.g., 1.2k)
+- [ ] Trim `host_permissions` to the minimal required scope
+- [ ] Add `homepage_url` and `support_url` to the manifest
 
 ## Possible Optimizations
 - [x] Declare an explicit `action.default_icon` in the manifest so Chrome always renders badge text
