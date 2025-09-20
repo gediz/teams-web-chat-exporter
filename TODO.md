@@ -40,7 +40,7 @@
 - [x] Allow date range selection (start + end) for exports
 - [x] Skip file download when no messages were collected (show banner instead)
 - [x] Reset extension badge when tab is refreshed or background restarts
-- [ ] Humanize badge counts above 999 (e.g., 1.2k)
+- [x] Humanize badge counts above 999 (e.g., 1.2k)
 
 ## Possible Optimizations
 - [ ] Declare an explicit `action.default_icon` in the manifest so Chrome always renders badge text
