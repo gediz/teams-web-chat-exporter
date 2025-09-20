@@ -28,9 +28,7 @@
     "host_permissions": [
         "https://teams.microsoft.com/*",
         "https://*.teams.microsoft.com/*",
-        "https://teams.cloud.microsoft/*",
-        "https://*.cloud.microsoft/*",
-        "https://*.microsoft.com/*"
+        "https://teams.cloud.microsoft/*"
     ],
     "background": {
         "service_worker": "service-worker.js"
