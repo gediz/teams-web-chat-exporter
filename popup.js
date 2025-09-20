@@ -97,6 +97,14 @@ runBtn.addEventListener("click", async () => {
             }
         });
 
+        if (response?.code === "EMPTY_RESULTS") {
+            const message = response.error || EMPTY_RESULT_MESSAGE;
+            setStatus(message, { stopElapsed: true });
+            showErrorBanner(message, { persist: false });
+            await clearPersistedError();
+            return;
+        }
+
         if (!response || response.error) {
             throw new Error(response?.error || "Export failed.");
         }
@@ -104,8 +112,9 @@ runBtn.addEventListener("click", async () => {
         setStatus(`Exported ${response.filename}`);
         hideErrorBanner({ clearStorage: true });
     } catch (e) {
-        setStatus(e.message);
-        showErrorBanner(e?.message || "Export failed.");
+        const msg = e?.message || "Export failed.";
+        setStatus(msg);
+        showErrorBanner(msg);
     } finally {
         setBusy(false);
     }
@@ -224,7 +233,8 @@ function handleExportStatus(msg) {
         const message = msg.message || EMPTY_RESULT_MESSAGE;
         setBusy(false);
         setStatus(message, { stopElapsed: true });
-        showErrorBanner(message);
+        showErrorBanner(message, { persist: false });
+        clearPersistedError();
     } else if (phase === "complete") {
         setBusy(false);
         if (msg.filename) {
