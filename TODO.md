@@ -44,9 +44,6 @@
 - [ ] Trim `host_permissions` to the minimal required scope
 - [ ] Add `homepage_url` and `support_url` to the manifest
 
-## Possible Optimizations
-- [x] Declare an explicit `action.default_icon` in the manifest so Chrome always renders badge text
-
 ## Future Enhancements
 - [ ] Plan incremental exports (persist last timestamp, diff collection)
 - [ ] Add participant filtering workflow
