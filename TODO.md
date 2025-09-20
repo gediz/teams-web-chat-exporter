@@ -37,7 +37,7 @@
 - [x] Provide inline validation/error banner pattern
 - [x] Implement stricter option validation (e.g., ensure stop date is valid & Teams tab available)
 - [x] Update extension badge with parsed-message counter during exports
-- [ ] Allow date range selection (start + end) for exports
+- [x] Allow date range selection (start + end) for exports
 - [ ] Skip file download when no messages were collected (show banner instead)
 - [ ] Reset extension badge when tab is refreshed or background restarts
 - [ ] Humanize badge counts above 999 (e.g., 1.2k)
