@@ -2,7 +2,7 @@
     "manifest_version": 3,
     "name": "Teams Chat Exporter",
     "version": "1.0.0",
-    "description": "Export chat from Microsoft Teams (web).",
+    "description": "Export Microsoft Teams web chat conversations to JSON, CSV, or HTML with full message history and attachments.",
     "icons": {
         "16": "icons/action-16.png",
         "32": "icons/action-32.png",
