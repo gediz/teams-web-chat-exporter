@@ -141,6 +141,23 @@ function extractTextWithEmojis(root) {
     return out.replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function normalizeMentions(root) {
+    if (!root || typeof root.querySelectorAll !== 'function') return;
+    const wrappers = root.querySelectorAll('[data-lpc-hover-target-id][aria-label^="Mentioned"], [itemtype*="schema.skype.com/Mention"]');
+    for (const node of wrappers) {
+        // Prefer to work on the outermost wrapper so we don't duplicate replacements
+        const wrapper = node.closest('[data-lpc-hover-target-id][aria-label^="Mentioned"]') || node;
+        if (!wrapper || !root.contains(wrapper)) continue;
+        const text = (wrapper.textContent || '').replace(/\s+/g, ' ').trim();
+        const label = wrapper.getAttribute('aria-label') || '';
+        let mention = text || label.replace(/^Mentioned\s+/i, '').trim();
+        if (!mention) continue;
+        const owner = wrapper.ownerDocument || document;
+        const replacement = owner.createTextNode(`@${mention}`);
+        wrapper.replaceWith(replacement);
+    }
+}
+
 function extractReplyContext(item, body) {
   // 1) Structured quoted-reply card (preferred)
   const card = body?.querySelector('[data-tid="quoted-reply-card"]');
@@ -652,6 +669,7 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
 
     const contentEl = $('[id^="content-"]', body) || $('[data-tid="message-content"]', body) || body;
     const cleanRoot = stripQuotedPreview(contentEl);
+    normalizeMentions(cleanRoot);
     const text = extractTextWithEmojis(cleanRoot);
     const edited = resolveEdited(item, body);
     const avatar = resolveAvatar(item);
