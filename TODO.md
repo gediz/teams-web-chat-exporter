@@ -44,7 +44,6 @@
 
 ## Possible Optimizations
 - [x] Declare an explicit `action.default_icon` in the manifest so Chrome always renders badge text
-- [ ] Debounce popup option persistence to reduce `chrome.storage` writes while typing
 - [ ] Rate-limit badge updates so rapid scroll passes don’t spam `setBadge`
 - [ ] Clear badge immediately when chat-context check fails before an export starts
 
