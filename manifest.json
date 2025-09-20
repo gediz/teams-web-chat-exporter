@@ -4,7 +4,13 @@
     "version": "0.1.0",
     "description": "Export chat from Microsoft Teams (web).",
     "action": {
-        "default_popup": "popup.html"
+        "default_popup": "popup.html",
+        "default_icon": {
+            "16": "icons/action-16.png",
+            "32": "icons/action-32.png",
+            "48": "icons/action-48.png",
+            "128": "icons/action-128.png"
+        }
     },
     "permissions": [
         "scripting",
