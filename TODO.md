@@ -39,7 +39,7 @@
 - [x] Update extension badge with parsed-message counter during exports
 - [x] Allow date range selection (start + end) for exports
 - [x] Skip file download when no messages were collected (show banner instead)
-- [ ] Reset extension badge when tab is refreshed or background restarts
+- [x] Reset extension badge when tab is refreshed or background restarts
 - [ ] Humanize badge counts above 999 (e.g., 1.2k)
 
 ## Possible Optimizations

@@ -2,12 +2,33 @@
 function log(...a) { try { console.log("[Teams Exporter SW]", ...a) } catch { } }
 log("boot");
 
-chrome.runtime.onInstalled.addListener(() => log("onInstalled"));
-chrome.runtime.onStartup?.addListener(() => log("onStartup"));
+chrome.runtime.onInstalled.addListener(() => {
+    log("onInstalled");
+    resetBadge();
+});
+chrome.runtime.onStartup?.addListener(() => {
+    log("onStartup");
+    resetBadge();
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const nextUrl = changeInfo.url ?? tab?.url;
+    if (changeInfo.status === 'loading' && isTeamsUrl(nextUrl)) {
+        activeExports.delete(tabId);
+        resetBadge();
+    }
+});
 
 const activeExports = new Map(); // tabId -> { startedAt, lastStatus }
 // TERMINAL_PHASES: 'complete' = success, 'error' = failure, 'empty' = no data found (not a failure)
 const TERMINAL_PHASES = new Set(['complete', 'error', 'empty']);
+const BADGE_COLOR_DEFAULT = '#1d4ed8';
+const BADGE_COLOR_EMPTY = '#6b7280';
+const TEAMS_URL_PATTERN = /^https:\/\/(.*\.)?(teams\.microsoft\.com|cloud\.microsoft)\//i;
+
+function isTeamsUrl(url) {
+    return TEAMS_URL_PATTERN.test(url || '');
+}
 
 function updateActiveExport(tabId, patch = {}) {
     if (tabId == null) return;
@@ -505,8 +526,6 @@ function handleStartExportMessage(msg, sendResponse) {
     })();
 }
 
-const BADGE_COLOR_EMPTY = '#6b7280';
-
 function updateBadgeForStatus(payload) {
     try {
         const phase = payload?.phase;
@@ -538,7 +557,7 @@ function updateBadgeForProgress(progress) {
     }
 }
 
-function setBadge(text, color = '#1d4ed8') {
+function setBadge(text, color = BADGE_COLOR_DEFAULT) {
     try {
         chrome.action.setBadgeBackgroundColor({ color });
         chrome.action.setBadgeText({ text: text || '' });
@@ -547,22 +566,22 @@ function setBadge(text, color = '#1d4ed8') {
     }
 }
 
-function clearBadge() {
-    try {
-        chrome.action.setBadgeText({ text: '' });
-    } catch (_) {
-        // ignore
-    }
+function resetBadge() {
+    setBadge('', BADGE_COLOR_DEFAULT);
 }
+
+/* clearBadge() removed; use resetBadge() instead */
 
 let clearBadgeTimer = null;
 function clearBadgeSoon(delay = 0) {
     if (clearBadgeTimer) clearTimeout(clearBadgeTimer);
     clearBadgeTimer = setTimeout(() => {
-        clearBadge();
+        resetBadge();
         clearBadgeTimer = null;
     }, delay);
 }
+
+resetBadge();
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg || !msg.type) return;
