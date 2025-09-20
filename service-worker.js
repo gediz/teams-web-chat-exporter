@@ -25,9 +25,28 @@ const TERMINAL_PHASES = new Set(['complete', 'error', 'empty']);
 const BADGE_COLOR_DEFAULT = '#1d4ed8';
 const BADGE_COLOR_EMPTY = '#6b7280';
 const TEAMS_URL_PATTERN = /^https:\/\/(.*\.)?(teams\.microsoft\.com|cloud\.microsoft)\//i;
+const ONE_THOUSAND = 1000;
+const ONE_MILLION = 1_000_000;
+const THOUSAND_ROUND_THRESHOLD = 10_000;
+const MILLION_ROUND_THRESHOLD = 10_000_000;
 
 function isTeamsUrl(url) {
     return TEAMS_URL_PATTERN.test(url || '');
+}
+
+function formatBadgeCount(value) {
+    if (value === null || value === undefined) return '';
+    const num = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(num)) return String(value);
+    const abs = Math.abs(num);
+    const sign = num < 0 ? '-' : '';
+    if (abs < ONE_THOUSAND) return `${num}`;
+    if (abs < ONE_MILLION) {
+        const scaled = (abs / ONE_THOUSAND).toFixed(abs >= THOUSAND_ROUND_THRESHOLD ? 0 : 1);
+        return `${sign}${scaled.replace(/\.0$/, '')}k`;
+    }
+    const scaled = (abs / ONE_MILLION).toFixed(abs >= MILLION_ROUND_THRESHOLD ? 0 : 1);
+    return `${sign}${scaled.replace(/\.0$/, '')}m`;
 }
 
 function updateActiveExport(tabId, patch = {}) {
@@ -531,7 +550,7 @@ function updateBadgeForStatus(payload) {
         const phase = payload?.phase;
         if (phase === 'scrape:complete') {
             const total = payload?.messages ?? payload?.messagesExtracted;
-            if (typeof total === 'number') setBadge(String(total));
+            if (typeof total === 'number') setBadge(total);
         } else if (phase === 'empty') {
             setBadge('0', BADGE_COLOR_EMPTY);
             clearBadgeSoon(2000);
@@ -553,14 +572,27 @@ function updateBadgeForProgress(progress) {
     if (!progress) return;
     const seen = progress.filteredSeen ?? progress.seen ?? progress.aggregated ?? progress.messagesVisible;
     if (typeof seen === 'number' && seen >= 0) {
-        setBadge(String(seen));
+        setBadge(seen);
     }
 }
 
 function setBadge(text, color = BADGE_COLOR_DEFAULT) {
     try {
+        let finalText = text;
+        if (typeof finalText === 'number') {
+            finalText = formatBadgeCount(finalText);
+        } else if (typeof finalText === 'string') {
+            const trimmed = finalText.trim();
+            if (trimmed) {
+                const numeric = Number(trimmed);
+                if (Number.isFinite(numeric)) {
+                    finalText = formatBadgeCount(numeric);
+                }
+            }
+        }
         chrome.action.setBadgeBackgroundColor({ color });
-        chrome.action.setBadgeText({ text: text || '' });
+        const textValue = finalText == null ? '' : `${finalText}`;
+        chrome.action.setBadgeText({ text: textValue });
     } catch (_) {
         // ignore
     }
