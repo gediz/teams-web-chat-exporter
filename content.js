@@ -143,17 +143,53 @@ function extractTextWithEmojis(root) {
 
 function normalizeMentions(root) {
     if (!root || typeof root.querySelectorAll !== 'function') return;
-    const wrappers = root.querySelectorAll('[data-lpc-hover-target-id][aria-label^="Mentioned"], [itemtype*="schema.skype.com/Mention"]');
+    const wrappers = Array.from(root.querySelectorAll('[data-lpc-hover-target-id][aria-label^="Mentioned"], [itemtype*="schema.skype.com/Mention"]'));
+    if (!wrappers.length) return;
+    const processed = new Set();
     for (const node of wrappers) {
-        // Prefer to work on the outermost wrapper so we don't duplicate replacements
         const wrapper = node.closest('[data-lpc-hover-target-id][aria-label^="Mentioned"]') || node;
-        if (!wrapper || !root.contains(wrapper)) continue;
-        const text = (wrapper.textContent || '').replace(/\s+/g, ' ').trim();
-        const label = wrapper.getAttribute('aria-label') || '';
-        let mention = text || label.replace(/^Mentioned\s+/i, '').trim();
-        if (!mention) continue;
+        if (!wrapper || processed.has(wrapper) || !root.contains(wrapper)) continue;
+        const parent = wrapper.parentElement;
+        const group = [];
+        if (parent) {
+            for (const sibling of parent.childNodes) {
+                if (sibling === wrapper || (sibling.closest && sibling.closest('[data-lpc-hover-target-id][aria-label^="Mentioned"]') === wrapper)) {
+                    group.push(wrapper);
+                } else if (sibling.nodeType === Node.ELEMENT_NODE) {
+                    const mentionWrapper = sibling.closest?.('[data-lpc-hover-target-id][aria-label^="Mentioned"]');
+                    if (mentionWrapper && wrappers.includes(mentionWrapper)) {
+                        group.push(mentionWrapper);
+                        processed.add(mentionWrapper);
+                        continue;
+                    }
+                    if (group.length) break;
+                } else if (sibling.nodeType === Node.TEXT_NODE) {
+                    if (!sibling.textContent?.trim() && group.length) continue;
+                    if (group.length) break;
+                }
+            }
+        }
+        if (!group.length) {
+            group.push(wrapper);
+        }
+        let combined = group
+            .map(el => (el.textContent || '').replace(/\s+/g, ' ').trim())
+            .filter(Boolean)
+            .join(' ');
+        if (!combined) {
+            combined = group
+                .map(el => (el.getAttribute('aria-label') || '').replace(/^Mentioned\s+/i, '').trim())
+                .filter(Boolean)
+                .join(' ');
+        }
+        combined = combined.trim();
+        if (!combined) continue;
         const owner = wrapper.ownerDocument || document;
-        const replacement = owner.createTextNode(`@${mention}`);
+        const replacement = owner.createTextNode(`@${combined}`);
+        for (const el of group) {
+            processed.add(el);
+            if (el !== wrapper) el.remove();
+        }
         wrapper.replaceWith(replacement);
     }
 }
