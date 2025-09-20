@@ -4,44 +4,260 @@
 <head>
     <meta charset="utf-8" />
     <style>
+        :root {
+            color-scheme: light;
+            --font-base: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --color-bg: #f8fafc;
+            --color-surface: #ffffff;
+            --color-border: #e2e8f0;
+            --color-border-strong: #cbd5f5;
+            --color-text: #0f172a;
+            --color-subtle: #64748b;
+            --color-accent: #2563eb;
+            --color-accent-light: #eff6ff;
+            --color-danger: #dc2626;
+            --radius-lg: 16px;
+            --radius-md: 10px;
+            --gap: 16px;
+            font-family: var(--font-base);
+        }
+
         body {
-            font: 14px/1.4 system-ui, sans-serif;
+            margin: 0;
             min-width: 320px;
-            padding: 12px;
+            background: var(--color-bg);
+            color: var(--color-text);
         }
 
-        button {
-            padding: 8px 12px;
-            border-radius: 8px;
-            border: 1px solid #ccc;
+        .popup {
+            display: flex;
+            flex-direction: column;
+            gap: var(--gap);
+            padding: 18px 18px 20px;
+        }
+
+        .header {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .header p {
+            margin: 0;
+            color: var(--color-subtle);
+            font-size: 13px;
+        }
+
+        .card {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-lg);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            box-shadow: 0 12px 24px -20px rgba(15, 23, 42, 0.35);
+        }
+
+        .section-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .section-sub {
+            font-size: 12px;
+            color: var(--color-subtle);
+            margin: 0;
+        }
+
+        .grid-two {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .field label {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .input-text {
+            width: 100%;
+            border-radius: 10px;
+            border: 1px solid var(--color-border);
+            background: var(--color-bg);
+            padding: 10px 12px;
+            font-size: 13px;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .input-text:focus {
+            outline: none;
+            border-color: var(--color-accent);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+            background: #fff;
+        }
+
+        small {
+            font-size: 12px;
+            color: var(--color-subtle);
+        }
+
+        #quickRanges {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        #quickRanges .chip {
+            appearance: none;
+            border: 1px solid var(--color-border);
+            background: #fff;
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-size: 12px;
+            color: var(--color-text);
             cursor: pointer;
-            transition: opacity 0.2s ease;
+            transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+        }
+
+        #quickRanges .chip:hover {
+            border-color: var(--color-accent);
+            background: var(--color-accent-light);
+        }
+
+        #quickRanges .chip.active {
+            background: var(--color-accent);
+            border-color: var(--color-accent);
+            color: #fff;
+        }
+
+        select#format {
+            width: 100%;
+            border-radius: 10px;
+            border: 1px solid var(--color-border);
+            background: var(--color-bg);
+            padding: 10px 12px;
+            font-size: 13px;
+        }
+
+        .toggle-list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
+            background: var(--color-bg);
+            transition: border-color 0.2s ease, background 0.2s ease;
+        }
+
+        .toggle:hover {
+            border-color: var(--color-accent);
+        }
+
+        .toggle span {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .toggle input[type="checkbox"] {
+            width: 36px;
+            height: 20px;
+            appearance: none;
+            border-radius: 999px;
+            border: 1px solid #cbd5f5;
+            background: #e2e8f0;
             position: relative;
+            transition: background 0.2s ease, border-color 0.2s ease;
         }
 
-        button[disabled] {
-            cursor: default;
-            opacity: 0.7;
-        }
-
-        button .spinner {
-            display: none;
+        .toggle input[type="checkbox"]::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
             width: 14px;
             height: 14px;
-            border: 2px solid rgba(0, 0, 0, 0.2);
-            border-top-color: rgba(0, 0, 0, 0.6);
+            border-radius: 50%;
+            background: #fff;
+            transition: transform 0.2s ease;
+            box-shadow: 0 2px 5px rgba(15, 23, 42, 0.1);
+        }
+
+        .toggle input[type="checkbox"]:checked {
+            background: var(--color-accent);
+            border-color: var(--color-accent);
+        }
+
+        .toggle input[type="checkbox"]:checked::after {
+            transform: translateX(16px);
+        }
+
+        button#run {
+            width: 100%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 16px;
+            border-radius: 14px;
+            border: none;
+            background: var(--color-accent);
+            color: #fff;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.2s ease;
+        }
+
+        button#run:hover:not([disabled]) {
+            box-shadow: 0 12px 24px -12px rgba(37, 99, 235, 0.65);
+            transform: translateY(-1px);
+        }
+
+        button#run:disabled {
+            background: #93c5fd;
+            cursor: default;
+            box-shadow: none;
+        }
+
+        button#run .spinner {
+            display: none;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.35);
+            border-top-color: #fff;
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
-            margin-right: 6px;
         }
 
-        button.busy .spinner {
+        button#run.busy .spinner {
             display: inline-block;
-            vertical-align: middle;
-        }
-
-        button.busy .label {
-            vertical-align: middle;
         }
 
         @keyframes spin {
@@ -49,45 +265,32 @@
             to { transform: rotate(360deg); }
         }
 
-        .row {
-            margin: 8px 0;
-        }
-
-        #quickRanges {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-        }
-
-        #quickRanges .chip {
-            border-radius: 16px;
-            padding: 4px 10px;
+        #status {
             font-size: 12px;
-            border: 1px solid #d1d5db;
-            background: #f8fafc;
-            cursor: pointer;
-            transition: background 0.2s ease, border-color 0.2s ease;
+            color: var(--color-subtle);
         }
 
-        #quickRanges .chip:hover {
-            background: #eef2ff;
-            border-color: #a5b4fc;
+        .footer-note {
+            font-size: 11px;
+            color: var(--color-subtle);
+            text-align: center;
         }
 
-        #quickRanges .chip.active {
-            background: #4338ca;
-            border-color: #4338ca;
-            color: #fff;
+        .footer-note a {
+            color: var(--color-accent);
+            text-decoration: none;
+        }
+
+        .footer-note a:hover {
+            text-decoration: underline;
         }
 
         .alert {
             display: none;
-            margin: 8px 0;
-            padding: 10px 12px;
-            border-radius: 8px;
+            border-radius: var(--radius-md);
             border: 1px solid transparent;
+            padding: 12px 14px;
             font-size: 13px;
-            line-height: 1.4;
         }
 
         .alert.show {
@@ -95,9 +298,9 @@
         }
 
         .alert.error {
-            background: #fef2f2;
-            border-color: #fca5a5;
-            color: #b91c1c;
+            background: #fee2e2;
+            border-color: #fecaca;
+            color: var(--color-danger);
         }
 
         .alert .alert-title {
@@ -105,73 +308,94 @@
             display: block;
             margin-bottom: 4px;
         }
-
-        label {
-            display: block;
-            margin: 6px 0 2px;
-        }
-
-        .range-input {
-            width: 100%;
-            padding: 6px 8px;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            font-size: 14px;
-        }
-
-        textarea {
-            width: 100%;
-            height: 80px;
-        }
-
-        small {
-            color: #666;
-        }
     </style>
 </head>
 
 <body>
-    <h3>Teams Chat Exporter</h3>
-    <div id="banner" class="alert error" role="alert" aria-live="assertive">
-        <span class="alert-title">Error</span>
-        <span class="alert-message"></span>
-    </div>
-    <div class="row">
-        <label>From (inclusive)</label>
-        <input id="startAt" class="range-input" type="text" placeholder="YYYY-MM-DD HH:MM (local time)" autocomplete="off" />
-    </div>
-    <div class="row">
-        <label>To (exclusive)</label>
-        <input id="endAt" class="range-input" type="text" placeholder="YYYY-MM-DD HH:MM (local time)" autocomplete="off" />
-        <small>Leave empty to include all history.</small>
-    </div>
-    <div class="row" id="quickRanges" aria-label="Quick ranges">
-        <button type="button" class="chip" data-range="none">No limit</button>
-        <button type="button" class="chip" data-range="1d">Last 24h</button>
-        <button type="button" class="chip" data-range="7d">Last 7d</button>
-        <button type="button" class="chip" data-range="30d">Last 30d</button>
-    </div>
-    <div class="row">
-        <label>Export format</label>
-        <select id="format">
-            <option value="json">JSON</option>
-            <option value="csv">CSV</option>
-            <option value="html">HTML</option>
-        </select>
+    <div class="popup">
+        <header class="header">
+            <h1>Teams Chat Exporter</h1>
+            <p>Export the active Teams chat with your preferred format and filters.</p>
+        </header>
 
-    </div>
-    <div class="row">
-        <label><input id="includeReplies" type="checkbox" checked /> Include threaded replies</label>
-        <label><input id="includeReactions" type="checkbox" checked /> Include reactions</label>
-        <label><input id="includeSystem" type="checkbox" /> Include system messages</label>
-        <label><input id="embedAvatars" type="checkbox"/> Embed avatars (base64)</label>
-        <label><input id="showHud" type="checkbox" checked/> Show in-page progress HUD</label>
-    </div>
-    <div class="row">
-        <button id="run"><span class="spinner" aria-hidden="true"></span><span class="label">Export current chat</span></button>
-    </div>
+        <div id="banner" class="alert error" role="alert" aria-live="assertive">
+            <span class="alert-title">Error</span>
+            <span class="alert-message"></span>
+        </div>
 
-    <div class="row"><small id="status"></small></div>
+        <section class="card" aria-labelledby="range-section">
+            <div class="section-head">
+                <h2 class="section-title" id="range-section">Date range</h2>
+                <p class="section-sub">Leave blank to include everything.</p>
+            </div>
+            <div class="grid-two">
+                <div class="field">
+                    <label for="startAt">From (inclusive)</label>
+                    <input id="startAt" class="input-text" type="text" placeholder="YYYY-MM-DD HH:MM" autocomplete="off" />
+                </div>
+                <div class="field">
+                    <label for="endAt">To (exclusive)</label>
+                    <input id="endAt" class="input-text" type="text" placeholder="YYYY-MM-DD HH:MM" autocomplete="off" />
+                </div>
+            </div>
+            <div class="field">
+                <label class="section-sub" for="quickRanges">Quick ranges</label>
+                <div id="quickRanges" aria-label="Quick ranges">
+                    <button type="button" class="chip" data-range="none">No limit</button>
+                    <button type="button" class="chip" data-range="1d">Last 24h</button>
+                    <button type="button" class="chip" data-range="7d">Last 7d</button>
+                    <button type="button" class="chip" data-range="30d">Last 30d</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="card" aria-labelledby="options-section">
+            <div class="section-head">
+                <h2 class="section-title" id="options-section">Options</h2>
+                <p class="section-sub">Choose export format and message details.</p>
+            </div>
+            <div class="field">
+                <label for="format">Export format</label>
+                <select id="format">
+                    <option value="json">JSON</option>
+                    <option value="csv">CSV</option>
+                    <option value="html">HTML</option>
+                </select>
+            </div>
+
+            <div class="toggle-list" role="group" aria-label="Include options">
+                <label class="toggle">
+                    <span>Include threaded replies</span>
+                    <input id="includeReplies" type="checkbox" checked />
+                </label>
+                <label class="toggle">
+                    <span>Include reactions</span>
+                    <input id="includeReactions" type="checkbox" checked />
+                </label>
+                <label class="toggle">
+                    <span>Include system messages</span>
+                    <input id="includeSystem" type="checkbox" />
+                </label>
+                <label class="toggle">
+                    <span>Embed avatars (base64)</span>
+                    <input id="embedAvatars" type="checkbox" />
+                </label>
+                <label class="toggle">
+                    <span>Show in-page progress HUD</span>
+                    <input id="showHud" type="checkbox" checked />
+                </label>
+            </div>
+        </section>
+
+        <button id="run">
+            <span class="spinner" aria-hidden="true"></span>
+            <span class="label">Export current chat</span>
+        </button>
+
+        <div id="status" aria-live="polite"></div>
+
+        <p class="footer-note">Keep this popup open to monitor progress, or close it and track the badge status.</p>
+    </div>
 
     <script type="module" src="popup.js"></script>
 </body>
