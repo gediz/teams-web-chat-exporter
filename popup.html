@@ -242,6 +242,9 @@
             color: var(--color-text);
             cursor: pointer;
             transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
         }
 
         #quickRanges .chip:hover {
@@ -255,12 +258,38 @@
             color: #fff;
         }
 
+        #quickRanges .chip.active::before {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+
+        #quickRanges .chip::before {
+            content: attr(data-icon);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+            padding: 0 6px;
+            height: 20px;
+            border-radius: 999px;
+            background: var(--color-accent-light);
+            color: var(--color-accent);
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        body[data-theme="dark"] #quickRanges .chip::before {
+            background: rgba(96, 165, 250, 0.22);
+            color: var(--color-accent);
+        }
+
         .toggle-list {
             display: grid;
             gap: 10px;
         }
 
         .toggle {
+            position: relative;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -280,6 +309,25 @@
         .toggle span {
             font-size: 13px;
             font-weight: 500;
+        }
+
+        .toggle::before {
+            content: attr(data-icon);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 8px;
+            background: var(--color-accent-light);
+            color: var(--color-accent);
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        body[data-theme="dark"] .toggle::before {
+            background: rgba(96, 165, 250, 0.22);
+            color: var(--color-accent);
         }
 
         .toggle input[type="checkbox"] {
@@ -324,7 +372,7 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
+            gap: 10px;
             padding: 12px 16px;
             border-radius: 14px;
             border: none;
@@ -363,6 +411,16 @@
 
         button#run.busy .spinner {
             display: inline-block;
+        }
+
+        .button-icon {
+            font-size: 16px;
+            line-height: 1;
+            display: inline-flex;
+        }
+
+        button#run.busy .button-icon {
+            display: none;
         }
 
         #status {
@@ -453,10 +511,10 @@
             <div class="field">
                 <label class="section-sub" for="quickRanges">Quick ranges</label>
                 <div id="quickRanges" aria-label="Quick ranges">
-                    <button type="button" class="chip" data-range="none">No limit</button>
-                    <button type="button" class="chip" data-range="1d">Last 24h</button>
-                    <button type="button" class="chip" data-range="7d">Last 7d</button>
-                    <button type="button" class="chip" data-range="30d">Last 30d</button>
+                    <button type="button" class="chip" data-range="none" data-icon="∞">No limit</button>
+                    <button type="button" class="chip" data-range="1d" data-icon="24h">Last 24h</button>
+                    <button type="button" class="chip" data-range="7d" data-icon="7d">Last 7d</button>
+                    <button type="button" class="chip" data-range="30d" data-icon="30d">Last 30d</button>
                 </div>
             </div>
         </section>
@@ -476,19 +534,19 @@
             </div>
 
             <div class="toggle-list" role="group" aria-label="Include options">
-                <label class="toggle">
+                <label class="toggle" data-icon="↩">
                     <span>Include threaded replies</span>
                     <input id="includeReplies" type="checkbox" checked />
                 </label>
-                <label class="toggle">
+                <label class="toggle" data-icon="😊">
                     <span>Include reactions</span>
                     <input id="includeReactions" type="checkbox" checked />
                 </label>
-                <label class="toggle">
+                <label class="toggle" data-icon="⚙">
                     <span>Include system messages</span>
                     <input id="includeSystem" type="checkbox" />
                 </label>
-                <label class="toggle">
+                <label class="toggle" data-icon="👤">
                     <span>Embed avatars (base64)</span>
                     <input id="embedAvatars" type="checkbox" />
                 </label>
@@ -500,7 +558,7 @@
                 <h2 class="section-title" id="advanced-section">Advanced</h2>
                 <p class="section-sub">Developer / diagnostic features.</p>
             </div>
-            <label class="toggle">
+            <label class="toggle" data-icon="👁">
                 <span>Show in-page progress HUD</span>
                 <input id="showHud" type="checkbox" checked />
             </label>
@@ -508,6 +566,7 @@
 
         <button id="run">
             <span class="spinner" aria-hidden="true"></span>
+            <span class="button-icon" aria-hidden="true">⤓</span>
             <span class="label">Export current chat</span>
         </button>
 
