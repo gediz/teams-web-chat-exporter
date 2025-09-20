@@ -475,14 +475,12 @@ function handleStartExportMessage(msg, sendResponse) {
             const scrapeRes = await requestScrape(tabId, scrapeOptions);
             const totalMessages = Array.isArray(scrapeRes.messages) ? scrapeRes.messages.length : 0;
             broadcastStatus({ tabId, phase: 'scrape:complete', messages: totalMessages });
+
             if (totalMessages === 0) {
                 const message = 'No messages found for the selected range.';
                 broadcastStatus({ tabId, phase: 'empty', message });
-                setBadge('0', '#6b7280');
-                clearBadgeSoon(2000);
-                sendResponse({ empty: true, message, code: 'EMPTY_RESULTS' });
+                sendResponse({ error: message, code: 'EMPTY_RESULTS' });
                 return;
-            }
             }
 
             const buildRes = await buildAndDownload({
