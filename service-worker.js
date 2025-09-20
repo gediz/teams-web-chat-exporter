@@ -22,6 +22,17 @@ function sanitizeBase(name) {
     return (cleaned || "teams-chat").slice(0, 80);
 }
 
+function formatRangeLabel(startISO, endISO) {
+    if (!startISO && !endISO) return null;
+    const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    const start = startISO ? fmt.format(new Date(startISO)) : null;
+    const end = endISO ? fmt.format(new Date(endISO)) : null;
+    if (start && end) return `${start} → ${end}`;
+    if (start) return `Since ${start}`;
+    if (end) return `Until ${end}`;
+    return null;
+}
+
 // --- Builders (text only; good enough for chat exports)
 const esc = s => (s ?? "").toString().replaceAll('"', '""');
 
@@ -346,7 +357,11 @@ async function buildAndDownload({ messages = [], meta = {}, format = 'json', sav
         }
     }
 
-    const baseTitle = sanitizeBase(meta.title || 'teams-chat');
+    const rangeLabel = formatRangeLabel(meta.startAt, meta.endAt);
+    const enrichedMeta = { ...meta };
+    if (rangeLabel) enrichedMeta.timeRange = rangeLabel;
+
+    const baseTitle = sanitizeBase(enrichedMeta.title || 'teams-chat');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const base = `${baseTitle}-${stamp}`;
     let filename, mime, content;
@@ -354,7 +369,7 @@ async function buildAndDownload({ messages = [], meta = {}, format = 'json', sav
     if (format === 'json') {
         filename = `${base}.json`;
         mime = 'application/json';
-        const payload = { meta: { ...meta, count: messages.length }, messages };
+        const payload = { meta: { ...enrichedMeta, count: messages.length }, messages };
         content = JSON.stringify(payload, null, 2);
     } else if (format === 'csv') {
         filename = `${base}.csv`;
@@ -363,7 +378,7 @@ async function buildAndDownload({ messages = [], meta = {}, format = 'json', sav
     } else if (format === 'html') {
         filename = `${base}.html`;
         mime = 'text/html';
-        content = toHTML(rows, { ...meta, count: messages.length });
+        content = toHTML(rows, { ...enrichedMeta, count: messages.length });
     } else {
         throw new Error('Unknown format: ' + format);
     }

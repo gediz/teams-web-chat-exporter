@@ -699,7 +699,7 @@ async function collectCurrentVisible(agg, opts, orderCtx) {
     }
 }
 
-async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions, includeReplies = true }) {
+async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includeReactions, includeReplies = true }) {
     const scroller = getScroller();
     if (!scroller) throw new Error('Scroller not found');
 
@@ -728,7 +728,8 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
     }, { root: scroller, threshold: 0.01 }) : null;
     if (observer && headerSentinel) observer.observe(headerSentinel);
 
-    const stopLimit = typeof stopAtISO === 'string' ? parseTimeStamp(stopAtISO) : null;
+    const startLimit = typeof startAtISO === 'string' ? parseTimeStamp(startAtISO) : null;
+    const endLimit = typeof endAtISO === 'string' ? parseTimeStamp(endAtISO) : null;
 
     try {
         while (true) {
@@ -775,13 +776,16 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
 
             const elapsedMs = currentRunStartedAt ? Date.now() - currentRunStartedAt : null;
             const seen = agg.size;
-            let filteredSeen = seen;
-            if (stopLimit != null) {
-                filteredSeen = 0;
-                for (const entry of agg.values()) {
-                    const candidate = entry?.tsMs ?? (entry?.message?.timestamp ? parseTimeStamp(entry.message.timestamp) : null);
-                    if (candidate == null || candidate >= stopLimit) filteredSeen++;
+            let filteredSeen = 0;
+            for (const entry of agg.values()) {
+                const candidate = entry?.tsMs ?? (entry?.message?.timestamp ? parseTimeStamp(entry.message.timestamp) : null);
+                if (candidate == null) {
+                    filteredSeen++;
+                    continue;
                 }
+                if (startLimit != null && candidate < startLimit) continue;
+                if (endLimit != null && candidate >= endLimit) continue;
+                filteredSeen++;
             }
 
             chrome.runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'scroll', passes, newHeight, messagesVisible: newCount, aggregated: seen, seen: filteredSeen, filteredSeen, oldestTime, oldestId, elapsedMs } }).catch(() => { });
@@ -798,8 +802,8 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
                 reason: 'progress report'
             });
 
-            if (stopLimit != null && oldestTs != null && oldestTs <= stopLimit) {
-                console.debug('[Teams Exporter] breaking scroll: stopAt reached', { oldestVisible: oldestTimeAttr, stopAtISO });
+            if (startLimit != null && oldestTs != null && oldestTs <= startLimit) {
+                console.debug('[Teams Exporter] breaking scroll: startAt reached', { oldestVisible: oldestTimeAttr, startAtISO });
                 break;
             }
 
@@ -872,13 +876,13 @@ async function autoScrollAggregate({ stopAtISO, includeSystem, includeReactions,
         return a.orderKey - b.orderKey;
     });
 
-    if (stopLimit != null) {
-        filtered = filtered.filter(entry => {
-            const ts = entry.anchorTs ?? entry.tsMs ?? (entry.message?.timestamp ? parseTimeStamp(entry.message.timestamp) : null);
-            if (ts == null) return true;
-            return ts >= stopLimit;
-        });
-    }
+    filtered = filtered.filter(entry => {
+        const ts = entry.anchorTs ?? entry.tsMs ?? (entry.message?.timestamp ? parseTimeStamp(entry.message.timestamp) : null);
+        if (ts == null) return true;
+        if (startLimit != null && ts < startLimit) return false;
+        if (endLimit != null && ts >= endLimit) return false;
+        return true;
+    });
 
     const buckets = new Map();
     const noDate = [];
@@ -953,10 +957,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             if (msg.type === 'PING') { sendResponse({ ok: true }); return; }
             if (msg.type === 'CHECK_CHAT_CONTEXT') { sendResponse(checkChatContext()); return; }
             if (msg.type === 'SCRAPE_TEAMS') {
-                const { stopAt, includeReactions, includeSystem, includeReplies, showHud } = msg.options || {};
+                const { startAt, endAt, includeReactions, includeSystem, includeReplies, showHud } = msg.options || {};
                 hudEnabled = showHud !== false;
                 if (!hudEnabled) clearHUD();
-                const scrapeOpts = { stopAtISO: stopAt, includeSystem, includeReactions, includeReplies: includeReplies !== false };
+                const scrapeOpts = { startAtISO: startAt, endAtISO: endAt, includeSystem, includeReactions, includeReplies: includeReplies !== false };
                 console.debug('[Teams Exporter] SCRAPE_TEAMS', location.href, msg.options);
                 currentRunStartedAt = Date.now();
                 hud('starting…');
@@ -965,7 +969,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
                 hud(`extracted ${messages.length} messages`);
                 currentRunStartedAt = null;
                 // meta can keep title; add timeRange later if you want
-                sendResponse({ messages, meta: { count: messages.length, title: document.title } });
+                sendResponse({ messages, meta: { count: messages.length, title: document.title, startAt: startAt || null, endAt: endAt || null } });
             }
         } catch (e) {
             console.error('[Teams Exporter] Error:', e);

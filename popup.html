@@ -111,7 +111,7 @@
             margin: 6px 0 2px;
         }
 
-        #stopAt {
+        .range-input {
             width: 100%;
             padding: 6px 8px;
             border: 1px solid #d1d5db;
@@ -137,9 +137,13 @@
         <span class="alert-message"></span>
     </div>
     <div class="row">
-        <label>Stop at (oldest date to load)</label>
-        <input id="stopAt" type="text" placeholder="YYYY-MM-DD HH:MM (local time)" autocomplete="off" />
-        <small>Leave empty to load all visible history.</small>
+        <label>From (inclusive)</label>
+        <input id="startAt" class="range-input" type="text" placeholder="YYYY-MM-DD HH:MM (local time)" autocomplete="off" />
+    </div>
+    <div class="row">
+        <label>To (exclusive)</label>
+        <input id="endAt" class="range-input" type="text" placeholder="YYYY-MM-DD HH:MM (local time)" autocomplete="off" />
+        <small>Leave empty to include all history.</small>
     </div>
     <div class="row" id="quickRanges" aria-label="Quick ranges">
         <button type="button" class="chip" data-range="none">No limit</button>

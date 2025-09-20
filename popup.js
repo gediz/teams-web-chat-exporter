@@ -5,6 +5,7 @@ const runBtn = $("#run");
 const bannerEl = $("#banner");
 const bannerMessageEl = bannerEl?.querySelector(".alert-message");
 const quickRangeButtons = Array.from(document.querySelectorAll('#quickRanges .chip'));
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const DEFAULT_RUN_LABEL = runBtn.querySelector(".label")?.textContent || "Export current chat";
 const BUSY_LABEL_EXPORTING = "Exporting…";
@@ -13,7 +14,8 @@ const STORAGE_KEY = "teamsExporterOptions";
 const ERROR_STORAGE_KEY = "teamsExporterLastError";
 
 const controls = {
-    stopAt: $("#stopAt"),
+    startAt: $("#startAt"),
+    endAt: $("#endAt"),
     format: $("#format"),
     includeReplies: $("#includeReplies"),
     includeReactions: $("#includeReactions"),
@@ -23,8 +25,10 @@ const controls = {
 };
 
 const DEFAULT_OPTIONS = {
-    stopAt: "",
-    stopAtISO: "",
+    startAt: "",
+    startAtISO: "",
+    endAt: "",
+    endAtISO: "",
     format: "json",
     includeReplies: true,
     includeReactions: true,
@@ -74,7 +78,7 @@ runBtn.addEventListener("click", async () => {
         currentTabId = tab.id;
         await pingSW(); // ensure SW is alive
 
-        const stopAt = getValidatedStopAtISO();
+        const range = getValidatedRangeISO();
         const format = $("#format").value;
         const includeReplies = $("#includeReplies").checked;
         const includeReactions = $("#includeReactions").checked;
@@ -87,7 +91,7 @@ runBtn.addEventListener("click", async () => {
             type: "START_EXPORT",
             data: {
                 tabId: tab.id,
-                scrapeOptions: { stopAt, includeReplies, includeReactions, includeSystem, showHud },
+                scrapeOptions: { startAt: range.startISO, endAt: range.endISO, includeReplies, includeReactions, includeSystem, showHud },
                 buildOptions: { format, saveAs: true, embedAvatars }
             }
         });
@@ -136,11 +140,14 @@ async function loadStoredOptions() {
 }
 
 function applyOptions(opts) {
-    let stopLocal = opts.stopAt || isoToLocalInput(opts.stopAtISO) || "";
-    if (stopLocal.includes('T') && !stopLocal.includes(' ')) {
-        stopLocal = stopLocal.replace('T', ' ');
-    }
-    controls.stopAt.value = stopLocal;
+    let startLocal = opts.startAt || isoToLocalInput(opts.startAtISO) || "";
+    if (startLocal.includes('T') && !startLocal.includes(' ')) startLocal = startLocal.replace('T', ' ');
+    controls.startAt.value = startLocal;
+
+    let endLocal = opts.endAt || isoToLocalInput(opts.endAtISO) || "";
+    if (endLocal.includes('T') && !endLocal.includes(' ')) endLocal = endLocal.replace('T', ' ');
+    controls.endAt.value = endLocal;
+
     controls.format.value = opts.format || DEFAULT_OPTIONS.format;
     controls.includeReplies.checked = Boolean(opts.includeReplies);
     controls.includeReactions.checked = Boolean(opts.includeReactions);
@@ -151,11 +158,15 @@ function applyOptions(opts) {
 }
 
 function collectOptions() {
-    const stopLocal = (controls.stopAt.value || "").trim();
-    const stopIso = stopLocal ? localInputToISO(stopLocal) : "";
+    const startLocal = (controls.startAt.value || "").trim();
+    const endLocal = (controls.endAt.value || "").trim();
+    const startIso = startLocal ? localInputToISO(startLocal) : "";
+    const endIso = endLocal ? localInputToISO(endLocal) : "";
     return {
-        stopAt: stopLocal,
-        stopAtISO: stopIso,
+        startAt: startLocal,
+        startAtISO: startIso,
+        endAt: endLocal,
+        endAtISO: endIso,
         format: controls.format.value || DEFAULT_OPTIONS.format,
         includeReplies: controls.includeReplies.checked,
         includeReactions: controls.includeReactions.checked,
@@ -178,7 +189,7 @@ function wireOptionPersistence() {
     for (const el of inputs) {
         el.addEventListener("change", () => {
             persistOptions();
-            if (el === controls.stopAt) updateQuickRangeActive();
+            if (el === controls.startAt || el === controls.endAt) updateQuickRangeActive();
         });
     }
 
@@ -339,27 +350,35 @@ function normalizeStart(value) {
     return null;
 }
 
-function getValidatedStopAtISO() {
-    const raw = (controls.stopAt.value || "").trim();
-    if (!raw) return null;
-    const iso = localInputToISO(raw);
-    if (!iso) {
-        const message = "Enter a valid stop date/time.";
+function getValidatedRangeISO() {
+    const rawStart = (controls.startAt.value || "").trim();
+    const rawEnd = (controls.endAt.value || "").trim();
+
+    const startISO = rawStart ? localInputToISO(rawStart) : null;
+    if (rawStart && !startISO) {
+        const message = "Enter a valid start date/time.";
         showErrorBanner(message);
         throw new Error(message);
     }
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) {
-        const message = "Enter a valid stop date/time.";
+
+    const endISO = rawEnd ? localInputToISO(rawEnd) : null;
+    if (rawEnd && !endISO) {
+        const message = "Enter a valid end date/time.";
         showErrorBanner(message);
         throw new Error(message);
     }
-    if (date.getTime() > Date.now()) {
-        const message = "Stop date can't be in the future.";
-        showErrorBanner(message);
-        throw new Error(message);
+
+    if (startISO && endISO) {
+        const startMs = Date.parse(startISO);
+        const endMs = Date.parse(endISO);
+        if (!Number.isNaN(startMs) && !Number.isNaN(endMs) && startMs > endMs) {
+            const message = "Start date must be before end date.";
+            showErrorBanner(message);
+            throw new Error(message);
+        }
     }
-    return iso;
+
+    return { startISO, endISO };
 }
 
 function localInputToISO(localValue) {
@@ -394,7 +413,8 @@ function isoToLocalInput(isoValue) {
 function handleQuickRange(range) {
     const normalized = range || "none";
     if (normalized === "none") {
-        controls.stopAt.value = "";
+        controls.startAt.value = "";
+        controls.endAt.value = "";
         persistOptions();
         updateQuickRangeActive();
         return;
@@ -404,16 +424,16 @@ function handleQuickRange(range) {
     let offsetMs = 0;
     if (normalized.endsWith("d")) {
         const days = Number(normalized.replace("d", ""));
-        if (!Number.isNaN(days)) {
-            offsetMs = days * 24 * 60 * 60 * 1000;
-        }
+        if (!Number.isNaN(days)) offsetMs = days * DAY_MS;
     }
 
     if (offsetMs > 0) {
-        const target = new Date(now.getTime() - offsetMs);
-        controls.stopAt.value = isoToLocalInput(target.toISOString());
+        const startDate = new Date(now.getTime() - offsetMs);
+        controls.startAt.value = isoToLocalInput(startDate.toISOString());
+        controls.endAt.value = isoToLocalInput(now.toISOString());
     } else {
-        controls.stopAt.value = "";
+        controls.startAt.value = "";
+        controls.endAt.value = "";
     }
 
     persistOptions();
@@ -422,28 +442,35 @@ function handleQuickRange(range) {
 
 function updateQuickRangeActive() {
     if (!quickRangeButtons.length) return;
-    const raw = (controls.stopAt.value || "").trim();
+    const startISO = localInputToISO((controls.startAt.value || "").trim()) || null;
+    const endISO = localInputToISO((controls.endAt.value || "").trim()) || null;
+    const now = Date.now();
+    const tolerance = 5 * 60 * 1000; // five minutes
     let active = "none";
-    if (raw) {
-        const iso = localInputToISO(raw);
-        if (iso) {
-            const date = new Date(iso);
-            const now = Date.now();
-            const diff = now - date.getTime();
-            const oneMinute = 60 * 1000;
-            const ranges = [
-                { key: "1d", ms: 24 * 60 * 60 * 1000 },
-                { key: "7d", ms: 7 * 24 * 60 * 60 * 1000 },
-                { key: "30d", ms: 30 * 24 * 60 * 60 * 1000 }
-            ];
+
+    if (!startISO && !endISO) {
+        active = "none";
+    } else {
+        const ranges = [
+            { key: "1d", ms: DAY_MS },
+            { key: "7d", ms: 7 * DAY_MS },
+            { key: "30d", ms: 30 * DAY_MS }
+        ];
+        const endMs = endISO ? Date.parse(endISO) : now;
+        const startMs = startISO ? Date.parse(startISO) : null;
+        if (!Number.isNaN(endMs)) {
             for (const r of ranges) {
-                if (Math.abs(diff - r.ms) <= 30 * oneMinute) { // within 30 minutes tolerance
+                const expectedStart = endMs - r.ms;
+                const startOk = startMs != null && Math.abs(startMs - expectedStart) <= tolerance;
+                const endOk = Math.abs(endMs - now) <= tolerance || (startISO && !endISO);
+                if (startOk && endOk) {
                     active = r.key;
                     break;
                 }
             }
         }
     }
+
     for (const btn of quickRangeButtons) {
         if ((btn.dataset.range || "none") === active) {
             btn.classList.add("active");
