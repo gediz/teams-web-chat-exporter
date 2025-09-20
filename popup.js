@@ -12,6 +12,7 @@ const BUSY_LABEL_EXPORTING = "Exporting…";
 const BUSY_LABEL_BUILDING = "Building…";
 const STORAGE_KEY = "teamsExporterOptions";
 const ERROR_STORAGE_KEY = "teamsExporterLastError";
+const EMPTY_RESULT_MESSAGE = "No messages found for the selected range.";
 
 const controls = {
     startAt: $("#startAt"),
@@ -219,6 +220,11 @@ function handleExportStatus(msg) {
     } else if (phase === "scrape:complete") {
         setBusy(true, BUSY_LABEL_BUILDING);
         setStatus(`Collected ${msg.messages ?? 0} messages. Building…`);
+    } else if (phase === "empty") {
+        const message = msg.message || EMPTY_RESULT_MESSAGE;
+        setBusy(false);
+        setStatus(message, { stopElapsed: true });
+        showErrorBanner(message);
     } else if (phase === "complete") {
         setBusy(false);
         if (msg.filename) {

@@ -6,7 +6,8 @@ chrome.runtime.onInstalled.addListener(() => log("onInstalled"));
 chrome.runtime.onStartup?.addListener(() => log("onStartup"));
 
 const activeExports = new Map(); // tabId -> { startedAt, lastStatus }
-const TERMINAL_PHASES = new Set(['complete', 'error']);
+// TERMINAL_PHASES: 'complete' = success, 'error' = failure, 'empty' = no data found (not a failure)
+const TERMINAL_PHASES = new Set(['complete', 'error', 'empty']);
 
 function updateActiveExport(tabId, patch = {}) {
     if (tabId == null) return;
@@ -472,7 +473,17 @@ function handleStartExportMessage(msg, sendResponse) {
 
             broadcastStatus({ tabId, phase: 'scrape:start' });
             const scrapeRes = await requestScrape(tabId, scrapeOptions);
-            broadcastStatus({ tabId, phase: 'scrape:complete', messages: scrapeRes.messages?.length || 0 });
+            const totalMessages = Array.isArray(scrapeRes.messages) ? scrapeRes.messages.length : 0;
+            broadcastStatus({ tabId, phase: 'scrape:complete', messages: totalMessages });
+            if (totalMessages === 0) {
+                const message = 'No messages found for the selected range.';
+                broadcastStatus({ tabId, phase: 'empty', message });
+                setBadge('0', '#6b7280');
+                clearBadgeSoon(2000);
+                sendResponse({ empty: true, message, code: 'EMPTY_RESULTS' });
+                return;
+            }
+            }
 
             const buildRes = await buildAndDownload({
                 messages: scrapeRes.messages || [],
@@ -496,12 +507,17 @@ function handleStartExportMessage(msg, sendResponse) {
     })();
 }
 
+const BADGE_COLOR_EMPTY = '#6b7280';
+
 function updateBadgeForStatus(payload) {
     try {
         const phase = payload?.phase;
         if (phase === 'scrape:complete') {
             const total = payload?.messages ?? payload?.messagesExtracted;
             if (typeof total === 'number') setBadge(String(total));
+        } else if (phase === 'empty') {
+            setBadge('0', BADGE_COLOR_EMPTY);
+            clearBadgeSoon(2000);
         } else if (phase === 'complete') {
             setBadge('✔', '#16a34a');
             clearBadgeSoon(2000);
