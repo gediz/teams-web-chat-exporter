@@ -43,7 +43,7 @@
 - [x] Humanize badge counts above 999 (e.g., 1.2k)
 
 ## Possible Optimizations
-- [ ] Declare an explicit `action.default_icon` in the manifest so Chrome always renders badge text
+- [x] Declare an explicit `action.default_icon` in the manifest so Chrome always renders badge text
 - [ ] Cache parsed timestamps in aggregation map to avoid repeated `Date.parse` calls during filtering
 - [ ] Debounce popup option persistence to reduce `chrome.storage` writes while typing
 - [ ] Rate-limit badge updates so rapid scroll passes don’t spam `setBadge`
