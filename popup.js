@@ -22,7 +22,8 @@ const controls = {
     includeReactions: $("#includeReactions"),
     includeSystem: $("#includeSystem"),
     embedAvatars: $("#embedAvatars"),
-    showHud: $("#showHud")
+    showHud: $("#showHud"),
+    themeToggle: $("#themeToggle")
 };
 
 const DEFAULT_OPTIONS = {
@@ -35,7 +36,8 @@ const DEFAULT_OPTIONS = {
     includeReactions: true,
     includeSystem: false,
     embedAvatars: false,
-    showHud: true
+    showHud: true,
+    theme: "light"
 };
 
 let currentTabId = null;
@@ -45,6 +47,18 @@ let statusBaseText = "";
 
 function isTeamsUrl(u) {
     return /^https:\/\/(.*\.)?(teams\.microsoft\.com|cloud\.microsoft)\//.test(u || "");
+}
+
+function applyTheme(theme) {
+    const next = theme === "dark" ? "dark" : "light";
+    document.body.dataset.theme = next;
+    if (controls.themeToggle) {
+        controls.themeToggle.checked = next === "dark";
+    }
+}
+
+function currentTheme() {
+    return controls.themeToggle?.checked ? "dark" : "light";
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -150,6 +164,8 @@ async function loadStoredOptions() {
 }
 
 function applyOptions(opts) {
+    applyTheme(opts.theme || DEFAULT_OPTIONS.theme);
+
     let startLocal = opts.startAt || isoToLocalInput(opts.startAtISO) || "";
     if (startLocal.includes('T') && !startLocal.includes(' ')) startLocal = startLocal.replace('T', ' ');
     controls.startAt.value = startLocal;
@@ -182,7 +198,8 @@ function collectOptions() {
         includeReactions: controls.includeReactions.checked,
         includeSystem: controls.includeSystem.checked,
         embedAvatars: controls.embedAvatars.checked,
-        showHud: controls.showHud.checked
+        showHud: controls.showHud.checked,
+        theme: currentTheme()
     };
 }
 
@@ -198,6 +215,9 @@ function wireOptionPersistence() {
     const inputs = Object.values(controls).filter(Boolean);
     for (const el of inputs) {
         el.addEventListener("change", () => {
+            if (el === controls.themeToggle) {
+                applyTheme(currentTheme());
+            }
             persistOptions();
             if (el === controls.startAt || el === controls.endAt) updateQuickRangeActive();
         });

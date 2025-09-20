@@ -5,7 +5,7 @@
     <meta charset="utf-8" />
     <style>
         :root {
-            color-scheme: light;
+            color-scheme: light dark;
             --font-base: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             --color-bg: #f8fafc;
             --color-surface: #ffffff;
@@ -14,12 +14,28 @@
             --color-text: #0f172a;
             --color-subtle: #64748b;
             --color-accent: #2563eb;
-            --color-accent-light: #eff6ff;
+            --color-accent-light: rgba(37, 99, 235, 0.12);
             --color-danger: #dc2626;
-            --radius-lg: 16px;
+            --radius-lg: 14px;
             --radius-md: 10px;
-            --gap: 16px;
+            --gap: 14px;
             font-family: var(--font-base);
+        }
+
+        body[data-theme="dark"] {
+            --color-bg: #0f172a;
+            --color-surface: #16213c;
+            --color-border: #1e293b;
+            --color-border-strong: #334155;
+            --color-text: #e2e8f0;
+            --color-subtle: #94a3b8;
+            --color-accent: #60a5fa;
+            --color-accent-light: rgba(96, 165, 250, 0.16);
+            --color-danger: #f87171;
+        }
+
+        * {
+            box-sizing: border-box;
         }
 
         body {
@@ -27,6 +43,7 @@
             min-width: 320px;
             background: var(--color-bg);
             color: var(--color-text);
+            transition: background 0.25s ease, color 0.25s ease;
         }
 
         .popup {
@@ -39,7 +56,14 @@
         .header {
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 6px;
+        }
+
+        .header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
         }
 
         .header h1 {
@@ -54,21 +78,83 @@
             font-size: 13px;
         }
 
+        .theme-toggle {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid var(--color-border);
+            background: var(--color-surface);
+            color: var(--color-subtle);
+            font-size: 12px;
+            cursor: pointer;
+            transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--color-accent);
+            color: var(--color-accent);
+        }
+
+        .theme-toggle input {
+            appearance: none;
+            width: 34px;
+            height: 18px;
+            border-radius: 999px;
+            border: 1px solid var(--color-border);
+            background: var(--color-border);
+            position: relative;
+            transition: background 0.2s ease, border-color 0.2s ease;
+        }
+
+        .theme-toggle input::after {
+            content: '';
+            position: absolute;
+            top: 1px;
+            left: 1px;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #fff;
+            transition: transform 0.2s ease;
+            box-shadow: 0 2px 4px rgba(15, 23, 42, 0.16);
+        }
+
+        .theme-toggle input:checked {
+            background: var(--color-accent);
+            border-color: var(--color-accent);
+        }
+
+        .theme-toggle input:checked::after {
+            transform: translateX(16px);
+        }
+
+        .theme-toggle .icon {
+            font-size: 13px;
+            line-height: 1;
+        }
+
         .card {
             background: var(--color-surface);
             border: 1px solid var(--color-border);
             border-radius: var(--radius-lg);
-            padding: 16px;
+            padding: 14px;
             display: flex;
             flex-direction: column;
             gap: 14px;
-            box-shadow: 0 12px 24px -20px rgba(15, 23, 42, 0.35);
+            box-shadow: 0 12px 28px -24px rgba(15, 23, 42, 0.4);
+        }
+
+        body[data-theme="dark"] .card {
+            box-shadow: 0 16px 24px -26px rgba(6, 12, 24, 0.8);
         }
 
         .section-head {
             display: flex;
-            align-items: center;
-            justify-content: space-between;
+            flex-direction: column;
+            gap: 4px;
         }
 
         .section-title {
@@ -100,26 +186,44 @@
             font-weight: 500;
         }
 
-        .input-text {
+        .input-text,
+        select#format {
             width: 100%;
             border-radius: 10px;
             border: 1px solid var(--color-border);
             background: var(--color-bg);
             padding: 10px 12px;
             font-size: 13px;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            color: var(--color-text);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
         }
 
-        .input-text:focus {
+        .input-text:focus,
+        select#format:focus {
             outline: none;
             border-color: var(--color-accent);
             box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
             background: #fff;
         }
 
-        small {
-            font-size: 12px;
-            color: var(--color-subtle);
+        body[data-theme="dark"] .input-text:focus,
+        body[data-theme="dark"] select#format:focus {
+            background: rgba(255, 255, 255, 0.05);
+            box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.25);
+        }
+
+        body[data-theme="dark"] select#format,
+        body[data-theme="dark"] .input-text {
+            color: var(--color-text);
+        }
+
+        select#format option {
+            color: #0f172a;
+        }
+
+        body[data-theme="dark"] select#format option {
+            color: #e2e8f0;
+            background: #0f172a;
         }
 
         #quickRanges {
@@ -131,7 +235,7 @@
         #quickRanges .chip {
             appearance: none;
             border: 1px solid var(--color-border);
-            background: #fff;
+            background: var(--color-surface);
             padding: 6px 12px;
             border-radius: 999px;
             font-size: 12px;
@@ -151,29 +255,22 @@
             color: #fff;
         }
 
-        select#format {
-            width: 100%;
-            border-radius: 10px;
-            border: 1px solid var(--color-border);
-            background: var(--color-bg);
-            padding: 10px 12px;
-            font-size: 13px;
-        }
-
         .toggle-list {
             display: grid;
-            gap: 8px;
+            gap: 10px;
         }
 
         .toggle {
             display: flex;
             align-items: center;
             justify-content: space-between;
+            gap: 12px;
             padding: 10px 12px;
             border: 1px solid var(--color-border);
             border-radius: var(--radius-md);
             background: var(--color-bg);
             transition: border-color 0.2s ease, background 0.2s ease;
+            cursor: pointer;
         }
 
         .toggle:hover {
@@ -190,10 +287,14 @@
             height: 20px;
             appearance: none;
             border-radius: 999px;
-            border: 1px solid #cbd5f5;
+            border: 1px solid var(--color-border-strong);
             background: #e2e8f0;
             position: relative;
             transition: background 0.2s ease, border-color 0.2s ease;
+        }
+
+        body[data-theme="dark"] .toggle input[type="checkbox"] {
+            background: #1e293b;
         }
 
         .toggle input[type="checkbox"]::after {
@@ -206,7 +307,7 @@
             border-radius: 50%;
             background: #fff;
             transition: transform 0.2s ease;
-            box-shadow: 0 2px 5px rgba(15, 23, 42, 0.1);
+            box-shadow: 0 2px 5px rgba(15, 23, 42, 0.18);
         }
 
         .toggle input[type="checkbox"]:checked {
@@ -236,7 +337,7 @@
         }
 
         button#run:hover:not([disabled]) {
-            box-shadow: 0 12px 24px -12px rgba(37, 99, 235, 0.65);
+            box-shadow: 0 12px 24px -12px rgba(37, 99, 235, 0.6);
             transform: translateY(-1px);
         }
 
@@ -244,6 +345,10 @@
             background: #93c5fd;
             cursor: default;
             box-shadow: none;
+        }
+
+        body[data-theme="dark"] button#run:disabled {
+            background: rgba(96, 165, 250, 0.45);
         }
 
         button#run .spinner {
@@ -258,11 +363,6 @@
 
         button#run.busy .spinner {
             display: inline-block;
-        }
-
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
         }
 
         #status {
@@ -298,8 +398,8 @@
         }
 
         .alert.error {
-            background: #fee2e2;
-            border-color: #fecaca;
+            background: rgba(248, 113, 113, 0.12);
+            border-color: rgba(248, 113, 113, 0.35);
             color: var(--color-danger);
         }
 
@@ -308,13 +408,25 @@
             display: block;
             margin-bottom: 4px;
         }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 
-<body>
+<body data-theme="light">
     <div class="popup">
         <header class="header">
-            <h1>Teams Chat Exporter</h1>
+            <div class="header-top">
+                <h1>Teams Chat Exporter</h1>
+                <label class="theme-toggle" for="themeToggle">
+                    <span class="icon" aria-hidden="true">☀</span>
+                    <input id="themeToggle" type="checkbox" aria-label="Toggle dark mode" />
+                    <span class="icon" aria-hidden="true">🌙</span>
+                </label>
+            </div>
             <p>Export the active Teams chat with your preferred format and filters.</p>
         </header>
 
@@ -380,11 +492,18 @@
                     <span>Embed avatars (base64)</span>
                     <input id="embedAvatars" type="checkbox" />
                 </label>
-                <label class="toggle">
-                    <span>Show in-page progress HUD</span>
-                    <input id="showHud" type="checkbox" checked />
-                </label>
             </div>
+        </section>
+
+        <section class="card" aria-labelledby="advanced-section">
+            <div class="section-head">
+                <h2 class="section-title" id="advanced-section">Advanced</h2>
+                <p class="section-sub">Developer / diagnostic features.</p>
+            </div>
+            <label class="toggle">
+                <span>Show in-page progress HUD</span>
+                <input id="showHud" type="checkbox" checked />
+            </label>
         </section>
 
         <button id="run">
@@ -394,7 +513,7 @@
 
         <div id="status" aria-live="polite"></div>
 
-        <p class="footer-note">Keep this popup open to monitor progress, or close it and track the badge status.</p>
+        <p class="footer-note">Keep this popup open to monitor progress, or close it and watch the badge.</p>
     </div>
 
     <script type="module" src="popup.js"></script>
