@@ -151,6 +151,38 @@
             box-shadow: 0 16px 24px -26px rgba(6, 12, 24, 0.8);
         }
 
+        .card-toggle {
+            appearance: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 0;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            color: inherit;
+        }
+
+        .card-toggle:focus {
+            outline: none;
+        }
+
+        .card-toggle-icon {
+            font-size: 12px;
+            transition: transform 0.2s ease;
+        }
+
+        .card-toggle[aria-expanded="true"] .card-toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        .card-body {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
         .section-head {
             display: flex;
             flex-direction: column;
@@ -578,17 +610,22 @@
         </section>
 
         <section class="card" aria-labelledby="advanced-section">
-            <div class="section-head">
-                <h2 class="section-title" id="advanced-section">Advanced</h2>
-                <p class="section-sub">Developer / diagnostic features.</p>
+            <button type="button" class="card-toggle" id="advancedToggle" aria-expanded="false" aria-controls="advancedBody">
+                <div>
+                    <h2 class="section-title" id="advanced-section">Advanced</h2>
+                    <p class="section-sub">Developer / diagnostic features.</p>
+                </div>
+                <span class="card-toggle-icon" aria-hidden="true">▼</span>
+            </button>
+            <div class="card-body" id="advancedBody" hidden>
+                <label class="toggle">
+                    <span class="toggle-label">
+                        <span class="toggle-icon">👁</span>
+                        <span>Show in-page progress HUD</span>
+                    </span>
+                    <input id="showHud" type="checkbox" checked />
+                </label>
             </div>
-            <label class="toggle">
-                <span class="toggle-label">
-                    <span class="toggle-icon">👁</span>
-                    <span>Show in-page progress HUD</span>
-                </span>
-                <input id="showHud" type="checkbox" checked />
-            </label>
         </section>
 
         <button id="run">
