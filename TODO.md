@@ -49,6 +49,7 @@
 - [ ] Add participant filtering workflow
 - [ ] Design summary sheet/report for export analytics
 - [ ] Investigate PDF export option
+- [ ] Add an option to export all available chats
 
 ## Telemetry (Future)
 - [ ] Specify schema for session stats & environment diagnostics
