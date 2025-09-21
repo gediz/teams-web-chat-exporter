@@ -67,7 +67,13 @@ function currentTheme() {
 function setAdvancedExpanded(state) {
     if (!advancedToggleEl || !advancedBodyEl) return;
     advancedToggleEl.setAttribute("aria-expanded", state ? "true" : "false");
-    advancedBodyEl.hidden = !state;
+    if (state) {
+        advancedBodyEl.hidden = false;
+        advancedBodyEl.style.display = "flex";
+    } else {
+        advancedBodyEl.hidden = true;
+        advancedBodyEl.style.display = "none";
+    }
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -248,9 +254,8 @@ function wireOptionPersistence() {
             const expanded = advancedToggleEl.getAttribute("aria-expanded") === "true";
             setAdvancedExpanded(!expanded);
         });
-        if (!advancedToggleEl.hasAttribute("aria-expanded")) {
-            setAdvancedExpanded(false);
-        }
+        const initialExpanded = advancedToggleEl.getAttribute("aria-expanded") === "true";
+        setAdvancedExpanded(initialExpanded);
     }
 }
 
