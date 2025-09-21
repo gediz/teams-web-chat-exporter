@@ -26,6 +26,9 @@ const controls = {
     themeToggle: $("#themeToggle")
 };
 
+const advancedToggleEl = document.getElementById("advancedToggle");
+const advancedBodyEl = document.getElementById("advancedBody");
+
 const DEFAULT_OPTIONS = {
     startAt: "",
     startAtISO: "",
@@ -59,6 +62,12 @@ function applyTheme(theme) {
 
 function currentTheme() {
     return controls.themeToggle?.checked ? "dark" : "light";
+}
+
+function setAdvancedExpanded(state) {
+    if (!advancedToggleEl || !advancedBodyEl) return;
+    advancedToggleEl.setAttribute("aria-expanded", state ? "true" : "false");
+    advancedBodyEl.hidden = !state;
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -181,6 +190,11 @@ function applyOptions(opts) {
     controls.embedAvatars.checked = Boolean(opts.embedAvatars);
     controls.showHud.checked = Boolean(opts.showHud);
     updateQuickRangeActive();
+
+    if (advancedToggleEl && advancedBodyEl) {
+        const shouldOpen = controls.showHud.checked !== DEFAULT_OPTIONS.showHud;
+        setAdvancedExpanded(shouldOpen);
+    }
 }
 
 function collectOptions() {
@@ -227,6 +241,16 @@ function wireOptionPersistence() {
         btn.addEventListener("click", () => {
             handleQuickRange(btn.dataset.range || "none");
         });
+    }
+
+    if (advancedToggleEl && advancedBodyEl) {
+        advancedToggleEl.addEventListener("click", () => {
+            const expanded = advancedToggleEl.getAttribute("aria-expanded") === "true";
+            setAdvancedExpanded(!expanded);
+        });
+        if (!advancedToggleEl.hasAttribute("aria-expanded")) {
+            setAdvancedExpanded(false);
+        }
     }
 }
 
