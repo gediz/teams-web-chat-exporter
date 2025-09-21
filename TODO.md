@@ -43,6 +43,7 @@
 - [x] Humanize badge counts above 999 (e.g., 1.2k)
 - [ ] Trim `host_permissions` to the minimal required scope
 - [ ] Add `homepage_url` and `support_url` to the manifest
+- [ ] Move export button to the top
 
 ## Future Enhancements
 - [ ] Plan incremental exports (persist last timestamp, diff collection)
