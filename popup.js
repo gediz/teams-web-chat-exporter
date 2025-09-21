@@ -196,11 +196,6 @@ function applyOptions(opts) {
     controls.embedAvatars.checked = Boolean(opts.embedAvatars);
     controls.showHud.checked = Boolean(opts.showHud);
     updateQuickRangeActive();
-
-    if (advancedToggleEl && advancedBodyEl) {
-        const shouldOpen = controls.showHud.checked !== DEFAULT_OPTIONS.showHud;
-        setAdvancedExpanded(shouldOpen);
-    }
 }
 
 function collectOptions() {
@@ -254,8 +249,6 @@ function wireOptionPersistence() {
             const expanded = advancedToggleEl.getAttribute("aria-expanded") === "true";
             setAdvancedExpanded(!expanded);
         });
-        const initialExpanded = advancedToggleEl.getAttribute("aria-expanded") === "true";
-        setAdvancedExpanded(initialExpanded);
     }
 }
 
@@ -306,6 +299,10 @@ async function init() {
     const opts = await loadStoredOptions();
     applyOptions(opts);
     wireOptionPersistence();
+
+    if (advancedToggleEl && advancedBodyEl) {
+        setAdvancedExpanded(false);
+    }
 
     const persistedError = await loadPersistedError();
     if (persistedError?.message) {
