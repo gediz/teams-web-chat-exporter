@@ -306,13 +306,13 @@
             border-color: var(--color-accent);
         }
 
-        .toggle span {
-            font-size: 13px;
-            font-weight: 500;
+        .toggle-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
         }
 
-        .toggle::before {
-            content: attr(data-icon);
+        .toggle-label .toggle-icon {
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -325,9 +325,14 @@
             font-weight: 600;
         }
 
-        body[data-theme="dark"] .toggle::before {
+        body[data-theme="dark"] .toggle-label .toggle-icon {
             background: rgba(96, 165, 250, 0.22);
-            color: var(--color-accent);
+            color: var(--color-text);
+        }
+
+        .toggle-label span {
+            font-size: 13px;
+            font-weight: 500;
         }
 
         .toggle input[type="checkbox"] {
@@ -340,6 +345,7 @@
             position: relative;
             transition: background 0.2s ease, border-color 0.2s ease;
             padding: 0;
+            flex-shrink: 0;
         }
 
         body[data-theme="dark"] .toggle input[type="checkbox"] {
@@ -535,20 +541,32 @@
             </div>
 
             <div class="toggle-list" role="group" aria-label="Include options">
-                <label class="toggle" data-icon="↩">
-                    <span>Include threaded replies</span>
+                <label class="toggle">
+                    <span class="toggle-label">
+                        <span class="toggle-icon">↩</span>
+                        <span>Include threaded replies</span>
+                    </span>
                     <input id="includeReplies" type="checkbox" checked />
                 </label>
-                <label class="toggle" data-icon="😊">
-                    <span>Include reactions</span>
+                <label class="toggle">
+                    <span class="toggle-label">
+                        <span class="toggle-icon">😊</span>
+                        <span>Include reactions</span>
+                    </span>
                     <input id="includeReactions" type="checkbox" checked />
                 </label>
-                <label class="toggle" data-icon="⚙">
-                    <span>Include system messages</span>
+                <label class="toggle">
+                    <span class="toggle-label">
+                        <span class="toggle-icon">⚙</span>
+                        <span>Include system messages</span>
+                    </span>
                     <input id="includeSystem" type="checkbox" />
                 </label>
-                <label class="toggle" data-icon="👤">
-                    <span>Embed avatars (base64)</span>
+                <label class="toggle">
+                    <span class="toggle-label">
+                        <span class="toggle-icon">👤</span>
+                        <span>Embed avatars (base64)</span>
+                    </span>
                     <input id="embedAvatars" type="checkbox" />
                 </label>
             </div>
@@ -559,8 +577,11 @@
                 <h2 class="section-title" id="advanced-section">Advanced</h2>
                 <p class="section-sub">Developer / diagnostic features.</p>
             </div>
-            <label class="toggle" data-icon="👁">
-                <span>Show in-page progress HUD</span>
+            <label class="toggle">
+                <span class="toggle-label">
+                    <span class="toggle-icon">👁</span>
+                    <span>Show in-page progress HUD</span>
+                </span>
                 <input id="showHud" type="checkbox" checked />
             </label>
         </section>
