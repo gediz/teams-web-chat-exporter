@@ -1,4 +1,6 @@
-# Teams Chat Exporter
+﻿# Teams Chat Exporter
+
+![Teams Chat Exporter icon](icons/action-128.png)
 
 A Chrome browser extension that exports chat conversations from Microsoft Teams web application.
 
@@ -12,25 +14,33 @@ A Chrome browser extension that exports chat conversations from Microsoft Teams 
 
 ## Installation
 
-1. Clone or download this repository
-2. Open Chrome and navigate to `chrome://extensions/`
-3. Enable "Developer mode" (toggle in top-right)
-4. Click "Load unpacked" and select the extension directory
-5. Pin the extension for easy access
+### Chrome Web Store
+
+1. Open the [Teams Chat Exporter listing](https://chromewebstore.google.com/detail/teams-chat-exporter/jmghclbfbbapimhbgnpffbimphlpolnm) in Chrome.
+2. Click `Add to Chrome`, then confirm by selecting `Add extension`.
+3. Pin the extension for easy access from the toolbar.
+
+### Manual (Unpacked) Installation
+
+1. Clone or download this repository.
+2. Open Chrome and navigate to `chrome://extensions/`.
+3. Enable `Developer mode` (toggle in top-right).
+4. Click `Load unpacked` and select the extension directory.
+5. Pin the extension for easy access.
 
 ## Usage
 
-1. Navigate to Microsoft Teams web app (`teams.microsoft.com`)
-2. Open the chat conversation you want to export
-3. Click the extension icon in Chrome toolbar
+1. Navigate to Microsoft Teams web app (`teams.microsoft.com`).
+2. Open the chat conversation you want to export.
+3. Click the extension icon in Chrome toolbar.
 4. Configure export options:
    - Set stop date (optional) to limit how far back to export
    - Choose export format
    - Select what to include (replies, reactions, system messages)
    - Enable avatar embedding (HTML only)
-5. Click "Export current chat"
-6. Wait for the extension to scroll and collect messages
-7. File will be automatically downloaded
+5. Click `Export current chat`.
+6. Wait for the extension to scroll and collect messages.
+7. File will be automatically downloaded.
 
 ## Export Options
 
@@ -62,3 +72,4 @@ The extension requires:
 - Export time depends on chat history length
 - Large exports may take several minutes to complete
 - Extension preserves message order and timestamps
+
