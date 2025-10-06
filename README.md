@@ -7,7 +7,7 @@ A Chrome browser extension that exports chat conversations from Microsoft Teams 
 ## Features
 
 - **Export Formats**: JSON, CSV, HTML
-- **Comprehensive Data**: Messages, reactions, attachments, threaded replies, system messages
+- **Comprehensive Data**: Messages, reactions, threaded replies, system messages
 - **Date Filtering**: Set oldest date to limit chat history
 - **Avatar Embedding**: Option to embed avatars as base64 (HTML format)
 - **Auto-scroll**: Automatically loads chat history by scrolling
