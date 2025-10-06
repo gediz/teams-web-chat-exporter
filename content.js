@@ -6,7 +6,7 @@ let hudEnabled = true;
 let currentRunStartedAt = null;
 
 function isChatNavSelected() {
-    return Boolean(document.querySelector('[data-tid="app-bar-wrapper"] button[aria-label="Chat"][aria-pressed="true"]'));
+    return Boolean(document.querySelector('[data-tid="app-bar-wrapper"] button[aria-pressed="true"][aria-label^="Chat" i]'));
 }
 
 function hasChatMessageSurface() {
