@@ -77,8 +77,9 @@ The extension follows Chrome Manifest V3 architecture with three main components
 - Handles avatar embedding for HTML exports
 
 **Key Functions**:
-- `runExport()`: Main export orchestration (service-worker.js:145)
-- `buildJSON()`, `buildCSV()`, `buildHTML()`: Format-specific builders
+- `handleStartExportMessage()`: Main export orchestration (service-worker.js:483)
+- `buildAndDownload()`: Builds exports in all formats (service-worker.js:390)
+- `toCSV()`, `toHTML()`: Format-specific builders (service-worker.js:114, 150)
 - `embedAvatarsInRows()`: Fetches and converts avatars to base64 (service-worker.js:93)
 - `formatBadgeCount()`: Humanizes badge numbers (e.g., "1.2k") (service-worker.js:37)
 
@@ -91,8 +92,8 @@ The extension follows Chrome Manifest V3 architecture with three main components
 
 **Key Functions**:
 - `checkChatContext()`: Validates Teams chat is open (content.js:28)
-- `startScrape()`: Main scraping orchestration (content.js:~700)
-- `scrollToLoadMore()`: Auto-scroll implementation with sentinel detection
+- `autoScrollAggregate()`: Main scraping and scroll orchestration (content.js:756)
+- `collectCurrentVisible()`: Collects messages from current viewport (content.js:726)
 - `resolveAuthor()`, `resolveTimestamp()`: DOM parsing helpers (content.js:91-100)
 - `parseDateDividerText()`: Extracts dates from Teams "day divider" elements
 
@@ -181,7 +182,7 @@ The content script uses a sophisticated scroll loop to load chat history:
 3. **Author Carry-over**: Preserves `lastAuthor` across scroll passes to handle Teams' UI quirk of omitting author names on consecutive messages
 4. **Hard Timeout**: Exits after max passes or when oldest message ID stops changing
 
-See `scrollToLoadMore()` in content.js for implementation details.
+See `autoScrollAggregate()` in content.js:756 for implementation details.
 
 ### Chrome Messaging
 
@@ -191,7 +192,7 @@ See `scrollToLoadMore()` in content.js for implementation details.
 - `START_EXPORT`: Initiates export with options payload
 
 **Service Worker → Content Script**:
-- `DO_SCRAPE`: Starts scraping with date range filters
+- `SCRAPE_TEAMS`: Starts scraping with date range filters
 
 **Content Script → Service Worker** (via popup):
 - `SCRAPE_PROGRESS`: Updates during scroll/extraction (`{phase, passes, seen}`)
@@ -221,18 +222,18 @@ The extension uses `chrome.action.setBadgeText` to show message counts:
    ↓
 2. popup.js validates inputs, sends START_EXPORT to service worker
    ↓
-3. service-worker.js sends DO_SCRAPE to active Teams tab
+3. service-worker.js sends SCRAPE_TEAMS to active Teams tab
    ↓
 4. content.js checks chat context (isChatNavSelected, hasChatMessageSurface)
    ↓
-5. content.js scrolls to top, observes sentinel, collects messages
+5. content.js runs autoScrollAggregate() to scroll and collect messages
    ├─ Updates badge via SCRAPE_PROGRESS messages
    └─ Shows in-page HUD (if enabled)
    ↓
-6. content.js returns SCRAPE_COMPLETE with aggregated messages
+6. content.js returns aggregated messages array
    ↓
-7. service-worker.js builds export (JSON/CSV/HTML)
-   ├─ Embeds avatars if requested (HTML only)
+7. service-worker.js calls buildAndDownload() to build export (JSON/CSV/HTML)
+   ├─ Embeds avatars if requested (HTML only, via embedAvatarsInRows())
    └─ Generates filename with chat name + timestamp
    ↓
 8. service-worker.js triggers download via chrome.downloads.download
@@ -256,9 +257,9 @@ The extension uses `chrome.action.setBadgeText` to show message counts:
 ### Naming Patterns
 
 - **Selectors**: Use descriptive names: `$` for single element, `$$` for arrays
-- **Functions**: Verb-first imperative (e.g., `resolveAuthor`, `buildHTML`, `formatBadgeCount`)
+- **Functions**: Verb-first imperative (e.g., `resolveAuthor`, `toHTML`, `formatBadgeCount`)
 - **Constants**: UPPER_SNAKE_CASE (e.g., `DAY_MS`, `TERMINAL_PHASES`)
-- **Message types**: UPPER_SNAKE_CASE with namespace (e.g., `START_EXPORT`, `SCRAPE_COMPLETE`)
+- **Message types**: UPPER_SNAKE_CASE with namespace (e.g., `START_EXPORT`, `SCRAPE_TEAMS`, `SCRAPE_COMPLETE`)
 
 ### DOM Querying
 
@@ -401,7 +402,7 @@ test('formats millions', () => {
 **Testable modules** (extract first):
 - Date/timestamp parsing (`parseTimeStamp`, `parseDateDividerText`)
 - Badge formatting (`formatBadgeCount`)
-- Export builders (`buildJSON`, `buildCSV`, `buildHTML`)
+- Export builders (`toCSV`, `toHTML`, JSON formatting in `buildAndDownload`)
 - Filename sanitization (`sanitizeBase`)
 
 #### Integration Tests (with Playwright/Puppeteer)
@@ -471,7 +472,7 @@ Before releases, manually verify:
    }
    ```
 
-3. **Wire Builder** (service-worker.js, in `runExport`):
+3. **Wire Builder** (service-worker.js, in `buildAndDownload`):
    ```javascript
    let content, mime, ext;
    if (format === 'json') { /* ... */ }
@@ -632,10 +633,10 @@ When helping users with this codebase:
 
 **Find where...**:
 - Export is triggered: `popup.js` → `gatherOptions()` + `START_EXPORT` message
-- Messages are collected: `content.js` → `startScrape()` → scroll loop → aggregation
-- Files are built: `service-worker.js` → `runExport()` → format-specific builders
-- Badge is updated: `service-worker.js` → `updateActiveExport()` + `chrome.action.setBadgeText`
-- Timestamps are parsed: `content.js` → `parseTimeStamp()`, `parseDateDividerText()`
+- Messages are collected: `content.js` → `autoScrollAggregate()` → scroll loop → aggregation
+- Files are built: `service-worker.js` → `buildAndDownload()` → `toCSV()` / `toHTML()` / JSON stringify
+- Badge is updated: `service-worker.js` → `setBadge()` + `chrome.action.setBadgeText`
+- Timestamps are parsed: `content.js` → `parseTimeStamp()`
 - Options are persisted: `popup.js` → `chrome.storage.local.set(STORAGE_KEY, opts)`
 
 **Common Gotchas**:
