@@ -128,27 +128,49 @@ teams-web-chat-exporter/
 
 ### Message Aggregation
 
-Messages are collected into `AggregatedEntry` objects with this structure:
+The content script collects messages and returns them in a wrapper structure for ordering and filtering:
 
 ```javascript
+// Wrapper structure returned from extractOne() in content.js
 {
-  kind: "message" | "dayDivider",
-  tsMs: number,              // Message timestamp in milliseconds
-  anchorTs: number,          // Teams-internal anchor timestamp
-  author: string,
-  avatar: string,            // URL or base64 data URL
-  body: string,              // Plain text or HTML
-  edited: boolean,
-  replyCount: number,
-  replyToId: string | null,  // Parent message ID for threaded replies
-  replyToAuthor: string | null,
-  reactions: Array<{emoji, participants}>,
-  attachments: Array<{name, type, size, preview}>,
-  mentions: Array<{name, id}>
+  message: {...},            // The message object (see below)
+  orderKey: number,          // Timestamp in ms or sequence number for ordering
+  tsMs: number | null,       // Timestamp in milliseconds (for filtering)
+  kind: 'message' | 'system-control' | 'day-divider'
+}
+
+// The actual message object structure
+{
+  id: string,                // Message ID from data-mid attribute or generated
+  author: string,            // Author display name
+  timestamp: string,         // Original timestamp string (not parsed)
+  text: string,              // Message text content
+  edited: boolean,           // Whether message was edited
+  avatar: string | null,     // Avatar URL (or base64 data URL after embedding)
+  reactions: Array<{
+    emoji: string,           // Emoji character
+    count: number,           // Reaction count
+    reactors?: string[]      // Optional list of reactor names (up to 100)
+  }>,
+  attachments: Array<{
+    href: string,            // Attachment URL
+    label: string,           // Display name
+    type?: string,           // File type (e.g., "PDF")
+    size?: string,           // File size (e.g., "2.4 MB")
+    owner?: string,          // Owner name
+    metaText?: string,       // Additional metadata text
+    preview?: string         // Preview URL (for images)
+  }>,
+  replyTo: {                 // Reply context (null if not a reply)
+    author: string,          // Original message author
+    timestamp: string,       // Original message timestamp
+    text: string             // Preview of original message text
+  } | null,
+  system: boolean            // Whether this is a system message
 }
 ```
 
-**Day Dividers**: Special entries with `kind: "dayDivider"` inserted to mark date boundaries in exports.
+**Note**: The wrapper structure is used internally during collection and filtering. The `message` object is what gets exported to JSON/CSV/HTML formats.
 
 ### Scroll Loop Strategy
 
@@ -438,12 +460,12 @@ Before releases, manually verify:
    function buildMarkdown(rows, opts) {
        let md = `# ${opts.chatName || 'Teams Chat'}\n\n`;
        for (const m of rows) {
-           if (m.kind === 'dayDivider') {
-               md += `\n---\n**${m.label}**\n---\n\n`;
+           if (m.system) {
+               md += `\n---\n**${m.text}**\n---\n\n`;
                continue;
            }
-           const ts = new Date(m.tsMs).toLocaleString();
-           md += `### ${m.author} (${ts})\n${m.body}\n\n`;
+           const ts = new Date(m.timestamp).toLocaleString();
+           md += `### ${m.author} (${ts})\n${m.text}\n\n`;
        }
        return md;
    }
