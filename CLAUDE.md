@@ -114,10 +114,11 @@ teams-web-chat-exporter/
 │   ├── action-48.png
 │   ├── action-128.png
 │   └── action-256.png
+├── docs/                  # Documentation files
+│   ├── TODO.md            # Tracked tasks & feature roadmap
+│   ├── REFACTOR_PLAN.md   # Proposed code organization improvements
+│   └── DEV_IMPROVEMENTS.md # Tooling wishlist (TypeScript, linting, tests)
 ├── README.md              # User-facing documentation
-├── TODO.md                # Tracked tasks & feature roadmap
-├── REFACTOR_PLAN.md       # Proposed code organization improvements
-├── DEV_IMPROVEMENTS.md    # Tooling wishlist (TypeScript, linting, tests)
 └── CLAUDE.md              # This file
 ```
 
@@ -379,7 +380,7 @@ git commit -m "fix: handle empty author name in Teams v2 UI"
 - Exporting real Teams chats
 - Inspecting downloaded files
 
-### Recommended Test Coverage (from DEV_IMPROVEMENTS.md)
+### Recommended Test Coverage (from docs/DEV_IMPROVEMENTS.md)
 
 #### Unit Tests (with Vitest/Jest)
 
@@ -556,7 +557,7 @@ When Teams updates their DOM structure:
 
 ## Known Issues & Future Work
 
-### Active TODOs (from TODO.md)
+### Active TODOs (from docs/TODO.md)
 
 **Critical**:
 - [ ] Trim `host_permissions` to minimal required scope (manifest.json:28-32)
@@ -566,7 +567,7 @@ When Teams updates their DOM structure:
 - [ ] Move export button to top of popup for faster access
 - [ ] Add progress bar (currently text-only status updates)
 
-**Future Features** (see TODO.md):
+**Future Features** (see docs/TODO.md):
 - [ ] Incremental exports (persist last timestamp, diff collection)
 - [ ] Participant filtering (export only messages from specific users)
 - [ ] Export summary/analytics report
@@ -576,7 +577,7 @@ When Teams updates their DOM structure:
 **Browser Support**:
 - [ ] Firefox port (blockers: MV3 differences, service worker APIs)
 
-### Refactoring Opportunities (from REFACTOR_PLAN.md)
+### Refactoring Opportunities (from docs/REFACTOR_PLAN.md)
 
 **Module Extraction**:
 - Extract date/timestamp helpers into `date-helpers.js`
@@ -588,7 +589,7 @@ When Teams updates their DOM structure:
 - Add JSDoc annotations for `AggregatedEntry` and message types
 - Consider gradual TypeScript migration (`.ts` + `tsconfig.json` + bundler)
 
-**Testing Tooling** (from DEV_IMPROVEMENTS.md):
+**Testing Tooling** (from docs/DEV_IMPROVEMENTS.md):
 - Set up ESLint + Prettier for code consistency
 - Add Vitest for unit tests on pure functions
 - Configure Playwright for E2E tests with mock Teams pages
@@ -654,9 +655,9 @@ When helping users with this codebase:
 - **Teams Web Reverse Engineering**: Inspect DOM via DevTools (no official API)
 - **Project Files**:
   - README.md: User installation & usage guide
-  - TODO.md: Active tasks & feature roadmap
-  - REFACTOR_PLAN.md: Code organization proposals
-  - DEV_IMPROVEMENTS.md: Tooling wishlist & testing guide
+  - docs/TODO.md: Active tasks & feature roadmap
+  - docs/REFACTOR_PLAN.md: Code organization proposals
+  - docs/DEV_IMPROVEMENTS.md: Tooling wishlist & testing guide
 
 ---
 
