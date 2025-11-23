@@ -8,7 +8,7 @@ A Chrome browser extension that exports chat conversations from Microsoft Teams 
 
 - **Export Formats**: JSON, CSV, HTML
 - **Comprehensive Data**: Messages, reactions, threaded replies, system messages
-- **Date Filtering**: Set oldest date to limit chat history
+- **Date Filtering**: Set start/end date range to filter messages
 - **Avatar Embedding**: Option to embed avatars as base64 (HTML format)
 - **Auto-scroll**: Automatically loads chat history by scrolling
 
@@ -34,8 +34,9 @@ A Chrome browser extension that exports chat conversations from Microsoft Teams 
 2. Open the chat conversation you want to export.
 3. Click the extension icon in Chrome toolbar.
 4. Configure export options:
-   - Set stop date (optional) to limit how far back to export
-   - Choose export format
+   - Set date range (optional): From date (inclusive) and To date (exclusive)
+   - Use quick ranges: Last 24h, 7d, or 30d
+   - Choose export format (JSON, CSV, or HTML)
    - Select what to include (replies, reactions, system messages)
    - Enable avatar embedding (HTML only)
 5. Click `Export current chat`.
@@ -44,7 +45,9 @@ A Chrome browser extension that exports chat conversations from Microsoft Teams 
 
 ## Export Options
 
-- **Stop at date**: Limits export to messages newer than specified date
+- **Date Range**: Filter messages by start date (inclusive) and end date (exclusive)
+  - Use quick ranges: Last 24h, 7d, or 30d
+  - Leave blank to export all messages
 - **Include threaded replies**: Exports reply context information
 - **Include reactions**: Exports emoji reactions and participant lists
 - **Include system messages**: Exports date dividers and system notifications

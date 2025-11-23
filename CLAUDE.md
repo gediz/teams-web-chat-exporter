@@ -27,8 +27,8 @@ This document provides AI assistants with a comprehensive understanding of the T
 - Provides a popup UI for configuration and progress monitoring
 
 **Current Version**: 1.0.1
-**Codebase Size**: ~2,275 lines of JavaScript
-**Browser Support**: Chrome (Firefox port planned but blocked on refactors)
+**Codebase Size**: ~2,278 lines of JavaScript
+**Browser Support**: Chrome only (WXT migration would enable Firefox, Edge, Safari)
 
 ---
 
@@ -600,7 +600,7 @@ When Teams updates their DOM structure:
 - [ ] Batch export (all chats)
 
 **Browser Support**:
-- [ ] Firefox port (blockers: MV3 differences, service worker APIs)
+- [ ] Firefox port (resolved: WXT framework provides automatic cross-browser builds with polyfills)
 
 ### Refactoring Opportunities (from docs/REFACTOR_PLAN.md)
 
