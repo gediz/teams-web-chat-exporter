@@ -41,9 +41,9 @@
 - [x] Skip file download when no messages were collected (show banner instead)
 - [x] Reset extension badge when tab is refreshed or background restarts
 - [x] Humanize badge counts above 999 (e.g., 1.2k)
-- [ ] Trim `host_permissions` to the minimal required scope
-- [ ] Add `homepage_url` and `support_url` to the manifest
+- [x] Trim `host_permissions` to the minimal required scope
 - [ ] Move export button to the top
+- [ ] Add an option to pause/resume/stop export operation.
 
 ## Future Enhancements
 - [ ] Plan incremental exports (persist last timestamp, diff collection)
@@ -51,9 +51,11 @@
 - [ ] Design summary sheet/report for export analytics
 - [ ] Investigate PDF export option
 - [ ] Add an option to export all available chats
+- [ ] Add multi language support
 
 ## Telemetry (Future)
 - [ ] Specify schema for session stats & environment diagnostics
 
 ## Browser Support
 - [ ] Document Firefox port blockers & needed refactors
+- [ ] Check WXT port effort

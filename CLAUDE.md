@@ -62,16 +62,19 @@ The extension follows Chrome Manifest V3 architecture with three main components
 - Persists user preferences to `chrome.storage.local`
 - Initiates export by sending `START_EXPORT` message to service worker
 - Displays real-time progress updates and elapsed time
+- Reconnects to running exports: If the popup is reopened, it queries the service worker to restore the UI to the current export status.
 - Implements theme toggle (light/dark mode)
 
 **Key Functions**:
-- `gatherOptions()`: Collects and validates user input
+- `collectOptions()`: Gathers all user-configured settings from the UI
+- `getValidatedRangeISO()`: Validates date inputs and converts them to ISO format
 - `setStatus()`: Updates status text with elapsed time
 - `handleExportStatus()`: Processes status messages from service worker
 
 #### 2. **service-worker.js** (~651 lines)
 - Orchestrates export workflow by messaging content script
 - Builds export files (JSON/CSV/HTML) from collected message data
+- Manages export state: Tracks the status of active exports for each tab to prevent duplicates and allow reconnection.
 - Manages Chrome downloads API
 - Updates extension badge with message counts
 - Handles avatar embedding for HTML exports
@@ -94,7 +97,7 @@ The extension follows Chrome Manifest V3 architecture with three main components
 - `checkChatContext()`: Validates Teams chat is open (content.js:28)
 - `autoScrollAggregate()`: Main scraping and scroll orchestration (content.js:756)
 - `collectCurrentVisible()`: Collects messages from current viewport (content.js:726)
-- `resolveAuthor()`, `resolveTimestamp()`: DOM parsing helpers (content.js:91-100)
+- `resolveAuthor()`, `resolveTimestamp()`: DOM parsing helpers (content.js:91-99, 100-103)
 - `parseDateDividerText()`: Extracts dates from Teams "day divider" elements
 
 ---
@@ -134,8 +137,9 @@ The content script collects messages and returns them in a wrapper structure for
 
 ```javascript
 // Wrapper structure returned from extractOne() in content.js
+// Note: day-divider entries omit the `message` object and only carry label + timing metadata.
 {
-  message: {...},            // The message object (see below)
+  message?: {...},           // The message object (see below) when kind === 'message' or 'system-control'
   orderKey: number,          // Timestamp in ms or sequence number for ordering
   tsMs: number | null,       // Timestamp in milliseconds (for filtering)
   kind: 'message' | 'system-control' | 'day-divider'
@@ -160,8 +164,7 @@ The content script collects messages and returns them in a wrapper structure for
     type?: string,           // File type (e.g., "PDF")
     size?: string,           // File size (e.g., "2.4 MB")
     owner?: string,          // Owner name
-    metaText?: string,       // Additional metadata text
-    preview?: string         // Preview URL (for images)
+    metaText?: string        // Additional metadata text
   }>,
   replyTo: {                 // Reply context (null if not a reply)
     author: string,          // Original message author
@@ -181,9 +184,25 @@ The content script uses a sophisticated scroll loop to load chat history:
 1. **Sentinel Observer**: Uses `IntersectionObserver` on the topmost message element to detect when true top is reached
 2. **Height Stabilization**: Tracks `scrollHeight` changes to detect when Teams stops loading new messages
 3. **Author Carry-over**: Preserves `lastAuthor` across scroll passes to handle Teams' UI quirk of omitting author names on consecutive messages
-4. **Hard Timeout**: Exits after max passes or when oldest message ID stops changing
+4. **Stagnation Breaks**: Exits when the header sentinel is reached and scroll height/counts stop changing; no max-pass or timer guard is implemented
 
 See `autoScrollAggregate()` in content.js:756 for implementation details.
+
+### Sparse Message Hydration
+
+After the main scroll loop completes, the content script performs a "hydration" step (`hydrateSparseMessages`). This is a critical process to handle Teams' lazy-loading behavior where some message content (like reactions or full text) might not be immediately available during the initial scrape.
+
+1.  **Identify Placeholders**: It finds messages that were collected with placeholder text (e.g., "loading...").
+2.  **Re-scrape**: After a short delay to allow content to load, it re-runs the extraction logic specifically on these "sparse" messages.
+3.  **Merge Data**: It intelligently merges the newly extracted, richer content (like full text and reactions) with the previously stored message data.
+
+This ensures the final export is as complete as possible, even if the UI loads content asynchronously.
+
+### Active Export State Management
+
+The service worker maintains an internal `activeExports` Map to track the state of any ongoing export for each browser tab. This map stores the start time, current phase, and last status message for each active job. This mechanism is crucial for:
+- Preventing a user from starting a second export in the same tab.
+- Allowing the popup UI to reconnect and display the correct status if it's closed and reopened mid-export (via the `GET_EXPORT_STATUS` message).
 
 ### Chrome Messaging
 
@@ -196,12 +215,15 @@ See `autoScrollAggregate()` in content.js:756 for implementation details.
 - `SCRAPE_TEAMS`: Starts scraping with date range filters
 
 **Content Script → Service Worker** (via popup):
-- `SCRAPE_PROGRESS`: Updates during scroll/extraction (`{phase, passes, seen}`)
-- `SCRAPE_COMPLETE`: Returns collected messages
-- `SCRAPE_ERROR`: Reports failures
+- `SCRAPE_PROGRESS`: Updates during scroll/extraction (e.g., `{phase, passes, seen}`; note: the actual payload is more detailed)
+- `SCRAPE_TEAMS` response payload: Replies to `SCRAPE_TEAMS` with `{messages, meta}` or `{error}` via sendResponse (no separate message type)
 
 **Service Worker → Popup**:
 - `EXPORT_STATUS`: Progress updates (`{status, phase, count, error}`)
+
+**Popup → Service Worker**:
+- `GET_EXPORT_STATUS`: Queries the status of an export for a given tab, enabling the popup reconnection logic.
+
 
 ### Badge Management
 
@@ -212,7 +234,14 @@ The extension uses `chrome.action.setBadgeText` to show message counts:
 - Resets when tabs reload or service worker restarts
 - Blue badge during export, gray for empty results
 
----
+### Advanced HTML Export Features
+
+The `toHTML()` builder in the service worker includes several intelligent features to improve the readability and usability of the output file:
+
+- **Autolinking**: It automatically detects URLs within message text and converts them into clickable `<a>` tags.
+- **Attachment Deduplication**: It intelligently hides redundant attachment entries. If an attachment is just a naked URL that is already present and linked in the message text, it is omitted from the attachment list to avoid clutter.
+- **Compact View**: The generated HTML includes a toggle button that allows the user to switch to a "compact view," which hides avatars and other less critical details for a denser reading experience.
+
 
 ## Data Flow
 
@@ -248,8 +277,8 @@ The extension uses `chrome.action.setBadgeText` to show message counts:
 
 - **Invalid context**: Content script returns error if not on chat view
 - **No messages**: Service worker skips download, shows banner instead of file
-- **Scroll timeout**: Content script exits gracefully with partial results
-- **Avatar fetch failures**: Service worker logs error, uses placeholder or original URL
+- **Scroll stagnation**: Content script stops when the header sentinel is reached and scroll metrics stop changing (may return partial results)
+- **Avatar fetch failures**: Service worker logs error and drops the avatar (sets it to null)
 
 ---
 
@@ -497,7 +526,7 @@ Before releases, manually verify:
    <input id="filterAuthor" type="text" placeholder="Author name" />
    ```
 
-2. **Capture in Options** (popup.js, `gatherOptions`):
+2. **Capture in Options** (popup.js, `collectOptions`):
    ```javascript
    const opts = {
        // ... existing options
@@ -558,10 +587,6 @@ When Teams updates their DOM structure:
 ## Known Issues & Future Work
 
 ### Active TODOs (from docs/TODO.md)
-
-**Critical**:
-- [ ] Trim `host_permissions` to minimal required scope (manifest.json:28-32)
-- [ ] Add `homepage_url` and `support_url` to manifest
 
 **UX Enhancements**:
 - [ ] Move export button to top of popup for faster access
@@ -633,8 +658,8 @@ When helping users with this codebase:
 ### Quick Reference
 
 **Find where...**:
-- Export is triggered: `popup.js` → `gatherOptions()` + `START_EXPORT` message
-- Messages are collected: `content.js` → `autoScrollAggregate()` → scroll loop → aggregation
+- Export is triggered: `popup.js` → `collectOptions()` + `START_EXPORT` message
+- Messages are collected: `content.js` → `autoScrollAggregate()` → scroll loop → `hydrateSparseMessages()`
 - Files are built: `service-worker.js` → `buildAndDownload()` → `toCSV()` / `toHTML()` / JSON stringify
 - Badge is updated: `service-worker.js` → `setBadge()` + `chrome.action.setBadgeText`
 - Timestamps are parsed: `content.js` → `parseTimeStamp()`
@@ -663,3 +688,4 @@ When helping users with this codebase:
 
 **Last Updated**: 2025-01-15
 **Maintainer**: See README for contact info
+
