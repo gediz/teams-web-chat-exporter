@@ -1,6 +1,6 @@
 # WXT POC Fixes Applied
 
-**Note:** The popup is now implemented in Svelte + TypeScript (`src/entrypoints/popup/App.svelte` + `main.ts`). Background and content scripts remain JavaScript.
+**Note:** The popup is now implemented in Svelte + TypeScript (`src/entrypoints/popup/App.svelte` + `main.ts`). Background and content scripts have been moved to TypeScript entrypoints (`background.ts`, `content.ts`) with compatibility shims.
 
 ## Issue: Default export not found
 

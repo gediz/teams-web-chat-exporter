@@ -13,8 +13,8 @@ wxt-poc/
 │   │   │   ├── main.ts             # Popup bootstrap (Svelte mount)
 │   │   │   ├── App.svelte          # Popup UI/logic (TypeScript + Svelte)
 │   │   │   └── popup.css           # Popup styles
-│   │   ├── background.js           # Service worker (from service-worker.js)
-│   │   └── content.js              # Content script (from content.js)
+│   │   ├── background.ts           # Service worker (from service-worker.js)
+│   │   └── content.ts              # Content script (from content.js)
 │   └── public/
 │       └── icons/                  # Extension icons
 ├── wxt.config.ts                   # WXT configuration

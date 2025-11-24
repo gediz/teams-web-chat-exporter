@@ -1058,3 +1058,4 @@ runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   } // End of main()
 }); // End of defineContentScript
+// @ts-nocheck

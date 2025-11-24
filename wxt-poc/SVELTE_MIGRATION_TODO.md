@@ -30,6 +30,6 @@ Incremental plan to port to Svelte with full TypeScript. Start with the popup, t
   - [x] Note mixed stack (popup in Svelte, background/content still JS) in docs/notes.
 - [ ] Optional polish:
   - [x] Add `npm run check` using `svelte-check` and `@tsconfig/svelte`.
-  - [ ] Migrate background/content scripts to TypeScript and share utilities as a follow-up.
+  - [x] Migrate background/content scripts to TypeScript and share utilities as a follow-up.
   - [ ] Factor popup into smaller Svelte components (header, range, options, advanced, footer) for readability.
   - [ ] Investigate HUD/elapsed timer occasional stalls; ensure timers are cleaned up and status updates stay in sync.

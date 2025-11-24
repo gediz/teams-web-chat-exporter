@@ -407,8 +407,8 @@ All dependencies are listed in package.json:
 ### Architecture
 
 - src/entrypoints/popup/: Extension popup UI (Svelte + TypeScript; App.svelte + main.ts)
-- src/entrypoints/background.js: Background service worker (message handling, downloads)
-- src/entrypoints/content.js: Content script (scrapes Teams web page DOM)
+- src/entrypoints/background.ts: Background service worker (message handling, downloads)
+- src/entrypoints/content.ts: Content script (scrapes Teams web page DOM)
 - wxt.config.ts: Build configuration and manifest settings
 - src/public/icons/: Extension icons
 

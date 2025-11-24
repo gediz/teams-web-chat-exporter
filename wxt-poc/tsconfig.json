@@ -2,7 +2,7 @@
   "extends": "@tsconfig/svelte/tsconfig.json",
   "compilerOptions": {
     "strict": true,
-    "allowJs": true,
+    "allowJs": false,
     "checkJs": false,
     "types": ["svelte", "chrome", "vite/client"],
     "paths": {
