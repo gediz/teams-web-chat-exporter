@@ -11,13 +11,18 @@
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
     "wxt": "^0.19.0"
   },
   "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@tsconfig/svelte": "^5.0.6",
     "@types/chrome": "^0.0.268",
-    "@types/node": "^22.0.0"
+    "@types/node": "^22.0.0",
+    "svelte": "^5.43.14",
+    "svelte-check": "^4.3.4"
   }
 }

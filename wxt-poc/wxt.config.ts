@@ -1,4 +1,5 @@
 import { defineConfig } from 'wxt';
+import { svelte } from '@sveltejs/vite-plugin-svelte';
 
 export default defineConfig({
   srcDir: 'src',
@@ -8,7 +9,10 @@ export default defineConfig({
   },
   dev: {
     reloadOnChange: false, // Disable auto-reload to prevent Chrome throttling
-  },
+  } as any,
+  vite: () => ({
+    plugins: [svelte()],
+  }),
   manifest: {
     name: 'Teams Chat Exporter',
     version: '1.1.0',

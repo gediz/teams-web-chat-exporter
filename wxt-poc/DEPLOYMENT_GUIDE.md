@@ -401,11 +401,12 @@ To verify the build matches the submitted ZIP:
 
 All dependencies are listed in package.json:
 - wxt: ^0.19.0 (build framework, dev dependency)
+- Svelte + @sveltejs/vite-plugin-svelte + svelte-check (dev-only; popup UI)
 - No runtime dependencies (extension uses only browser APIs)
 
 ### Architecture
 
-- src/entrypoints/popup/: Extension popup UI (HTML + JavaScript)
+- src/entrypoints/popup/: Extension popup UI (Svelte + TypeScript; App.svelte + main.ts)
 - src/entrypoints/background.js: Background service worker (message handling, downloads)
 - src/entrypoints/content.js: Content script (scrapes Teams web page DOM)
 - wxt.config.ts: Build configuration and manifest settings
@@ -557,15 +558,17 @@ After running builds:
 .output/
 ├── chrome-mv3/              # Chrome build
 │   ├── manifest.json        # MV3 manifest
-│   ├── popup/
-│   │   ├── index.html
-│   │   └── main.js          # Bundled & minified
+│   ├── popup.html           # Popup HTML (Svelte entry)
+│   ├── chunks/popup-*.js    # Bundled & minified popup code
+│   ├── assets/popup-*.css   # Popup CSS
 │   ├── background.js        # Bundled & minified
 │   ├── content.js           # Bundled & minified
 │   └── icons/
 ├── firefox-mv2/             # Firefox build
 │   ├── manifest.json        # MV2 manifest (auto-converted)
-│   ├── popup/
+│   ├── popup.html           # Popup HTML (Svelte entry)
+│   ├── chunks/popup-*.js    # Popup bundle
+│   ├── assets/popup-*.css   # Popup CSS
 │   ├── background.js        # Background page (not service worker)
 │   ├── content.js
 │   └── icons/

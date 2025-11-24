@@ -62,7 +62,7 @@ Under the hood:
 ## 🔥 Try Hot Reload
 
 1. Keep `npm run dev` running
-2. Edit `src/entrypoints/popup/index.html` (change the title)
+2. Edit `src/entrypoints/popup/App.svelte` (change the title/labels)
 3. Watch the extension auto-reload!
 
 ## 🦊 Test on Firefox
@@ -72,6 +72,12 @@ npm run dev:firefox
 ```
 
 Then load from `.output/firefox-mv2/` in Firefox's `about:debugging`
+
+---
+
+## ✅ Optional: Type Check
+
+Run `npm run check` to lint/type-check the Svelte + TypeScript popup.
 
 ---
 

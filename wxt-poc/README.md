@@ -9,8 +9,10 @@ wxt-poc/
 ├── src/
 │   ├── entrypoints/
 │   │   ├── popup/
-│   │   │   ├── index.html          # Popup UI (from popup.html)
-│   │   │   └── main.js             # Popup logic (from popup.js)
+│   │   │   ├── index.html          # Popup root (mounts Svelte)
+│   │   │   ├── main.ts             # Popup bootstrap (Svelte mount)
+│   │   │   ├── App.svelte          # Popup UI/logic (TypeScript + Svelte)
+│   │   │   └── popup.css           # Popup styles
 │   │   ├── background.js           # Service worker (from service-worker.js)
 │   │   └── content.js              # Content script (from content.js)
 │   └── public/
@@ -117,13 +119,12 @@ Run all Chrome tests plus:
 ## 🔧 Development Notes
 
 ### Current State
-This POC uses the existing JavaScript code **as-is** with minimal changes:
-- ✅ Files copied to WXT structure
+This POC now uses WXT with a Svelte + TypeScript popup:
+- ✅ Popup migrated to Svelte/TypeScript (`App.svelte` + `main.ts`)
+- ✅ Files organized under `src/` for WXT
 - ✅ Manifest moved to `wxt.config.ts`
-- ✅ Popup HTML separated from JS
-- ⚠️ No TypeScript migration yet
-- ⚠️ No code refactoring yet
-- ⚠️ `chrome.*` APIs still used (WXT polyfills automatically)
+- ⚠️ Background/content scripts still plain JS (cross-browser polyfills in place)
+- ⚠️ Further refactors/TS adoption in background/content pending
 
 ### Known Issues
 1. **Content Script Injection**: The manual `chrome.scripting.executeScript` fallback in `background.js:378` may need adjustment for WXT's bundled paths
