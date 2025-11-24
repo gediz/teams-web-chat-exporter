@@ -1,12 +1,12 @@
-// @ts-nocheck
 import { defineBackground } from 'wxt/sandbox';
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Typed globals for Firefox builds
 declare const browser: typeof chrome | undefined;
 
 type Reaction = { emoji: string; count: number; reactors?: string[] };
 type Attachment = { href: string; label: string; type?: string; size?: string; owner?: string; metaText?: string };
-type Message = {
+type ExportMessage = {
   id?: string;
   author?: string;
   timestamp?: string;
@@ -25,6 +25,31 @@ type ExportMeta = {
   timeRange?: string | null;
   [key: string]: unknown;
 };
+type ScrapeOptions = {
+  startAt?: string | null;
+  endAt?: string | null;
+  includeReplies?: boolean;
+  includeReactions?: boolean;
+  includeSystem?: boolean;
+  showHud?: boolean;
+};
+type BuildOptions = {
+  format?: 'json' | 'csv' | 'html';
+  saveAs?: boolean;
+  embedAvatars?: boolean;
+};
+type ExportStatusPayload = {
+  tabId?: number;
+  phase?: string;
+  messages?: number;
+  messagesExtracted?: number;
+  filename?: string;
+  error?: string;
+  message?: string;
+  startedAt?: number | string;
+};
+type ActiveExportInfo = { startedAt?: number; lastStatus?: ExportStatusPayload; phase?: string; completedAt?: number };
+type ScrapeResult = { messages: ExportMessage[]; meta?: ExportMeta };
 
 // ===== service-worker.js (WXT version) =====
 export default defineBackground(() => {
@@ -50,7 +75,7 @@ runtime.onStartup?.addListener(() => {
     resetBadge();
 });
 
-tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+tabs.onUpdated.addListener((tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab?: chrome.tabs.Tab) => {
     const nextUrl = changeInfo.url ?? tab?.url;
     if (changeInfo.status === 'loading' && isTeamsUrl(nextUrl)) {
         activeExports.delete(tabId);
@@ -58,7 +83,7 @@ tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     }
 });
 
-const activeExports = new Map(); // tabId -> { startedAt, lastStatus }
+const activeExports = new Map<number, ActiveExportInfo>(); // tabId -> { startedAt, lastStatus }
 // TERMINAL_PHASES: 'complete' = success, 'error' = failure, 'empty' = no data found (not a failure)
 const TERMINAL_PHASES = new Set(['complete', 'error', 'empty']);
 const BADGE_COLOR_DEFAULT = '#1d4ed8';
@@ -69,11 +94,11 @@ const ONE_MILLION = 1_000_000;
 const THOUSAND_ROUND_THRESHOLD = 10_000;
 const MILLION_ROUND_THRESHOLD = 10_000_000;
 
-function isTeamsUrl(url) {
+function isTeamsUrl(url: string | null | undefined): boolean {
     return TEAMS_URL_PATTERN.test(url || '');
 }
 
-function formatBadgeCount(value) {
+function formatBadgeCount(value: string | number | null | undefined): string {
     if (value === null || value === undefined) return '';
     const num = typeof value === 'number' ? value : Number(value);
     if (!Number.isFinite(num)) return String(value);
@@ -88,21 +113,21 @@ function formatBadgeCount(value) {
     return `${sign}${scaled.replace(/\.0$/, '')}m`;
 }
 
-function updateActiveExport(tabId, patch = {}) {
+function updateActiveExport(tabId: number, patch: Partial<ActiveExportInfo> = {}) {
     if (tabId == null) return;
     const prev = activeExports.get(tabId) || {};
-    const next = { ...prev, ...patch };
+    const next: ActiveExportInfo = { ...prev, ...patch };
     activeExports.set(tabId, next);
     return next;
 }
 
-function sanitizeBase(name) {
+function sanitizeBase(name: string | null | undefined): string {
     const raw = (name || "teams-chat").toString();
     const cleaned = raw.replace(/[<>:"/\\|?*\x00-\x1F]/g, "-").replace(/\s+/g, " ").trim().replace(/[. ]+$/g, "");
     return (cleaned || "teams-chat").slice(0, 80);
 }
 
-function formatRangeLabel(startISO, endISO) {
+function formatRangeLabel(startISO?: string | null, endISO?: string | null): string | null {
     if (!startISO && !endISO) return null;
     const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
     const start = startISO ? fmt.format(new Date(startISO)) : null;
@@ -114,9 +139,9 @@ function formatRangeLabel(startISO, endISO) {
 }
 
 // --- Builders (text only; good enough for chat exports)
-const esc = s => (s ?? "").toString().replaceAll('"', '""');
+const esc = (s: unknown) => (s ?? "").toString().split('"').join('""');
 
-async function fetchAsDataURL(url) {
+async function fetchAsDataURL(url: string) {
     const res = await fetch(url, { credentials: "include" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buf = await res.arrayBuffer();
@@ -129,7 +154,7 @@ async function fetchAsDataURL(url) {
     return `data:${ct};base64,${b64}`;
 }
 
-async function embedAvatarsInRows(rows) {
+async function embedAvatarsInRows(rows: ExportMessage[]) {
     // Deduplicate identical avatar URLs
     const map = new Map(); // url -> dataURL|null (if failed)
     for (const m of rows) {
@@ -150,7 +175,7 @@ async function embedAvatarsInRows(rows) {
 }
 
 
-function toCSV(messages) {
+function toCSV(messages: ExportMessage[]) {
     const header = [
         'id',
         'author',
@@ -164,7 +189,7 @@ function toCSV(messages) {
 
     const rows = (messages || []).map(m => {
         const row = [];
-        const text = (m.text || '').replaceAll('\n', '\\n');
+        const text = (m.text || '').replace(/\n/g, '\\n');
         row.push(
             m.id ?? '',
             m.author ?? '',
@@ -180,25 +205,25 @@ function toCSV(messages) {
         const attachments = Array.isArray(m.attachments) ? m.attachments : [];
         row.push(attachments.length ? JSON.stringify(attachments) : '');
 
-        return row.map(v => `"${(v ?? '').toString().replaceAll('"', '""')}"`).join(',');
+        return row.map(v => `"${(v ?? '').toString().split('"').join('""')}"`).join(',');
     });
 
     return [header.join(','), ...rows].join('\n');
 }
 
-function toHTML(rows, meta = {}) {
+function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
   const isImg = (url = "") => /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(url);
-  const fmtTs = (s) => {
+  const fmtTs = (s: string | number) => {
     if (!s) return "";
     const d = new Date(s);
-    if (isNaN(d)) return s;
+    if (Number.isNaN(d.getTime())) return s as string;
     return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short", hour12: false }).format(d);
   };
   const relFmt = typeof Intl !== "undefined" && Intl.RelativeTimeFormat ? new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }) : null;
-  const relLabel = (s) => {
+  const relLabel = (s: string | number) => {
     if (!s || !relFmt) return "";
     const d = new Date(s);
-    if (isNaN(d)) return "";
+    if (Number.isNaN(d.getTime())) return "";
     const diffMs = Date.now() - d.getTime();
     const tense = diffMs >= 0 ? -1 : 1; // negative -> past
     const absMs = Math.abs(diffMs);
@@ -207,7 +232,7 @@ function toHTML(rows, meta = {}) {
     const day = 24 * hour;
     const month = 30 * day;
     const year = 365 * day;
-    const choose = (value, unit) => relFmt.format(value * tense, unit);
+    const choose = (value: number, unit: Intl.RelativeTimeFormatUnit) => relFmt.format(value * tense, unit);
     if (absMs < minute) return choose(Math.round(absMs / 1000) || 0, "second");
     if (absMs < hour) return choose(Math.round(absMs / minute), "minute");
     if (absMs < day) return choose(Math.round(absMs / hour), "hour");
@@ -219,7 +244,7 @@ function toHTML(rows, meta = {}) {
 
   // --- NEW: URL helpers
   const urlRe = /https?:\/\/[^\s<>"']+/g;
-  const urlsIn = (plain) => {
+  const urlsIn = (plain: string) => {
     const set = new Set();
     if (!plain) return set;
     let m;
@@ -232,7 +257,7 @@ function toHTML(rows, meta = {}) {
        .replace(/>/g, "&gt;")
        .replace(/"/g, "&quot;")
        .replace(/'/g, "&#39;");
-  const autolink = (plain) => {
+  const autolink = (plain: string) => {
     const safe = escapeHtml(plain || "");
     return safe.replace(urlRe, (u) => {
       const safeUrl = escapeHtml(u);
@@ -341,8 +366,8 @@ function toHTML(rows, meta = {}) {
     const hasImg = m.avatar && m.avatar.startsWith("data:");
     const avatarEl = hasImg ? `<img src="${m.avatar}" alt="avatar"/>` : `${initials(m.author || "")}`;
 
-    const hdrTs = fmtTs(m.timestamp);
-    const relTs = relLabel(m.timestamp);
+    const hdrTs = m.timestamp ? fmtTs(m.timestamp) : "";
+    const relTs = m.timestamp ? relLabel(m.timestamp) : "";
     const timeHtml = hdrTs
       ? `<span title="${m.timestamp}">${hdrTs}</span>${relTs ? `<span class="rel">(${relTs})</span>` : ""}`
       : (m.timestamp || "");
@@ -390,14 +415,14 @@ function toHTML(rows, meta = {}) {
 
 
 // Encode text to a data URL to download from SW (works reliably in MV3)
-function textToDataUrl(text, mime) {
+function textToDataUrl(text: string, mime: string) {
     // Avoid huge base64 for massive files; but for a few MB we're fine.
     const b64 = btoa(unescape(encodeURIComponent(text)));
     return `data:${mime};base64,${b64}`;
 }
 
 // Firefox-compatible: Create blob URL (Firefox blocks data URLs in downloads)
-function textToBlobUrl(text, mime) {
+function textToBlobUrl(text: string, mime: string) {
     const blob = new Blob([text], { type: mime });
     return URL.createObjectURL(blob);
 }
@@ -405,7 +430,7 @@ function textToBlobUrl(text, mime) {
 // Detect if we're in Firefox
 const isFirefox = typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox');
 
-const sendMessageToTab = (tabId, msg) => new Promise((resolve, reject) => {
+const sendMessageToTab = (tabId: number, msg: unknown) => new Promise<any>((resolve, reject) => {
     tabs.sendMessage(tabId, msg, (resp) => {
         const err = runtime.lastError;
         if (err) {
@@ -416,7 +441,7 @@ const sendMessageToTab = (tabId, msg) => new Promise((resolve, reject) => {
     });
 });
 
-async function ensureContentScript(tabId) {
+async function ensureContentScript(tabId: number) {
     try {
         const pong = await sendMessageToTab(tabId, { type: 'PING' });
         if (pong?.ok) return;
@@ -428,19 +453,19 @@ async function ensureContentScript(tabId) {
     if (!pong2?.ok) throw new Error('Content script did not respond after injection');
 }
 
-async function requestScrape(tabId, options) {
+async function requestScrape(tabId: number, options: ScrapeOptions): Promise<ScrapeResult> {
     const res = await sendMessageToTab(tabId, { type: 'SCRAPE_TEAMS', options });
     if (!res) throw new Error('No response from content script');
     if (res.error) throw new Error(res.error);
     return res;
 }
 
-async function buildAndDownload({ messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false }) {
+async function buildAndDownload({ messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false }: { messages?: ExportMessage[]; meta?: ExportMeta; format?: 'json' | 'csv' | 'html'; saveAs?: boolean; embedAvatars?: boolean }) {
     let rows = messages;
     if (format === 'html' && embedAvatars) {
         try {
             rows = await embedAvatarsInRows(messages);
-        } catch (e) {
+        } catch (e: any) {
             log('embed avatars failed', e?.message || e);
             rows = messages;
         }
@@ -486,7 +511,7 @@ async function buildAndDownload({ messages = [], meta = {}, format = 'json', sav
         }
 
         return { ok: true, filename, id };
-    } catch (e) {
+    } catch (e: any) {
         log('download primary failed', e?.message || e);
         const safe = `${sanitizeBase('teams-chat')}-${Date.now()}.${format === 'html' ? 'html' : format === 'csv' ? 'csv' : 'json'}`;
 
@@ -505,14 +530,14 @@ async function buildAndDownload({ messages = [], meta = {}, format = 'json', sav
             }
 
             return { ok: true, filename: safe, id: id2 };
-        } catch (e2) {
+        } catch (e2: any) {
             log('download fallback failed', e2?.message || e2);
             throw new Error(e2?.message || String(e2));
         }
     }
 }
 
-function broadcastStatus(payload) {
+function broadcastStatus(payload: ExportStatusPayload) {
     let enriched = { ...payload };
     const tabId = payload?.tabId;
     if (tabId != null) {
@@ -543,18 +568,18 @@ function broadcastStatus(payload) {
     updateBadgeForStatus(payload);
 }
 
-function handleBuildAndDownloadMessage(msg, sendResponse) {
+function handleBuildAndDownloadMessage(msg: any, sendResponse: (res: any) => void) {
     (async () => {
         try {
             const result = await buildAndDownload(msg.data || {});
             sendResponse(result);
-        } catch (err) {
+        } catch (err: any) {
             sendResponse({ error: err?.message || String(err) });
         }
     })();
 }
 
-function handleStartExportMessage(msg, sendResponse) {
+function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
     const data = msg.data || {};
     const tabId = data.tabId;
     if (typeof tabId !== 'number') {
@@ -581,7 +606,7 @@ function handleStartExportMessage(msg, sendResponse) {
             }
 
             startedAt = Date.now();
-            updateActiveExport(tabId, { startedAt, phase: 'starting', lastStatus: null });
+            updateActiveExport(tabId, { startedAt, phase: 'starting', lastStatus: undefined });
             broadcastStatus({ tabId, phase: 'starting', startedAt });
             setBadge('0', '#2563eb');
 
@@ -607,7 +632,7 @@ function handleStartExportMessage(msg, sendResponse) {
 
             broadcastStatus({ tabId, phase: 'complete', filename: buildRes.filename });
             sendResponse({ ok: true, filename: buildRes.filename, downloadId: buildRes.id });
-        } catch (err) {
+        } catch (err: any) {
             const message = err?.message || String(err);
             broadcastStatus({ tabId, phase: 'error', error: message });
             sendResponse({ error: message });
@@ -619,7 +644,7 @@ function handleStartExportMessage(msg, sendResponse) {
     })();
 }
 
-function updateBadgeForStatus(payload) {
+function updateBadgeForStatus(payload: ExportStatusPayload) {
     try {
         const phase = payload?.phase;
         if (phase === 'scrape:complete') {
@@ -642,7 +667,7 @@ function updateBadgeForStatus(payload) {
     }
 }
 
-function updateBadgeForProgress(progress) {
+function updateBadgeForProgress(progress: { filteredSeen?: number; seen?: number; aggregated?: number; messagesVisible?: number }) {
     if (!progress) return;
     const seen = progress.filteredSeen ?? progress.seen ?? progress.aggregated ?? progress.messagesVisible;
     if (typeof seen === 'number' && seen >= 0) {
@@ -650,7 +675,7 @@ function updateBadgeForProgress(progress) {
     }
 }
 
-function setBadge(text, color = BADGE_COLOR_DEFAULT) {
+function setBadge(text: string | number, color = BADGE_COLOR_DEFAULT) {
     try {
         let finalText = text;
         if (typeof finalText === 'number') {
@@ -678,7 +703,7 @@ function resetBadge() {
 
 /* clearBadge() removed; use resetBadge() instead */
 
-let clearBadgeTimer = null;
+let clearBadgeTimer: ReturnType<typeof setTimeout> | null = null;
 function clearBadgeSoon(delay = 0) {
     if (clearBadgeTimer) clearTimeout(clearBadgeTimer);
     clearBadgeTimer = setTimeout(() => {
