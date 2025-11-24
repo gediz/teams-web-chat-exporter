@@ -54,7 +54,7 @@ export function toCSV(messages: ExportMessage[]) {
 }
 
 export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
-  const isImg = (url = '') => /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(url);
+  // Restore the richer HTML layout (avatars, replies, attachment grid, divider, compact mode)
   const fmtTs = (s: string | number) => {
     if (!s) return '';
     const d = new Date(s);
@@ -82,119 +82,122 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     if (absMs < year) return choose(Math.round(absMs / month), 'month');
     return choose(Math.round(absMs / year), 'year');
   };
-  const initials = (name = '') => (name.trim().split(/\s+/).map(p => p[0]).join('').slice(0, 2) || '•');
-
-  const urlRe = /https?:\/\/[^\s<>"']+/g;
   const escapeHtml = (str = '') =>
     str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   const autolink = (plain: string) => {
     const safe = escapeHtml(plain || '');
-    return safe.replace(urlRe, u => {
-      const safeUrl = escapeHtml(u);
-      return `<a href="${safeUrl}" target="_blank" rel="noopener">${safeUrl}</a>`;
-    });
+    return safe.replace(/https?:\/\/[^\s<>"']+/g, u => `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">${escapeHtml(u)}</a>`);
   };
+  const initials = (name = '') => (name.trim().split(/\s+/).map(p => p[0]).join('').slice(0, 2) || '•');
 
   const style = `<style>
     :root { --muted:#6b7280; --border:#e5e7eb; --bg:#ffffff; --chip:#f3f4f6; }
-    body{font:14px system-ui, -apple-system, Segoe UI, Roboto; background:#fff; color:#111; padding:24px; margin:0}
+    body{font:14px system-ui, -apple-system, Segoe UI, Roboto; background:#fff; color:#111; padding:20px}
     h1{margin:0 0 10px 0}
     .meta{color:var(--muted); margin:0 0 12px 0}
-    .toolbar{margin:0 0 12px 0; display:flex; gap:8px; align-items:center}
+    .toolbar{margin-bottom:12px; display:flex; gap:8px; align-items:center}
     .toolbar button{border:1px solid var(--border); background:#f9fafb; color:#111; padding:6px 10px; border-radius:6px; cursor:pointer; font:13px system-ui}
     .toolbar button:hover{background:#eef2f7}
     .msg{display:flex; gap:10px; margin:12px 0; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--bg)}
-    .msg.system{background:#f8fafc; border-style:dashed; color:#374151}
-    body.compact .msg{padding:10px; margin:8px 0}
-    body.compact .header{flex-wrap:wrap}
-    .avatar{width:36px; height:36px; border-radius:50%; background:var(--chip); display:flex; align-items:center; justify-content:center; font-weight:600; color:#111; overflow:hidden}
-    .avatar img{width:36px; height:36px; border-radius:50%; object-fit:cover}
-    .avatar.system{background:#e5e7eb; color:#4b5563}
-    .content{flex:1; min-width:0}
-    .header{display:flex; align-items:center; gap:8px; font-weight:600}
-    .author{font-weight:600}
-    .timestamp{color:var(--muted); font-size:12px}
-    .meta-line{color:var(--muted); font-size:12px; margin-top:4px}
-    .text{white-space:pre-wrap; margin:8px 0}
-    .chip{display:inline-flex; align-items:center; gap:4px; background:var(--chip); color:#111; border-radius:999px; padding:4px 8px; font-size:12px}
-    .row{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px}
-    .attachments{margin-top:8px; display:flex; flex-direction:column; gap:4px; font-size:13px}
-    .attachment a{color:#1d4ed8; text-decoration:none}
-    .attachment a:hover{text-decoration:underline}
-    .reactions{margin-top:6px; display:flex; gap:6px; flex-wrap:wrap}
-    .reaction{background:var(--chip); padding:4px 8px; border-radius:12px; font-size:12px}
+    .avt{flex:0 0 36px; width:36px; height:36px; border-radius:50%; background:#eef2f7; overflow:hidden; display:flex; align-items:center; justify-content:center; font-weight:600; color:#334155}
+    .avt img{width:36px; height:36px; border-radius:50%; display:block}
+    .main{flex:1}
+    .hdr{color:var(--muted); font-size:12px; margin-bottom:6px}
+    .hdr .rel{margin-left:6px; font-style:italic}
+    .hdr .edited{font-style:italic}
+    .reply{background:#f8fafc; border-left:3px solid #d1d5db; padding:8px 10px; border-radius:8px; margin:8px 0; font-size:13px; color:#374151}
+    .reply .reply-meta{display:flex; flex-wrap:wrap; gap:6px; font-size:12px; color:#6b7280; margin-bottom:4px}
+    .reply blockquote{margin:0; padding:0; border:none; color:#1f2937; word-wrap:break-word; overflow-wrap:anywhere}
+    .atts{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; margin-top:8px}
+    .att, .att-img{border:1px solid var(--border); border-radius:10px; padding:8px; background:#fff; transition:max-height .2s ease, opacity .2s ease}
+    .att a{word-break:break-word; overflow-wrap:anywhere; text-decoration:none}
+    .att-meta{margin-top:6px; font-size:12px; color:#6b7280}
+    .att-img{padding:0; overflow:hidden}
+    .att-img img{display:block; width:100%; height:auto; max-height:340px; object-fit:contain; background:#fff}
+    .att-img .att-meta{padding:8px}
+    .reactions{margin-top:6px; font-size:12px; color:#374151}
+    .divider{position:relative; text-align:center; margin:18px 0}
+    .divider:before, .divider:after{content:""; position:absolute; top:50%; width:42%; height:1px; background:var(--border)}
+    .divider:before{left:0} .divider:after{right:0}
+    .divider span{display:inline-block; padding:0 10px; color:var(--muted); background:#fff; font-weight:600}
+    .compact .msg{padding:10px}
+    .compact .reactions{display:none}
+    .compact .reply{display:none}
+    .compact .att{max-height:0; opacity:0; pointer-events:none; padding:0; border:none; margin:0}
+    .compact .att-img{max-height:0; opacity:0; pointer-events:none; padding:0; border:none; margin:0}
+    .compact .atts{gap:0; margin-top:0}
+    .compact .avt{display:none}
+    .compact .msg{margin:8px 0; border-color:rgba(0,0,0,0.08)}
+    .main > div{word-break:break-word; overflow-wrap:anywhere}
   </style>`;
 
-  const metaLines = [];
-  if (meta.title) metaLines.push(`<div><strong>Title:</strong> ${escapeHtml(meta.title || '')}</div>`);
-  if (meta.timeRange) metaLines.push(`<div><strong>Range:</strong> ${escapeHtml(meta.timeRange || '')}</div>`);
-  if (meta.count != null) metaLines.push(`<div><strong>Messages:</strong> ${escapeHtml(String(meta.count))}</div>`);
-  if (meta.startAt) metaLines.push(`<div><strong>Start:</strong> ${fmtTs(meta.startAt)}</div>`);
-  if (meta.endAt) metaLines.push(`<div><strong>End:</strong> ${fmtTs(meta.endAt)}</div>`);
+  const metaParts = [];
+  if (meta.messages != null || meta.count != null) metaParts.push(`<b>Messages:</b> ${escapeHtml(String(meta.messages ?? meta.count ?? ''))}`);
+  if (meta.timeRange) metaParts.push(`<b>Range:</b> ${escapeHtml(meta.timeRange)}`);
+  const metaLine = metaParts.length ? `<p class="meta">${metaParts.join(' &nbsp; ')}</p>` : '';
 
-  const head = `
-    <h1>Teams Chat Export</h1>
-    <div class="meta">${metaLines.join(' ')}<div>Generated ${fmtTs(Date.now())}</div></div>
-    <div class="toolbar">
-      <button type="button" data-toggle-compact>Toggle compact view</button>
-    </div>
-  `;
+  const head = `<h1>${escapeHtml(meta.title || 'Teams Chat Export')}</h1>
+    ${metaLine}
+    <div class="toolbar"><button type="button" data-toggle-compact>Toggle compact view</button></div><hr/>`;
 
   const body = rows
     .map((m, idx) => {
+      if (m.system) {
+        const label = escapeHtml(m.text || m.author || '[system]');
+        return `<div class="divider"><span>${label}</span></div>`;
+      }
       const ts = m.timestamp || '';
       const rel = relLabel(ts);
       const tsLabel = fmtTs(ts);
-      const text = autolink(m.text || '');
       const reactions = Array.isArray(m.reactions) ? m.reactions : [];
       const atts = Array.isArray(m.attachments) ? m.attachments : [];
       const replyTo = m.replyTo;
-      const avatar = m.avatar && isImg(m.avatar) ? `<img src="${m.avatar}" alt="avatar" />` : `<span>${initials(m.author || '')}</span>`;
+      const text = autolink(m.text || '');
+      const avatar = m.avatar
+        ? `<img src="${escapeHtml(m.avatar)}" alt="avatar" />`
+        : escapeHtml((m.author || '').split(' ').map(p => p[0]).join('').slice(0, 2) || '•');
 
       const reactHtml = reactions
-        .map(r => `<div class="reaction">${escapeHtml(r.emoji || '')} ${r.count}${r.reactors ? ` · ${escapeHtml(r.reactors.join(', '))}` : ''}</div>`)
-        .join('');
+        .map(r => `<span class="chip">${escapeHtml(r.emoji || '')} ${r.count}${r.reactors ? ` · ${escapeHtml(r.reactors.join(', '))}` : ''}</span>`)
+        .join(' ');
 
-      const attHtml = atts
+      const attsHtml = atts
         .map(att => {
           const label = escapeHtml(att.label || att.href || 'attachment');
           const href = att.href ? escapeHtml(att.href) : '';
-          const metaText = att.metaText ? ` — ${escapeHtml(att.metaText)}` : '';
+          const metaText = att.metaText ? `<div class="att-meta">${escapeHtml(att.metaText)}</div>` : '';
           const type = att.type ? ` [${escapeHtml(att.type)}]` : '';
           const size = att.size ? ` (${escapeHtml(att.size)})` : '';
           const owner = att.owner ? ` — ${escapeHtml(att.owner)}` : '';
+          const isImage = att.href && /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.href);
+          if (isImage) {
+            return `<div class="att-img"><img src="${href}" alt="${label}" />${metaText}</div>`;
+          }
           const link = href ? `<a href="${href}" target="_blank" rel="noopener">${label}</a>` : label;
-          return `<div class="attachment">• ${link}${type}${size}${owner}${metaText}</div>`;
+          return `<div class="att">${link}${type}${size}${owner}${metaText}</div>`;
         })
         .join('');
 
       const replyHtml = replyTo
-        ? `<div class="meta-line">Replying to ${escapeHtml(replyTo.author || '')}${replyTo.timestamp ? ` • ${escapeHtml(replyTo.timestamp)}` : ''}</div>
-           <div class="meta-line">${escapeHtml((replyTo.text || '').slice(0, 300))}</div>`
+        ? `<div class="reply"><div class="reply-meta">↩︎ <strong>${escapeHtml(replyTo.author || '')}</strong>${replyTo.timestamp ? `<span>• ${escapeHtml(replyTo.timestamp)}</span>` : ''}</div><blockquote>${escapeHtml(replyTo.text || '')}</blockquote></div>`
         : '';
 
-      const systemClass = m.system ? ' system' : '';
-      return `<div class="msg${systemClass}" id="msg-${idx}">
-        <div class="avatar${systemClass}">${avatar}</div>
-        <div class="content">
-          <div class="header">
-            <span class="author">${escapeHtml(m.author || '')}${m.system ? ' [system]' : ''}</span>
-            <span class="timestamp">${tsLabel}${rel ? ` • ${rel}` : ''}</span>
-            ${m.edited ? `<span class="meta-line">(edited)</span>` : ''}
-            ${m.system ? `<span class="meta-line">[system]</span>` : ''}
-          </div>
-          ${replyHtml}
-          <div class="text">${text || '<span class="meta-line">(no text)</span>'}</div>
-          ${reactHtml ? `<div class="reactions">${reactHtml}</div>` : ''}
-          ${attHtml ? `<div class="attachments">${attHtml}</div>` : ''}
-        </div>
-      </div>`;
+      return `<div class="msg" id="msg-${idx}">
+      <div class="avt">${avatar}</div>
+      <div class="main">
+        <div class="hdr">${escapeHtml(m.author || '')} — <span title="${escapeHtml(ts)}">${tsLabel}</span>${rel ? `<span class="rel">(${rel})</span>` : ''}${m.edited ? ' <span class="edited">• edited</span>' : ''}</div>
+        ${replyHtml}
+        <div>${text}</div>
+        ${reactHtml ? `<div class="reactions">${reactHtml}</div>` : ''}
+        ${attsHtml ? `<div class="atts">${attsHtml}</div>` : ''}
+      </div>
+    </div>`;
     })
-    .join('\n');
+    .join('');
 
   const script = `<script>(()=>{const btn=document.querySelector('[data-toggle-compact]');if(!btn)return;const key='teamsExporterCompact';const apply=(c)=>{document.body.classList.toggle('compact',c);btn.textContent=c?'Switch to expanded view':'Switch to compact view';};const stored=localStorage.getItem(key);let compact=stored==='1';apply(compact);btn.addEventListener('click',()=>{compact=!compact;apply(compact);try{localStorage.setItem(key,compact?'1':'0');}catch(_){}});})();</script>`;
 
-  return `<!doctype html><html><head><meta charset="utf-8">${style}</head><body>${head}${body}${script}</body></html>`;
+  return `<!doctype html><meta charset="utf-8">${style}${head}${body}${script}`;
 }
 
 // Encode text to a data URL to download from SW (works reliably in MV3)
