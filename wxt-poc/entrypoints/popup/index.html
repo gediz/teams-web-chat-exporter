@@ -1,0 +1,647 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <style>
+        :root {
+            color-scheme: light dark;
+            --font-base: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --color-bg: #f8fafc;
+            --color-surface: #ffffff;
+            --color-border: #e2e8f0;
+            --color-border-strong: #cbd5f5;
+            --color-text: #0f172a;
+            --color-subtle: #64748b;
+            --color-accent: #2563eb;
+            --color-accent-light: rgba(37, 99, 235, 0.12);
+            --color-danger: #dc2626;
+            --radius-lg: 14px;
+            --radius-md: 10px;
+            --gap: 14px;
+            font-family: var(--font-base);
+        }
+
+        body[data-theme="dark"] {
+            --color-bg: #0f172a;
+            --color-surface: #16213c;
+            --color-border: #1e293b;
+            --color-border-strong: #334155;
+            --color-text: #e2e8f0;
+            --color-subtle: #94a3b8;
+            --color-accent: #60a5fa;
+            --color-accent-light: rgba(96, 165, 250, 0.16);
+            --color-danger: #f87171;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-width: 320px;
+            background: var(--color-bg);
+            color: var(--color-text);
+            transition: background 0.25s ease, color 0.25s ease;
+        }
+
+        .popup {
+            display: flex;
+            flex-direction: column;
+            gap: var(--gap);
+            padding: 18px 18px 20px;
+        }
+
+        .header {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .header p {
+            margin: 0;
+            color: var(--color-subtle);
+            font-size: 13px;
+        }
+
+        .theme-toggle {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid var(--color-border);
+            background: var(--color-surface);
+            color: var(--color-subtle);
+            font-size: 12px;
+            cursor: pointer;
+            transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--color-accent);
+            color: var(--color-accent);
+        }
+
+        .theme-toggle input {
+            appearance: none;
+            width: 34px;
+            height: 18px;
+            border-radius: 999px;
+            border: 1px solid var(--color-border);
+            background: var(--color-border);
+            position: relative;
+            transition: background 0.2s ease, border-color 0.2s ease;
+        }
+
+        .theme-toggle input::after {
+            content: '';
+            position: absolute;
+            top: 1px;
+            left: 1px;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #fff;
+            transition: transform 0.2s ease;
+            box-shadow: 0 2px 4px rgba(15, 23, 42, 0.16);
+        }
+
+        .theme-toggle input:checked {
+            background: var(--color-accent);
+            border-color: var(--color-accent);
+        }
+
+        .theme-toggle input:checked::after {
+            transform: translateX(16px);
+        }
+
+        .theme-toggle .icon {
+            font-size: 13px;
+            line-height: 1;
+        }
+
+        .card {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-lg);
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            box-shadow: 0 12px 28px -24px rgba(15, 23, 42, 0.4);
+        }
+
+        body[data-theme="dark"] .card {
+            box-shadow: 0 16px 24px -26px rgba(6, 12, 24, 0.8);
+        }
+
+        .card-toggle {
+            appearance: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 0;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            color: inherit;
+            width: 100%;
+            text-align: left;
+        }
+
+        .card-toggle:focus {
+            outline: none;
+        }
+
+        .card-toggle-icon {
+            font-size: 12px;
+            transition: transform 0.2s ease;
+        }
+
+        .card-toggle[aria-expanded="true"] .card-toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        .card-body {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .section-head {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .section-sub {
+            font-size: 12px;
+            color: var(--color-subtle);
+            margin: 0;
+        }
+
+        .grid-two {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .field label {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .input-text,
+        select#format {
+            width: 100%;
+            border-radius: 10px;
+            border: 1px solid var(--color-border);
+            background: var(--color-bg);
+            padding: 10px 12px;
+            font-size: 13px;
+            color: var(--color-text);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+        }
+
+        .input-text:focus,
+        select#format:focus {
+            outline: none;
+            border-color: var(--color-accent);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+            background: #fff;
+        }
+
+        body[data-theme="dark"] .input-text:focus,
+        body[data-theme="dark"] select#format:focus {
+            background: rgba(255, 255, 255, 0.05);
+            box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.25);
+        }
+
+        body[data-theme="dark"] select#format,
+        body[data-theme="dark"] .input-text {
+            color: var(--color-text);
+        }
+
+        select#format option {
+            color: #0f172a;
+        }
+
+        body[data-theme="dark"] select#format option {
+            color: #e2e8f0;
+            background: #0f172a;
+        }
+
+        #quickRanges {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        #quickRanges .chip {
+            appearance: none;
+            border: 1px solid var(--color-border);
+            background: var(--color-surface);
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-size: 12px;
+            color: var(--color-text);
+            cursor: pointer;
+            transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #quickRanges .chip:hover {
+            border-color: var(--color-accent);
+            background: var(--color-accent-light);
+        }
+
+        #quickRanges .chip.active {
+            background: var(--color-accent);
+            border-color: var(--color-accent);
+            color: #fff;
+        }
+
+        #quickRanges .chip.active::before {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+
+        body[data-theme="dark"] #quickRanges .chip.active::before {
+            background: rgba(15, 23, 42, 0.45);
+            color: #fff;
+        }
+
+        #quickRanges .chip::before {
+            content: attr(data-icon);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 22px;
+            padding: 0 6px;
+            height: 20px;
+            border-radius: 999px;
+            background: var(--color-accent-light);
+            color: var(--color-accent);
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        body[data-theme="dark"] #quickRanges .chip::before {
+            background: rgba(96, 165, 250, 0.32);
+            color: var(--color-text);
+        }
+
+        .toggle-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .toggle {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 12px;
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
+            background: var(--color-bg);
+            transition: border-color 0.2s ease, background 0.2s ease;
+            cursor: pointer;
+        }
+
+        .toggle:hover {
+            border-color: var(--color-accent);
+        }
+
+        .toggle-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .toggle-label .toggle-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 8px;
+            background: var(--color-accent-light);
+            color: var(--color-accent);
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        body[data-theme="dark"] .toggle-label .toggle-icon {
+            background: rgba(96, 165, 250, 0.22);
+            color: var(--color-text);
+        }
+
+        .toggle-label span {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .toggle input[type="checkbox"] {
+            width: 36px;
+            height: 20px;
+            appearance: none;
+            border-radius: 999px;
+            border: 1px solid var(--color-border-strong);
+            background: #e2e8f0;
+            position: relative;
+            transition: background 0.2s ease, border-color 0.2s ease;
+            padding: 0;
+            flex-shrink: 0;
+        }
+
+        body[data-theme="dark"] .toggle input[type="checkbox"] {
+            background: #1e293b;
+        }
+
+        .toggle input[type="checkbox"]::after {
+            content: '';
+            position: absolute;
+            top: 1px;
+            left: 1px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #fff;
+            transition: transform 0.2s ease;
+            box-shadow: 0 2px 5px rgba(15, 23, 42, 0.18);
+        }
+
+        .toggle input[type="checkbox"]:checked {
+            background: var(--color-accent);
+            border-color: var(--color-accent);
+        }
+
+        .toggle input[type="checkbox"]:checked::after {
+            transform: translateX(16px);
+        }
+
+        button#run {
+            width: 100%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 12px 16px;
+            border-radius: 14px;
+            border: none;
+            background: var(--color-accent);
+            color: #fff;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.2s ease;
+        }
+
+        button#run:hover:not([disabled]) {
+            box-shadow: 0 12px 24px -12px rgba(37, 99, 235, 0.6);
+            transform: translateY(-1px);
+        }
+
+        button#run:disabled {
+            background: #93c5fd;
+            cursor: default;
+            box-shadow: none;
+        }
+
+        body[data-theme="dark"] button#run:disabled {
+            background: rgba(96, 165, 250, 0.45);
+        }
+
+        button#run .spinner {
+            display: none;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.35);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        button#run.busy .spinner {
+            display: inline-block;
+        }
+
+        .button-icon {
+            font-size: 16px;
+            line-height: 1;
+            display: inline-flex;
+        }
+
+        button#run.busy .button-icon {
+            display: none;
+        }
+
+        #status {
+            font-size: 12px;
+            color: var(--color-subtle);
+        }
+
+        .footer-note {
+            font-size: 11px;
+            color: var(--color-subtle);
+            text-align: center;
+        }
+
+        .footer-note a {
+            color: var(--color-accent);
+            text-decoration: none;
+        }
+
+        .footer-note a:hover {
+            text-decoration: underline;
+        }
+
+        .alert {
+            display: none;
+            border-radius: var(--radius-md);
+            border: 1px solid transparent;
+            padding: 12px 14px;
+            font-size: 13px;
+        }
+
+        .alert.show {
+            display: block;
+        }
+
+        .alert.error {
+            background: rgba(248, 113, 113, 0.12);
+            border-color: rgba(248, 113, 113, 0.35);
+            color: var(--color-danger);
+        }
+
+        .alert .alert-title {
+            font-weight: 600;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+
+<body data-theme="light">
+    <div class="popup">
+        <header class="header">
+            <div class="header-top">
+                <h1>Teams Chat Exporter</h1>
+                <label class="theme-toggle" for="themeToggle">
+                    <span class="icon" aria-hidden="true">☀</span>
+                    <input id="themeToggle" type="checkbox" aria-label="Toggle dark mode" />
+                    <span class="icon" aria-hidden="true">🌙</span>
+                </label>
+            </div>
+            <p>Export the active Teams chat with your preferred format and filters.</p>
+        </header>
+
+        <div id="banner" class="alert error" role="alert" aria-live="assertive">
+            <span class="alert-title">Error</span>
+            <span class="alert-message"></span>
+        </div>
+
+        <section class="card" aria-labelledby="range-section">
+            <div class="section-head">
+                <h2 class="section-title" id="range-section">Date range</h2>
+                <p class="section-sub">Leave blank to include everything.</p>
+            </div>
+            <div class="grid-two">
+                <div class="field">
+                    <label for="startAt">From (inclusive)</label>
+                    <input id="startAt" class="input-text" type="text" placeholder="YYYY-MM-DD HH:MM" autocomplete="off" />
+                </div>
+                <div class="field">
+                    <label for="endAt">To (exclusive)</label>
+                    <input id="endAt" class="input-text" type="text" placeholder="YYYY-MM-DD HH:MM" autocomplete="off" />
+                </div>
+            </div>
+            <div class="field">
+                <label class="section-sub" for="quickRanges">Quick ranges</label>
+                <div id="quickRanges" aria-label="Quick ranges">
+                    <button type="button" class="chip" data-range="none" data-icon="∞">No limit</button>
+                    <button type="button" class="chip" data-range="1d" data-icon="24h">Last 24h</button>
+                    <button type="button" class="chip" data-range="7d" data-icon="7d">Last 7d</button>
+                    <button type="button" class="chip" data-range="30d" data-icon="30d">Last 30d</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="card" aria-labelledby="options-section">
+            <div class="section-head">
+                <h2 class="section-title" id="options-section">Options</h2>
+                <p class="section-sub">Choose export format and message details.</p>
+            </div>
+            <div class="field">
+                <label for="format">Export format</label>
+                <select id="format">
+                    <option value="json">JSON</option>
+                    <option value="csv">CSV</option>
+                    <option value="html">HTML</option>
+                </select>
+            </div>
+
+            <div class="toggle-list" role="group" aria-label="Include options">
+                <label class="toggle">
+                    <span class="toggle-label">
+                        <span class="toggle-icon">↩</span>
+                        <span>Include threaded replies</span>
+                    </span>
+                    <input id="includeReplies" type="checkbox" checked />
+                </label>
+                <label class="toggle">
+                    <span class="toggle-label">
+                        <span class="toggle-icon">😊</span>
+                        <span>Include reactions</span>
+                    </span>
+                    <input id="includeReactions" type="checkbox" checked />
+                </label>
+                <label class="toggle">
+                    <span class="toggle-label">
+                        <span class="toggle-icon">⚙</span>
+                        <span>Include system messages</span>
+                    </span>
+                    <input id="includeSystem" type="checkbox" />
+                </label>
+                <label class="toggle">
+                    <span class="toggle-label">
+                        <span class="toggle-icon">👤</span>
+                        <span>Embed avatars (base64)</span>
+                    </span>
+                    <input id="embedAvatars" type="checkbox" />
+                </label>
+            </div>
+        </section>
+
+        <section class="card" aria-labelledby="advanced-section">
+            <button type="button" class="card-toggle" id="advancedToggle" aria-expanded="false" aria-controls="advancedBody">
+                <div class="section-head">
+                    <h2 class="section-title" id="advanced-section">Advanced</h2>
+                    <p class="section-sub">Developer / diagnostic features.</p>
+                </div>
+                <span class="card-toggle-icon" aria-hidden="true">▼</span>
+            </button>
+            <div class="card-body" id="advancedBody" hidden>
+                <label class="toggle">
+                    <span class="toggle-label">
+                        <span class="toggle-icon">👁</span>
+                        <span>Show in-page progress HUD</span>
+                    </span>
+                    <input id="showHud" type="checkbox" checked />
+                </label>
+            </div>
+        </section>
+
+        <button id="run">
+            <span class="spinner" aria-hidden="true"></span>
+            <span class="button-icon" aria-hidden="true">⤓</span>
+            <span class="label">Export current chat</span>
+        </button>
+
+        <div id="status" aria-live="polite"></div>
+
+        <p class="footer-note">Keep this popup open to monitor progress, or close it and watch the badge.</p>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+</body>
+
+</html>
