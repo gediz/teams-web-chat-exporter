@@ -713,5 +713,3 @@ runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 }); // End of defineBackground
-// @ts-nocheck
-// @ts-nocheck
