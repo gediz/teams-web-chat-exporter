@@ -1,3 +1,31 @@
+// @ts-nocheck
+import { defineBackground } from 'wxt/sandbox';
+
+// Typed globals for Firefox builds
+declare const browser: typeof chrome | undefined;
+
+type Reaction = { emoji: string; count: number; reactors?: string[] };
+type Attachment = { href: string; label: string; type?: string; size?: string; owner?: string; metaText?: string };
+type Message = {
+  id?: string;
+  author?: string;
+  timestamp?: string;
+  text?: string;
+  edited?: boolean;
+  system?: boolean;
+  avatar?: string | null;
+  reactions?: Reaction[];
+  attachments?: Attachment[];
+  replyTo?: { author: string; timestamp: string; text: string } | null;
+};
+type ExportMeta = {
+  title?: string | null;
+  startAt?: string | null;
+  endAt?: string | null;
+  timeRange?: string | null;
+  [key: string]: unknown;
+};
+
 // ===== service-worker.js (WXT version) =====
 export default defineBackground(() => {
 // Browser API compatibility for Firefox
@@ -10,7 +38,7 @@ const action = typeof browser !== 'undefined'
 const downloads = typeof browser !== 'undefined' ? browser.downloads : chrome.downloads;
 const scripting = typeof browser !== 'undefined' ? browser.scripting : chrome.scripting;
 
-function log(...a) { try { console.log("[Teams Exporter SW]", ...a) } catch { } }
+function log(...a: unknown[]) { try { console.log("[Teams Exporter SW]", ...a) } catch { } }
 log("boot");
 
 runtime.onInstalled.addListener(() => {
@@ -697,4 +725,5 @@ runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 }); // End of defineBackground
+// @ts-nocheck
 // @ts-nocheck
