@@ -1,7 +1,9 @@
+<script lang="ts" context="module">
+  export type QuickRange = { key: string; label: string; icon: string };
+</script>
+
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-
-  export type QuickRange = { key: string; label: string; icon: string };
 
   export let startAt = '';
   export let endAt = '';

@@ -75,7 +75,7 @@
     { key: '1d', label: 'Last 24h', icon: '24h' },
     { key: '7d', label: 'Last 7d', icon: '7d' },
     { key: '30d', label: 'Last 30d', icon: '30d' },
-  ] as const;
+  ];
 
   let options: Options = { ...DEFAULT_OPTIONS };
   let bannerMessage: string | null = null;
@@ -545,7 +545,7 @@
     startAt={options.startAt}
     endAt={options.endAt}
     activeRange={quickActive}
-    ranges={quickRanges}
+    ranges={quickRanges as any}
     on:changeStart={(e) => updateOption('startAt', e.detail)}
     on:changeEnd={(e) => updateOption('endAt', e.detail)}
     on:quickSelect={(e) => handleQuickRange(e.detail)}

@@ -1,7 +1,9 @@
+<script lang="ts" context="module">
+  export type OptionFormat = 'json' | 'csv' | 'html';
+</script>
+
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-
-  export type OptionFormat = 'json' | 'csv' | 'html';
 
   export let format: OptionFormat = 'json';
   export let includeReplies = true;

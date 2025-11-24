@@ -1,8 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
 
-  export type Theme = 'light' | 'dark';
-
   export let theme: Theme = 'light';
 
   const dispatch = createEventDispatcher<{ toggleTheme: Theme }>();
@@ -30,3 +28,6 @@
   </div>
   <p>Export the active Teams chat with your preferred format and filters.</p>
 </header>
+<script lang="ts" context="module">
+  export type Theme = 'light' | 'dark';
+</script>
