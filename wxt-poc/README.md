@@ -6,17 +6,18 @@ This is a proof-of-concept migration of Teams Chat Exporter to the WXT framework
 
 ```
 wxt-poc/
-├── entrypoints/
-│   ├── popup/
-│   │   ├── index.html          # Popup UI (from popup.html)
-│   │   └── main.js              # Popup logic (from popup.js)
-│   ├── background.js            # Service worker (from service-worker.js)
-│   └── content.js               # Content script (from content.js)
-├── public/
-│   └── icons/                   # Extension icons
-├── wxt.config.ts                # WXT configuration
-├── package.json                 # Dependencies
-└── .gitignore                   # Git ignore rules
+├── src/
+│   ├── entrypoints/
+│   │   ├── popup/
+│   │   │   ├── index.html          # Popup UI (from popup.html)
+│   │   │   └── main.js             # Popup logic (from popup.js)
+│   │   ├── background.js           # Service worker (from service-worker.js)
+│   │   └── content.js              # Content script (from content.js)
+│   └── public/
+│       └── icons/                  # Extension icons
+├── wxt.config.ts                   # WXT configuration
+├── package.json                    # Dependencies
+└── .gitignore                      # Git ignore rules
 ```
 
 ## 🚀 Quick Start

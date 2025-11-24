@@ -1,6 +1,7 @@
 import { defineConfig } from 'wxt';
 
 export default defineConfig({
+  srcDir: 'src',
   extensionApi: 'chrome',
   runner: {
     disabled: true, // Don't auto-open browser (you'll load manually)

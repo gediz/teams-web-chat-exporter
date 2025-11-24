@@ -62,7 +62,7 @@ Under the hood:
 ## 🔥 Try Hot Reload
 
 1. Keep `npm run dev` running
-2. Edit `entrypoints/popup/index.html` (change the title)
+2. Edit `src/entrypoints/popup/index.html` (change the title)
 3. Watch the extension auto-reload!
 
 ## 🦊 Test on Firefox

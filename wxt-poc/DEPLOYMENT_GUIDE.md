@@ -388,7 +388,7 @@ The source code is available at: https://github.com/gediz/teams-web-chat-exporte
 To verify the build matches the submitted ZIP:
 - The build is deterministic (same source = same output)
 - Compare .output/firefox-mv2/ contents with the uploaded ZIP
-- All source code is in the repository under wxt-poc/entrypoints/
+- All source code is in the repository under wxt-poc/src/entrypoints/
 
 ### Build System Explanation
 
@@ -405,11 +405,11 @@ All dependencies are listed in package.json:
 
 ### Architecture
 
-- entrypoints/popup/: Extension popup UI (HTML + JavaScript)
-- entrypoints/background.js: Background service worker (message handling, downloads)
-- entrypoints/content.js: Content script (scrapes Teams web page DOM)
+- src/entrypoints/popup/: Extension popup UI (HTML + JavaScript)
+- src/entrypoints/background.js: Background service worker (message handling, downloads)
+- src/entrypoints/content.js: Content script (scrapes Teams web page DOM)
 - wxt.config.ts: Build configuration and manifest settings
-- public/icons/: Extension icons
+- src/public/icons/: Extension icons
 
 ### Data Collection
 

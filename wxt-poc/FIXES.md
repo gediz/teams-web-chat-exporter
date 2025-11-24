@@ -8,7 +8,7 @@
 
 **Fixes Applied**:
 
-### 1. `entrypoints/background.js`
+### 1. `src/entrypoints/background.js`
 Wrapped entire service worker code in `defineBackground()`:
 
 ```javascript
@@ -17,7 +17,7 @@ export default defineBackground(() => {
 });
 ```
 
-### 2. `entrypoints/content.js`
+### 2. `src/entrypoints/content.js`
 Wrapped content script in `defineContentScript()` with configuration:
 
 ```javascript
@@ -35,7 +35,7 @@ export default defineContentScript({
 });
 ```
 
-### 3. `entrypoints/popup/main.js`
+### 3. `src/entrypoints/popup/main.js`
 No changes needed - popup scripts don't require special wrappers.
 
 ---
@@ -44,10 +44,10 @@ No changes needed - popup scripts don't require special wrappers.
 Added `runner.disabled: true` to prevent WXT from auto-opening a blank Chrome window.
 Added `dev.reloadOnChange: false` to prevent Chrome's "reloaded too frequently" throttling error.
 
-### 5. `entrypoints/popup/index.html` - Script Tag
+### 5. `src/entrypoints/popup/index.html` - Script Tag
 Added `<script type="module" src="./main.js"></script>` so WXT injects the popup script.
 
-### 6. `entrypoints/popup/main.js` - Firefox Compatibility
+### 6. `src/entrypoints/popup/main.js` - Firefox Compatibility
 Added browser API compatibility layer at the top:
 
 ```javascript
@@ -60,7 +60,7 @@ Replaced all `chrome.tabs`, `chrome.runtime`, and `chrome.storage` calls with th
 
 **Why**: Firefox uses `browser.*` API instead of `chrome.*`. This ensures cross-browser compatibility.
 
-### 7. `entrypoints/background.js` - Firefox Compatibility
+### 7. `src/entrypoints/background.js` - Firefox Compatibility
 Added browser API compatibility layer:
 
 ```javascript
@@ -88,7 +88,7 @@ try {
 }
 ```
 
-### 8. `entrypoints/content.js` - Firefox Compatibility
+### 8. `src/entrypoints/content.js` - Firefox Compatibility
 Added browser API compatibility:
 
 ```javascript
@@ -103,7 +103,7 @@ try {
 } catch (e) { /* ignore */ }
 ```
 
-### 9. `entrypoints/background.js` - Firefox Download Fix
+### 9. `src/entrypoints/background.js` - Firefox Download Fix
 Firefox blocks data URLs in the downloads API. Added blob URL support:
 
 ```javascript
@@ -123,7 +123,7 @@ const url = isFirefox ? textToBlobUrl(content, mime) : textToDataUrl(content, mi
 
 **Cleanup**: Blob URLs are revoked 60 seconds after download starts to prevent memory leaks.
 
-### 10. `entrypoints/background.js` - Firefox Badge Fix
+### 10. `src/entrypoints/background.js` - Firefox Badge Fix
 Firefox uses different badge API. Updated action compatibility:
 
 ```javascript
