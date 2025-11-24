@@ -1,4 +1,5 @@
 import { defineBackground } from 'wxt/sandbox';
+import { formatDayLabelForExport, parseTimeStamp } from '../utils/time';
 import type {
   ActiveExportInfo,
   BuildOptions,

@@ -6,7 +6,8 @@
 
 <script lang="ts">
   import './popup.css';
-  import { onDestroy, onMount } from 'svelte';
+import { onDestroy, onMount } from 'svelte';
+import { formatElapsedSuffix, localInputToISO, isoToLocalInput } from '../../utils/time';
   import HeaderSection from './components/HeaderSection.svelte';
   import QuickRangeSection from './components/QuickRangeSection.svelte';
   import OptionsSection from './components/OptionsSection.svelte';
@@ -100,34 +101,6 @@
     options = { ...options, theme: next };
   };
 
-  const localInputToISO = (localValue: string) => {
-    if (!localValue) return '';
-    let normalized = localValue.trim();
-    if (!normalized) return '';
-    normalized = normalized.replace(/\//g, '-').replace(/\s+/g, ' ');
-    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
-      normalized += ' 00:00';
-    }
-    if (normalized.includes(' ')) {
-      normalized = normalized.replace(' ', 'T');
-    }
-    const date = new Date(normalized);
-    if (Number.isNaN(date.getTime())) return '';
-    return date.toISOString();
-  };
-
-  const isoToLocalInput = (isoValue: string) => {
-    if (!isoValue) return '';
-    const date = new Date(isoValue);
-    if (Number.isNaN(date.getTime())) return '';
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    return `${year}-${month}-${day} ${hours}:${minutes}`;
-  };
-
   const normalizeStart = (value: unknown) => {
     if (typeof value === 'number' && !Number.isNaN(value)) return value;
     if (typeof value === 'string') {
@@ -138,19 +111,6 @@
     }
     return null;
   };
-
-  const formatElapsed = (ms: number) => {
-    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    if (hours > 0) {
-      return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-    }
-    return `${minutes}:${String(seconds).padStart(2, '0')}`;
-  };
-
-  const formatElapsedSuffix = (ms: number) => ` — Elapsed: ${formatElapsed(ms)}`;
 
   const updateQuickRangeActive = () => {
     const startISO = localInputToISO(options.startAt) || null;

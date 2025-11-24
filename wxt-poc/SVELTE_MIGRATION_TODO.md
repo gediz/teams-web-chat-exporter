@@ -33,4 +33,11 @@ Incremental plan to port to Svelte with full TypeScript. Start with the popup, t
   - [x] Migrate background/content scripts to TypeScript and share utilities as a follow-up.
   - [x] Remove `// @ts-nocheck` from background/content by adding real types or explicit `any` where needed; extract shared types (messages, meta, options).
   - [x] Factor popup into smaller Svelte components (header, range, options, advanced, footer) for readability.
+  - [ ] Extract shared utilities:
+    - [ ] Move date/time helpers (parseTimeStamp, formatElapsed, local<->ISO, range labeling) to `src/utils/time.ts`.
+    - [ ] Move text helpers (normalizeText, isPlaceholderText, preferText, textFrom, cssEscape) to `src/utils/text.ts`.
+    - [ ] Add DOM helpers (`$`, `$$`) to `src/utils/dom.ts` for typed query selection.
+    - [ ] Add message builders (makeDayDivider, attachment merge) to `src/utils/messages.ts` as needed.
+    - [ ] Update background/content/popup to import these helpers; remove duplicated inline helpers.
+    - [ ] Re-run `npm run check` and `npm run build` after refactor.
   - [ ] Investigate HUD/elapsed timer occasional stalls; ensure timers are cleaned up and status updates stay in sync.
