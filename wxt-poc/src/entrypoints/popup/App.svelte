@@ -7,6 +7,10 @@
 <script lang="ts">
   import './popup.css';
   import { onDestroy, onMount } from 'svelte';
+  import HeaderSection from './components/HeaderSection.svelte';
+  import QuickRangeSection from './components/QuickRangeSection.svelte';
+  import OptionsSection from './components/OptionsSection.svelte';
+  import AdvancedSection from './components/AdvancedSection.svelte';
 
   const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
   const tabs = typeof browser !== 'undefined' ? browser.tabs : chrome.tabs;
@@ -528,23 +532,7 @@
 </script>
 
 <div class="popup">
-  <header class="header">
-    <div class="header-top">
-      <h1>Teams Chat Exporter</h1>
-      <label class="theme-toggle" for="themeToggle">
-        <span class="icon" aria-hidden="true">☀</span>
-        <input
-          id="themeToggle"
-          type="checkbox"
-          aria-label="Toggle dark mode"
-          checked={options.theme === 'dark'}
-          on:change={(e) => updateOption('theme', e.currentTarget.checked ? 'dark' : 'light')}
-        />
-        <span class="icon" aria-hidden="true">🌙</span>
-      </label>
-    </div>
-    <p>Export the active Teams chat with your preferred format and filters.</p>
-  </header>
+  <HeaderSection theme={options.theme} on:toggleTheme={(e) => updateOption('theme', e.detail)} />
 
   {#if bannerMessage}
     <div id="banner" class="alert error show" role="alert" aria-live="assertive">
@@ -553,157 +541,35 @@
     </div>
   {/if}
 
-  <section class="card" aria-labelledby="range-section">
-    <div class="section-head">
-      <h2 class="section-title" id="range-section">Date range</h2>
-      <p class="section-sub">Leave blank to include everything.</p>
-    </div>
-    <div class="grid-two">
-      <div class="field">
-        <label for="startAt">From (inclusive)</label>
-        <input
-          id="startAt"
-          class="input-text"
-          type="text"
-          placeholder="YYYY-MM-DD HH:MM"
-          autocomplete="off"
-          value={options.startAt}
-          on:input={(e) => updateOption('startAt', (e.currentTarget as HTMLInputElement).value)}
-        />
-      </div>
-      <div class="field">
-        <label for="endAt">To (exclusive)</label>
-        <input
-          id="endAt"
-          class="input-text"
-          type="text"
-          placeholder="YYYY-MM-DD HH:MM"
-          autocomplete="off"
-          value={options.endAt}
-          on:input={(e) => updateOption('endAt', (e.currentTarget as HTMLInputElement).value)}
-        />
-      </div>
-    </div>
-    <div class="field">
-      <label class="section-sub" for="quickRanges">Quick ranges</label>
-      <div id="quickRanges" aria-label="Quick ranges">
-        {#each quickRanges as qr}
-          <button
-            type="button"
-            class={`chip ${quickActive === qr.key ? 'active' : ''}`}
-            data-range={qr.key}
-            data-icon={qr.icon}
-            on:click={() => handleQuickRange(qr.key)}
-          >
-            {qr.label}
-          </button>
-        {/each}
-      </div>
-    </div>
-  </section>
+  <QuickRangeSection
+    startAt={options.startAt}
+    endAt={options.endAt}
+    activeRange={quickActive}
+    ranges={quickRanges}
+    on:changeStart={(e) => updateOption('startAt', e.detail)}
+    on:changeEnd={(e) => updateOption('endAt', e.detail)}
+    on:quickSelect={(e) => handleQuickRange(e.detail)}
+  />
 
-  <section class="card" aria-labelledby="options-section">
-    <div class="section-head">
-      <h2 class="section-title" id="options-section">Options</h2>
-      <p class="section-sub">Choose export format and message details.</p>
-    </div>
-    <div class="field">
-      <label for="format">Export format</label>
-      <select
-        id="format"
-        value={options.format}
-        on:change={(e) => updateOption('format', (e.currentTarget as HTMLSelectElement).value as OptionFormat)}
-      >
-        <option value="json">JSON</option>
-        <option value="csv">CSV</option>
-        <option value="html">HTML</option>
-      </select>
-    </div>
+  <OptionsSection
+    format={options.format}
+    includeReplies={options.includeReplies}
+    includeReactions={options.includeReactions}
+    includeSystem={options.includeSystem}
+    embedAvatars={options.embedAvatars}
+    on:formatChange={(e) => updateOption('format', e.detail)}
+    on:includeRepliesChange={(e) => updateOption('includeReplies', e.detail)}
+    on:includeReactionsChange={(e) => updateOption('includeReactions', e.detail)}
+    on:includeSystemChange={(e) => updateOption('includeSystem', e.detail)}
+    on:embedAvatarsChange={(e) => updateOption('embedAvatars', e.detail)}
+  />
 
-    <div class="toggle-list" role="group" aria-label="Include options">
-      <label class="toggle">
-        <span class="toggle-label">
-          <span class="toggle-icon">↩</span>
-          <span>Include threaded replies</span>
-        </span>
-        <input
-          id="includeReplies"
-          type="checkbox"
-          checked={options.includeReplies}
-          on:change={(e) => updateOption('includeReplies', e.currentTarget.checked)}
-        />
-      </label>
-      <label class="toggle">
-        <span class="toggle-label">
-          <span class="toggle-icon">😊</span>
-          <span>Include reactions</span>
-        </span>
-        <input
-          id="includeReactions"
-          type="checkbox"
-          checked={options.includeReactions}
-          on:change={(e) => updateOption('includeReactions', e.currentTarget.checked)}
-        />
-      </label>
-      <label class="toggle">
-        <span class="toggle-label">
-          <span class="toggle-icon">⚙</span>
-          <span>Include system messages</span>
-        </span>
-        <input
-          id="includeSystem"
-          type="checkbox"
-          checked={options.includeSystem}
-          on:change={(e) => updateOption('includeSystem', e.currentTarget.checked)}
-        />
-      </label>
-      <label class="toggle">
-        <span class="toggle-label">
-          <span class="toggle-icon">👤</span>
-          <span>Embed avatars (base64)</span>
-        </span>
-        <input
-          id="embedAvatars"
-          type="checkbox"
-          checked={options.embedAvatars}
-          on:change={(e) => updateOption('embedAvatars', e.currentTarget.checked)}
-        />
-      </label>
-    </div>
-  </section>
-
-  <section class="card" aria-labelledby="advanced-section">
-    <button
-      type="button"
-      class="card-toggle"
-      id="advancedToggle"
-      aria-expanded={advancedOpen}
-      aria-controls="advancedBody"
-      on:click={() => (advancedOpen = !advancedOpen)}
-    >
-      <div class="section-head">
-        <h2 class="section-title" id="advanced-section">Advanced</h2>
-        <p class="section-sub">Developer / diagnostic features.</p>
-      </div>
-      <span class="card-toggle-icon" aria-hidden="true">▼</span>
-    </button>
-    {#if advancedOpen}
-      <div class="card-body" id="advancedBody">
-        <label class="toggle">
-          <span class="toggle-label">
-            <span class="toggle-icon">👁</span>
-            <span>Show in-page progress HUD</span>
-          </span>
-          <input
-            id="showHud"
-            type="checkbox"
-            checked={options.showHud}
-            on:change={(e) => updateOption('showHud', e.currentTarget.checked)}
-          />
-        </label>
-      </div>
-    {/if}
-  </section>
+  <AdvancedSection
+    open={advancedOpen}
+    showHud={options.showHud}
+    on:toggleOpen={(e) => (advancedOpen = e.detail)}
+    on:showHudChange={(e) => updateOption('showHud', e.detail)}
+  />
 
   <button id="run" class:busy={busy} on:click={startExport} disabled={busy}>
     <span class="spinner" aria-hidden="true"></span>
