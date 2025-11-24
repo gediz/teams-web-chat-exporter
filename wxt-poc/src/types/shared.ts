@@ -39,6 +39,8 @@ export type ExportMeta = {
 export type ScrapeOptions = {
   startAt?: string | null;
   endAt?: string | null;
+  startAtISO?: string | null;
+  endAtISO?: string | null;
   includeReplies?: boolean;
   includeReactions?: boolean;
   includeSystem?: boolean;
@@ -80,6 +82,7 @@ export type AggregatedItem = {
   tsMs: number | null;
   kind: 'message' | 'system-control' | 'day-divider';
   timeLabel?: string;
+  anchorTs?: number;
 };
 
 export type OrderContext = {
@@ -88,4 +91,6 @@ export type OrderContext = {
   seqBase: number;
   lastAuthor: string | null;
   lastId: string | null;
+  seq: number;
+  systemCursor: number;
 };

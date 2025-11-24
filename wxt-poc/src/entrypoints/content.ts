@@ -1,10 +1,21 @@
-// @ts-nocheck
 /* eslint-disable no-console */
 import { defineContentScript } from 'wxt/sandbox';
 import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ScrapeOptions } from '../types/shared';
 
 // Typed globals for Firefox builds
 declare const browser: typeof chrome | undefined;
+
+type ExtractedMessage = ExportMessage & {
+    id: string;
+    author: string;
+    timestamp: string;
+    text: string;
+    edited: boolean;
+    avatar: string | null;
+};
+
+type ContentAggregated = AggregatedItem & { message?: ExtractedMessage };
+type ReplyContext = { author: string; timestamp: string; text: string } | null;
 
 export default defineContentScript({
   matches: [
@@ -18,8 +29,10 @@ export default defineContentScript({
 // Browser API compatibility for Firefox
 const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
 
-const $$ = (sel: string, root: Document | Element = document) => Array.from(root.querySelectorAll(sel));
-const $ = (sel: string, root: Document | Element = document) => root.querySelector(sel);
+const $$ = <T extends Element = Element>(sel: string, root: Document | Element = document): T[] =>
+    Array.from(root.querySelectorAll(sel)) as T[];
+const $ = <T extends Element = Element>(sel: string, root: Document | Element = document): T | null =>
+    root.querySelector(sel) as T | null;
 
 const textFrom = (el: Element | null | undefined): string => {
     if (!el) return '';
@@ -259,9 +272,9 @@ function extractReplyContext(item: Element, body: Element): ReplyContext {
   }
 
   // 3) Legacy fallback: "Begin Reference, … by <author>"
-  const heading = item.querySelector('div[role="heading"]');
+    const heading = item.querySelector('div[role="heading"]');
   if (heading) {
-    const raw = heading.innerText || '';
+    const raw = textFrom(heading);
     const m = raw.match(/Begin Reference,\s*(.*?)\s*by\s*(.+)$/i);
     if (m) return { author: m[2].trim(), timestamp: '', text: m[1].trim() };
   }
@@ -425,8 +438,8 @@ function extractAttachments(item: Element, body: Element): Attachment[] {
             const t = el.getAttribute('title') || el.getAttribute('aria-label') || '';
             const parsed = parseTitle(t);
             if (parsed) push(el, parsed);
-            el.querySelectorAll('a[href^="http"]').forEach(a => {
-                const label = a.innerText || a.getAttribute('aria-label') || a.title || a.href;
+            el.querySelectorAll<HTMLAnchorElement>('a[href^="http"]').forEach(a => {
+                const label = textFrom(a) || a.getAttribute('aria-label') || a.title || a.href;
                 push(a, { href: a.href, label });
             });
         });
@@ -434,18 +447,18 @@ function extractAttachments(item: Element, body: Element): Attachment[] {
             const parsed = parseTitle(btn.getAttribute('title'));
             if (parsed) push(btn, parsed);
         });
-        root.querySelectorAll('a[href^="http"]').forEach(a => {
-            const label = a.innerText || a.getAttribute('aria-label') || a.title || a.href;
+        root.querySelectorAll<HTMLAnchorElement>('a[href^="http"]').forEach(a => {
+            const label = textFrom(a) || a.getAttribute('aria-label') || a.title || a.href;
             push(a, { href: a.href, label });
         });
     }
 
     const contentRoot = body && (body.querySelector('[id^="content-"]') || body.querySelector('[data-tid="message-content"]'));
     if (contentRoot) {
-        contentRoot.querySelectorAll('a[data-testid="atp-safelink"], a[href^="http"]').forEach(a => {
-            push(a, { href: a.href, label: a.innerText || a.getAttribute('aria-label') || a.title || a.href });
+        contentRoot.querySelectorAll<HTMLAnchorElement>('a[data-testid="atp-safelink"], a[href^="http"]').forEach(a => {
+            push(a, { href: a.href, label: textFrom(a) || a.getAttribute('aria-label') || a.title || a.href });
         });
-        contentRoot.querySelectorAll('[data-testid="lazy-image-wrapper"] img').forEach(img => {
+        contentRoot.querySelectorAll<HTMLImageElement>('[data-testid="lazy-image-wrapper"] img').forEach(img => {
             const src = img.getAttribute('src') || '';
             if (/^https?:\/\//i.test(src)) {
                 push(img, { href: src, label: img.getAttribute('alt') || 'image' });
@@ -457,21 +470,21 @@ function extractAttachments(item: Element, body: Element): Attachment[] {
 }
 
 // Helpers -------------------------------------------------------
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const cssEscape = (s) => {
+const cssEscape = (s: string) => {
     if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(s);
     return (s || '').toString().replace(/([\0-\x1f\x7f-\x9f!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1');
 };
 
-const normalizeText = (s) => (s ?? '').replace(/\u00a0/g, ' ');
-const isPlaceholderText = (s) => {
+const normalizeText = (s: string) => (s ?? '').replace(/\u00a0/g, ' ');
+const isPlaceholderText = (s: string) => {
     const clean = normalizeText(s).trim();
     if (!clean) return true;
     return /^loading(?:\.\.\.?|…)?$/i.test(clean);
 };
-const textScore = (s) => normalizeText(s).trim().length;
-const preferText = (prev, next) => {
+const textScore = (s: string) => normalizeText(s).trim().length;
+const preferText = (prev: string, next: string | null | undefined) => {
     if (next == null) return prev;
     const nextPlaceholder = isPlaceholderText(next);
     const prevPlaceholder = isPlaceholderText(prev);
@@ -483,16 +496,16 @@ const preferText = (prev, next) => {
     return nextLen >= prevLen ? next : prev;
 };
 
-const findPaneItemByMessageId = (id) => {
+const findPaneItemByMessageId = (id: string | null | undefined): Element | null => {
     if (!id) return null;
     const msgNode = document.querySelector(`[data-mid="${cssEscape(id)}"]`);
     return msgNode?.closest('[data-tid="chat-pane-item"]') || null;
 };
 
-async function hydrateSparseMessages(agg, opts = {}) {
+async function hydrateSparseMessages(agg: Map<string, ContentAggregated>, opts: ScrapeOptions = {}) {
     if (!agg || agg.size === 0) return;
 
-    const needsHydration = (message, item) => {
+    const needsHydration = (message: ExtractedMessage, item: Element) => {
         const textNeeds = isPlaceholderText(message.text);
         let reactionsNeed = false;
         if (opts.includeReactions) {
@@ -504,10 +517,10 @@ async function hydrateSparseMessages(agg, opts = {}) {
         return { textNeeds, reactionsNeed, needs: textNeeds || reactionsNeed };
     };
 
-    let pending = [];
+    let pending: { id: string; item: Element }[] = [];
 
     for (const [id, entry] of agg.entries()) {
-        const msg = entry.message;
+        const msg = entry.message as ExtractedMessage | undefined;
         if (!msg || msg.system) continue;
         const item = findPaneItemByMessageId(id);
         if (!item) continue;
@@ -527,17 +540,20 @@ async function hydrateSparseMessages(agg, opts = {}) {
             const existing = agg.get(id);
             if (!existing) continue;
 
+            if (!existing.message) continue;
             const item = findPaneItemByMessageId(id) || task.item;
             if (!item) continue;
 
             const lastAuthorRef = { value: existing.message.author || '' };
             const ts = existing.message.timestamp ? Date.parse(existing.message.timestamp) : undefined;
-            const tempOrderCtx = {
-                lastTimeMs: Number.isNaN(ts) ? undefined : ts,
-                yearHint: Number.isNaN(ts) ? undefined : new Date(ts).getFullYear(),
+            const tempOrderCtx: OrderContext = {
+                lastTimeMs: Number.isNaN(ts) ? null : ts ?? null,
+                yearHint: Number.isNaN(ts) ? null : (ts ? new Date(ts).getFullYear() : null),
                 seqBase: Date.now(),
                 seq: 0,
-                lastAuthor: existing.message.author || ''
+                lastAuthor: existing.message.author || '',
+                lastId: existing.message.id || null,
+                systemCursor: 0
             };
 
             const reExtracted = await extractOne(item, { includeSystem: opts.includeSystem, includeReactions: opts.includeReactions }, lastAuthorRef, tempOrderCtx);
@@ -546,8 +562,18 @@ async function hydrateSparseMessages(agg, opts = {}) {
                 continue;
             }
 
-            const merged = { ...existing.message };
-            merged.text = preferText(existing.message.text, reExtracted.message.text);
+            const merged: ExtractedMessage = {
+                id: existing.message.id || reExtracted.message.id || id,
+                author: existing.message.author || reExtracted.message.author || '',
+                timestamp: existing.message.timestamp || reExtracted.message.timestamp || '',
+                text: preferText(existing.message.text || '', reExtracted.message.text || ''),
+                edited: existing.message.edited || reExtracted.message.edited,
+                system: existing.message.system || reExtracted.message.system,
+                avatar: existing.message.avatar ?? reExtracted.message.avatar ?? null,
+                reactions: existing.message.reactions,
+                attachments: existing.message.attachments,
+                replyTo: existing.message.replyTo ?? reExtracted.message.replyTo ?? null,
+            };
 
             if (opts.includeReactions) {
                 const newReacts = reExtracted.message.reactions || [];
@@ -565,15 +591,15 @@ async function hydrateSparseMessages(agg, opts = {}) {
 
             if (!merged.replyTo && reExtracted.message.replyTo) merged.replyTo = reExtracted.message.replyTo;
             if (!merged.avatar && reExtracted.message.avatar) merged.avatar = reExtracted.message.avatar;
-            merged.edited = merged.edited || reExtracted.message.edited;
+            merged.edited = merged.edited || Boolean(reExtracted.message.edited);
 
             const newTsMs = reExtracted?.tsMs ?? existing.tsMs ?? (merged.timestamp ? parseTimeStamp(merged.timestamp) : null);
             const kind = existing.kind ?? reExtracted?.kind;
-            agg.set(id, { message: merged, orderKey: existing.orderKey, tsMs: newTsMs, kind });
+            agg.set(id, { message: merged as ExtractedMessage, orderKey: existing.orderKey, tsMs: newTsMs, kind });
 
             const status = needsHydration(merged, item);
-            if (status.needs) nextPending.push({ id, item });
-        }
+        if (status.needs) nextPending.push({ id, item });
+    }
 
         pending = nextPending;
         attempts++;
@@ -587,7 +613,7 @@ async function hydrateSparseMessages(agg, opts = {}) {
     }
 }
 
-function parseDateDividerText(txt, yearHint) {
+function parseDateDividerText(txt: string, yearHint?: number | null) {
     if (!txt) return null;
     const monthMap = {
         january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
@@ -597,11 +623,11 @@ function parseDateDividerText(txt, yearHint) {
     const clean = txt.trim().replace(/\s+/g, ' ');
     const currentYear = typeof yearHint === 'number' ? yearHint : (yearHint ? Number(yearHint) : new Date().getFullYear());
 
-    const tryBuild = (dayStr, monthStr, yearStr) => {
+    const tryBuild = (dayStr: string, monthStr: string, yearStr?: string | null) => {
         if (!dayStr || !monthStr) return null;
         const day = Number(dayStr);
         if (!Number.isFinite(day)) return null;
-        const monthIdx = monthMap[monthStr.toLowerCase()];
+        const monthIdx = monthMap[monthStr.toLowerCase() as keyof typeof monthMap];
         if (!monthIdx) return null;
         const year = yearStr ? Number(yearStr) : currentYear;
         if (!Number.isFinite(year)) return null;
@@ -629,15 +655,15 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const controlTimeRe = /(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i;
 
-function parseControlTimestamp(text, yearHint) {
+function parseControlTimestamp(text: string, yearHint?: number | null): number | null {
     if (!text) return null;
     const match = controlTimeRe.exec(text);
     if (!match) return null;
-    let [, month, day, hour, minute, period] = match;
-    month = Number(month);
-    day = Number(day);
-    hour = Number(hour);
-    minute = Number(minute);
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    let hour = Number(match[3]);
+    const minute = Number(match[4]);
+    const period = match[5];
     if (!Number.isFinite(month) || !Number.isFinite(day) || !Number.isFinite(hour) || !Number.isFinite(minute)) return null;
     if (period?.toUpperCase() === 'PM' && hour < 12) hour += 12;
     if (period?.toUpperCase() === 'AM' && hour === 12) hour = 0;
@@ -646,13 +672,13 @@ function parseControlTimestamp(text, yearHint) {
     return Number.isNaN(date.getTime()) ? null : date.getTime();
 }
 
-function startOfLocalDay(ts) {
+function startOfLocalDay(ts: number) {
     const d = new Date(ts);
     d.setHours(0, 0, 0, 0);
     return d.getTime();
 }
 
-function formatDayLabelForExport(ts) {
+function formatDayLabelForExport(ts: number) {
     const dayStart = startOfLocalDay(ts);
     const todayStart = startOfLocalDay(Date.now());
     const diffDays = Math.round((todayStart - dayStart) / MS_PER_DAY);
@@ -666,24 +692,35 @@ function formatDayLabelForExport(ts) {
     return new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date(ts));
 }
 
-function makeDayDivider(dayKey, ts) {
+function makeDayDivider(dayKey: number, ts: number): ContentAggregated {
     const label = formatDayLabelForExport(ts);
     return {
-        id: `day-${dayKey}`,
-        author: '[system]',
-        timestamp: '',
-        text: label,
-        reactions: [],
-        attachments: [],
-        edited: false,
-        avatar: null,
-        replyTo: null,
-        system: true
+        message: {
+            id: `day-${dayKey}`,
+            author: '[system]',
+            timestamp: '',
+            text: label,
+            reactions: [],
+            attachments: [],
+            edited: false,
+            avatar: null,
+            replyTo: null,
+            system: true
+        },
+        orderKey: ts,
+        tsMs: ts,
+        kind: 'day-divider',
+        timeLabel: label
     };
 }
 
 // Extract one item into a message object + an orderKey
-async function extractOne(item, opts, lastAuthorRef, orderCtx) {
+async function extractOne(
+    item: Element,
+    opts: ScrapeOptions,
+    lastAuthorRef: { value: string },
+    orderCtx: OrderContext & { seq?: number }
+): Promise<ContentAggregated | null> {
     const body = $('[data-tid="chat-pane-message"]', item) || item;
     const isSystem = !$('[data-tid="chat-pane-message"]', item);
 
@@ -694,34 +731,37 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
         const controlRenderer = $('[data-tid="control-message-renderer"]', item);
 
         if (dividerWrapper && !controlRenderer) {
-            const text = (dividerWrapper.innerText || '').trim() || 'system';
+            const text = textFrom(dividerWrapper) || 'system';
             const bodyMid = dividerWrapper.getAttribute?.('data-mid') || $('[data-mid]', dividerWrapper)?.getAttribute('data-mid') || item.getAttribute('data-mid') || dividerWrapper.id;
             const numericMid = bodyMid && Number(bodyMid);
             const parsedTs = parseDateDividerText(text, orderCtx.yearHint);
-            return {
-                kind: 'day-divider',
-                label: text,
-                tsMs: Number.isFinite(parsedTs) ? parsedTs : (Number.isFinite(numericMid) ? numericMid : null)
-            };
+            const tsVal = Number.isFinite(parsedTs)
+                ? (parsedTs as number)
+                : Number.isFinite(numericMid)
+                    ? Number(numericMid)
+                    : Date.now();
+            return makeDayDivider(tsVal, tsVal);
         }
 
         const wrapper = controlRenderer || dividerWrapper || item;
-        const text = (wrapper?.innerText || item.innerText || '').trim() || 'system';
+        const text = textFrom(wrapper) || textFrom(item) || 'system';
         const bodyMid = wrapper?.getAttribute?.('data-mid') || $('[data-mid]', wrapper || item)?.getAttribute('data-mid') || item.getAttribute('data-mid') || wrapper?.id;
         const dividerId = (bodyMid || text || 'system').toLowerCase();
         const numericMid = bodyMid && Number(bodyMid);
         let parsedTs = parseDateDividerText(text, orderCtx.yearHint);
         if (!Number.isFinite(parsedTs)) parsedTs = parseControlTimestamp(text, orderCtx.yearHint);
-        const approxMs = Number.isFinite(parsedTs)
-            ? parsedTs
+        const systemCursor = typeof orderCtx.systemCursor === 'number' ? orderCtx.systemCursor : -9e15;
+        const approxMs: number = Number.isFinite(parsedTs)
+            ? parsedTs!
             : Number.isFinite(numericMid)
-                ? numericMid
+                ? Number(numericMid)
                 : typeof orderCtx.lastTimeMs === 'number'
                     ? orderCtx.lastTimeMs - 1
-                    : orderCtx.systemCursor++;
+                    : systemCursor;
+        orderCtx.systemCursor = systemCursor + 1;
         if (Number.isFinite(parsedTs)) {
-            orderCtx.lastTimeMs = parsedTs;
-            orderCtx.yearHint = new Date(parsedTs).getFullYear();
+            orderCtx.lastTimeMs = parsedTs as number;
+            orderCtx.yearHint = new Date(parsedTs as number).getFullYear();
         }
         return {
             message: { id: dividerId, author: '[system]', timestamp: '', text, reactions: [], attachments: [], edited: false, avatar: null, replyTo: null, system: true },
@@ -734,7 +774,10 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
     // Normal message
     const ts = resolveTimestamp(item);
     const tms = ts ? Date.parse(ts) : NaN;
-    if (!Number.isNaN(tms)) orderCtx.lastTimeMs = tms, orderCtx.yearHint = new Date(tms).getFullYear();
+    if (!Number.isNaN(tms)) {
+        orderCtx.lastTimeMs = tms;
+        orderCtx.yearHint = new Date(tms).getFullYear();
+    }
 
     const author = resolveAuthor(body, lastAuthorRef.value || orderCtx.lastAuthor || '');
     if (author) {
@@ -743,7 +786,7 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
     }
 
     const contentEl = $('[id^="content-"]', body) || $('[data-tid="message-content"]', body) || body;
-    const cleanRoot = stripQuotedPreview(contentEl);
+    const cleanRoot = stripQuotedPreview(contentEl) || contentEl;
     normalizeMentions(cleanRoot);
     const text = extractTextWithEmojis(cleanRoot);
     const edited = resolveEdited(item, body);
@@ -754,15 +797,17 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
     const replyTo = opts.includeReplies === false ? null : extractReplyContext(item, body);
 
     const mid = body.getAttribute('data-mid') || item.id || `${ts}#${author}`;
-    const msg = { id: mid, author, timestamp: ts, text, reactions, attachments, edited, avatar, replyTo, system: false };
+    const msg: ExtractedMessage = { id: mid, author, timestamp: ts, text, reactions, attachments, edited, avatar, replyTo, system: false };
 
-    const orderKey = !Number.isNaN(tms) ? tms : (orderCtx.seqBase + orderCtx.seq++);
+    const seqVal = orderCtx.seq ?? 0;
+    orderCtx.seq = seqVal + 1;
+    const orderKey = !Number.isNaN(tms) ? tms : (orderCtx.seqBase + seqVal);
     const tsMs = !Number.isNaN(tms) ? tms : null;
     return { message: msg, orderKey, tsMs, kind: 'message' };
 }
 
 // Aggregate while scrolling so virtualization can’t drop items
-async function collectCurrentVisible(agg, opts, orderCtx) {
+async function collectCurrentVisible(agg: Map<string, ContentAggregated>, opts: ScrapeOptions, orderCtx: OrderContext) {
     const nodes = $$('[data-tid="chat-pane-item"]'); // preserve DOM order for system dividers, too
     const lastAuthorRef = { value: orderCtx.lastAuthor || '' };
     for (let i = 0; i < nodes.length; i++) {
@@ -773,15 +818,16 @@ async function collectCurrentVisible(agg, opts, orderCtx) {
         const extracted = await extractOne(item, opts, lastAuthorRef, orderCtx);
         if (!extracted) continue;
         if (extracted.kind === 'day-divider') {
-            if (Number.isFinite(extracted.tsMs)) {
+            if (typeof extracted.tsMs === 'number' && Number.isFinite(extracted.tsMs)) {
                 orderCtx.lastTimeMs = extracted.tsMs;
                 orderCtx.yearHint = new Date(extracted.tsMs).getFullYear();
             }
             continue;
         }
         const { message, orderKey, tsMs, kind } = extracted;
+        if (!message) continue;
 
-        agg.set(message.id, { message, orderKey, tsMs, kind });
+        agg.set(message.id || `${orderKey}`, { message, orderKey, tsMs, kind });
         if (!message.system && message.timestamp) {
             const tms = Date.parse(message.timestamp);
             if (!Number.isNaN(tms)) { orderCtx.lastTimeMs = tms; orderCtx.yearHint = new Date(tms).getFullYear(); }
@@ -792,12 +838,20 @@ async function collectCurrentVisible(agg, opts, orderCtx) {
     }
 }
 
-async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includeReactions, includeReplies = true }) {
+async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includeReactions, includeReplies = true }: ScrapeOptions & { includeReplies?: boolean }) {
     const scroller = getScroller();
     if (!scroller) throw new Error('Scroller not found');
 
-    const agg = new Map();         // id -> {message, orderKey}
-    const orderCtx = { lastTimeMs: undefined, yearHint: undefined, seqBase: Date.now(), seq: 0, lastAuthor: '', systemCursor: -9e15 };
+    const agg = new Map<string, ContentAggregated>();         // id -> {message, orderKey}
+    const orderCtx: OrderContext = {
+        lastTimeMs: null,
+        yearHint: null,
+        seqBase: Date.now(),
+        seq: 0,
+        lastAuthor: '',
+        lastId: null,
+        systemCursor: -9e15
+    };
 
     // 0) Pre-capture bottom (newest window)
     scroller.scrollTop = scroller.scrollHeight;
@@ -844,7 +898,7 @@ async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includ
             const oldestId = $('[data-tid="chat-pane-message"]', oldestNode)?.getAttribute('data-mid') || oldestNode?.id || null;
 
             // Expand any collapsed sections that block older history
-            const hiddenButtons = Array.from(document.querySelectorAll('[data-tid="show-hidden-chat-history-btn"]'))
+            const hiddenButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-tid="show-hidden-chat-history-btn"]'))
                 .filter(btn => btn && !btn.disabled && btn.offsetParent !== null);
             if (hiddenButtons.length) {
                 console.debug('[Teams Exporter] expanding hidden history', { count: hiddenButtons.length });
@@ -954,12 +1008,12 @@ async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includ
         }
 
         if (nextMessageTs != null) {
-            if (entry.tsMs == null || entry.tsMs >= nextMessageTs) {
-                entry.anchorTs = nextMessageTs;
-                entry.tsMs = (entry.tsMs == null ? nextMessageTs : entry.tsMs) - 1;
-                if (entry.tsMs != null) {
-                    entry.orderKey = entry.tsMs - 0.1;
-                }
+        if (entry.tsMs == null || entry.tsMs >= nextMessageTs) {
+            entry.anchorTs = nextMessageTs;
+            entry.tsMs = (entry.tsMs == null ? nextMessageTs : entry.tsMs) - 1;
+            if (entry.tsMs != null) {
+                entry.orderKey = entry.tsMs - 0.1;
+            }
             }
         }
     }
@@ -980,8 +1034,8 @@ async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includ
         return true;
     });
 
-    const buckets = new Map();
-    const noDate = [];
+    const buckets = new Map<number, { ts: number; message: ExtractedMessage }[]>();
+    const noDate: { ts: number; message: ExtractedMessage }[] = [];
 
     for (const entry of filtered) {
         const msg = entry.message;
@@ -998,16 +1052,18 @@ async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includ
         if (!buckets.has(dayKey)) {
             buckets.set(dayKey, []);
         }
-        buckets.get(dayKey).push({ ts, message: msg });
+        const list = buckets.get(dayKey);
+        if (list) list.push({ ts, message: msg });
     }
 
-    const finalMessages = [];
+    const finalMessages: ExportMessage[] = [];
     const sortedDayKeys = Array.from(buckets.keys()).sort((a, b) => a - b);
     for (const dayKey of sortedDayKeys) {
         const items = buckets.get(dayKey);
         if (!items || !items.length) continue;
         const representativeTs = items[0].ts;
-        finalMessages.push(makeDayDivider(dayKey, representativeTs));
+        const divider = makeDayDivider(dayKey, representativeTs);
+        if (divider.message) finalMessages.push(divider.message);
         items.sort((a, b) => a.ts - b.ts);
         for (const item of items) {
             finalMessages.push(item.message);
@@ -1023,9 +1079,9 @@ async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includ
 }
 
 // Remove quoted/preview blocks from a cloned content node so root "text" doesn't include them
-function stripQuotedPreview(container) {
+function stripQuotedPreview(container: Element | null): Element | null {
   if (!container) return container;
-  const clone = container.cloneNode(true);
+  const clone = container.cloneNode(true) as Element;
 
   // Known containers for quoted/preview content
   const kill = [
@@ -1034,12 +1090,12 @@ function stripQuotedPreview(container) {
     '[role="group"][aria-label^="Begin Reference"]'
   ];
   for (const sel of kill) {
-    clone.querySelectorAll(sel).forEach(n => n.remove());
+    clone.querySelectorAll(sel).forEach((n: Element) => n.remove());
   }
 
   // Headings like "Begin Reference, …"
-  clone.querySelectorAll('div[role="heading"]').forEach(h => {
-    const txt = (h.innerText || '').trim();
+  clone.querySelectorAll('div[role="heading"]').forEach((h: Element) => {
+    const txt = textFrom(h);
     if (/^Begin Reference,/i.test(txt)) h.remove();
   });
 
@@ -1070,9 +1126,9 @@ runtime.onMessage.addListener((msg, _sender, sendResponse) => {
                 // meta can keep title; add timeRange later if you want
                 sendResponse({ messages, meta: { count: messages.length, title: document.title, startAt: startAt || null, endAt: endAt || null } });
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error('[Teams Exporter] Error:', e);
-            hud(`error: ${e.message}`);
+            hud(`error: ${e?.message || e}`);
             currentRunStartedAt = null;
             sendResponse({ error: e?.message || String(e) });
         }
@@ -1082,5 +1138,3 @@ runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   } // End of main()
 }); // End of defineContentScript
-// @ts-nocheck
-// @ts-nocheck
