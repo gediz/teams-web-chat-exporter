@@ -1,6 +1,14 @@
 /* eslint-disable no-console */
 import { defineContentScript } from 'wxt/sandbox';
-import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ScrapeOptions } from '../types/shared';
+import { $, $$ } from '../utils/dom';
+import { makeDayDivider as buildDayDivider } from '../utils/messages';
+import { cssEscape, isPlaceholderText, preferText, textFrom } from '../utils/text';
+import { formatElapsed, parseTimeStamp, startOfLocalDay } from '../utils/time';
+import { extractAttachments } from '../content/attachments';
+import { extractReactions } from '../content/reactions';
+import { extractReplyContext } from '../content/replies';
+import { extractTextWithEmojis, normalizeMentions } from '../content/text';
+import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ReplyContext, ScrapeOptions } from '../types/shared';
 
 // Typed globals for Firefox builds
 declare const browser: typeof chrome | undefined;
@@ -15,8 +23,6 @@ type ExtractedMessage = ExportMessage & {
 };
 
 type ContentAggregated = AggregatedItem & { message?: ExtractedMessage };
-type ReplyContext = { author: string; timestamp: string; text: string } | null;
-
 export default defineContentScript({
   matches: [
     'https://*.teams.microsoft.com/*',
@@ -29,17 +35,6 @@ export default defineContentScript({
 // Browser API compatibility for Firefox
 const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
 
-const $$ = <T extends Element = Element>(sel: string, root: Document | Element = document): T[] =>
-    Array.from(root.querySelectorAll(sel)) as T[];
-const $ = <T extends Element = Element>(sel: string, root: Document | Element = document): T | null =>
-    root.querySelector(sel) as T | null;
-
-const textFrom = (el: Element | null | undefined): string => {
-    if (!el) return '';
-    const h = el as HTMLElement;
-    return (h.innerText || h.textContent || '').trim();
-};
-
 let hudEnabled = true;
 let currentRunStartedAt: number | null = null;
 
@@ -51,16 +46,6 @@ function hasChatMessageSurface() {
     return Boolean(
         document.querySelector('[data-tid="message-pane-list-viewport"], [data-tid="chat-message-list"], [data-tid="chat-pane"]')
     );
-}
-
-function parseTimeStamp(value: string | null | undefined) {
-    if (!value) return null;
-    const ts = Date.parse(value);
-    if (!Number.isNaN(ts)) return ts;
-    // Teams sometimes uses without timezone; treat as local.
-    const normalized = value.replace(/ /g, 'T');
-    const ts2 = Date.parse(normalized);
-    return Number.isNaN(ts2) ? null : ts2;
 }
 
 function checkChatContext() {
@@ -110,17 +95,6 @@ function hud(text: string, { includeElapsed = true }: { includeElapsed?: boolean
         const msgPromise = runtime.sendMessage({ type: "SCRAPE_PROGRESS", payload: { phase: "hud", text } });
         if (msgPromise && msgPromise.catch) msgPromise.catch(() => { });
     } catch (e) { /* ignore */ }
-}
-
-function formatElapsed(ms: number) {
-    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    if (hours > 0) {
-        return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    }
-    return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 // Core DOM hooks ------------------------------------------------
@@ -186,315 +160,9 @@ function extractTextWithEmojis(root: Element | null): string {
     return out.replace(/\n{3,}/g, '\n\n').trim();
 }
 
-function normalizeMentions(root: Element) {
-    if (!root || typeof root.querySelectorAll !== 'function') return;
-    const wrappers = Array.from(root.querySelectorAll('[data-lpc-hover-target-id][aria-label^="Mentioned"], [itemtype*="schema.skype.com/Mention"]'));
-    if (!wrappers.length) return;
-    const processed = new Set();
-    for (const node of wrappers) {
-        const wrapper = node.closest('[data-lpc-hover-target-id][aria-label^="Mentioned"]') || node;
-        if (!wrapper || processed.has(wrapper) || !root.contains(wrapper)) continue;
-        const parent = wrapper.parentElement;
-        const group = [];
-        if (parent) {
-            for (const sibling of Array.from(parent.childNodes)) {
-                if (sibling === wrapper) {
-                    group.push(wrapper);
-                    continue;
-                }
-                if (sibling.nodeType === Node.ELEMENT_NODE) {
-                    const sibEl = sibling as Element;
-                    const mentionWrapper = sibEl.closest?.('[data-lpc-hover-target-id][aria-label^="Mentioned"]');
-                    if (mentionWrapper && wrappers.includes(mentionWrapper)) {
-                        group.push(mentionWrapper);
-                        processed.add(mentionWrapper);
-                        continue;
-                    }
-                    if (group.length) break;
-                } else if (sibling.nodeType === Node.TEXT_NODE) {
-                    if (!sibling.textContent?.trim() && group.length) continue;
-                    if (group.length) break;
-                }
-            }
-        }
-        if (!group.length) {
-            group.push(wrapper);
-        }
-        let combined = group
-            .map(el => (el.textContent || '').replace(/\s+/g, ' ').trim())
-            .filter(Boolean)
-            .join(' ');
-        if (!combined) {
-            combined = group
-                .map(el => (el.getAttribute('aria-label') || '').replace(/^Mentioned\s+/i, '').trim())
-                .filter(Boolean)
-                .join(' ');
-        }
-        combined = combined.trim();
-        if (!combined) continue;
-        const owner = wrapper.ownerDocument || document;
-        const replacement = owner.createTextNode(`@${combined}`);
-        for (const el of group) {
-            processed.add(el);
-            if (el !== wrapper) el.remove();
-        }
-        wrapper.replaceWith(replacement);
-    }
-}
-
-type ReplyContext = { author: string; timestamp: string; text: string } | null;
-
-function extractReplyContext(item: Element, body: Element): ReplyContext {
-  // 1) Structured quoted-reply card (preferred)
-  const card = body?.querySelector('[data-tid="quoted-reply-card"]');
-  if (card) {
-    const tsEl = card.querySelector('[data-tid="quoted-reply-timestamp"]');
-    const authorEl = tsEl?.previousElementSibling || null; // author sits right before timestamp
-    const textEl = card.querySelector('[data-tid="quoted-reply-preview-content"]');
-
-    const author = textFrom(authorEl);
-    const timestamp = textFrom(tsEl); // e.g. "12/09/2025, 11:12"
-    const text = extractTextWithEmojis(textEl || card).trim(); // full preview text
-
-    if (author || timestamp || text) return { author, timestamp, text };
-  }
-
-  // 2) Fallback: aria-label on the group with "Begin Reference, …, <author>, <timestamp>, End reference"
-  const group = body?.querySelector('[role="group"][aria-label^="Begin Reference"]');
-  if (group) {
-    const aria = group.getAttribute('aria-label') || '';
-    // Greedy capture for text; last two comma-separated tokens are author and timestamp
-    const m = aria.match(/^Begin Reference,\s*([\s\S]*),\s*([^,]+),\s*([^,]+),\s*End reference$/);
-    if (m) {
-      const [, text, author, timestamp] = m;
-      return { author: (author||'').trim(), timestamp: (timestamp||'').trim(), text: (text||'').trim() };
-    }
-  }
-
-  // 3) Legacy fallback: "Begin Reference, … by <author>"
-    const heading = item.querySelector('div[role="heading"]');
-  if (heading) {
-    const raw = textFrom(heading);
-    const m = raw.match(/Begin Reference,\s*(.*?)\s*by\s*(.+)$/i);
-    if (m) return { author: m[2].trim(), timestamp: '', text: m[1].trim() };
-  }
-  return null;
-}
-
-
-function extractReactions(item: Element): Reaction[] {
-  const pills = Array.from(item.querySelectorAll<HTMLButtonElement>('[data-tid="diverse-reaction-pill-button"]'));
-  const out: Reaction[] = [];
-
-  for (const btn of pills) {
-    // Emoji icon (static)
-    const emoji = btn.querySelector('[data-tid="emoticon-renderer"] img')?.getAttribute('alt') || '';
-
-    // Pull the descriptive text WITHOUT interacting
-    // Prefer aria-labelledby targets (Teams often renders the pill’s label there)
-    let labelText = '';
-    const labelledBy = btn.getAttribute('aria-labelledby');
-    if (labelledBy) {
-      labelText = labelledBy
-        .split(/\s+/)
-        .map(id => (document.getElementById(id)?.innerText || '').trim())
-        .filter(Boolean)
-        .join(' ')
-        .trim();
-    }
-    if (!labelText) {
-      labelText = (btn.getAttribute('aria-label') || '').trim();
-    }
-
-    // Parse count (first integer we find; Teams strings usually contain it)
-    const count = parseInt((labelText.match(/\d+/) || ['1'])[0], 10) || 1;
-
-    const entry: Reaction = { emoji, count };
-
-    // Inline-only names (no clicking): if label lists names before “react…”
-    // e.g., "Alice, Bob and 2 others reacted with 👍"
-    if (labelText) {
-      const beforeReact = labelText.split(/react/i)[0]; // "Alice, Bob and 2 others "
-      // Split out explicit names; ignore the "X others" tail
-      let names = beforeReact
-        .split(/,\s*|\s+and\s+/)
-        .map(s => s.trim())
-        .filter(Boolean)
-        .filter(s => !/^\d+\s+others?$/i.test(s) && !/others$/i.test(s));
-      if (names.length) entry.reactors = Array.from(new Set(names)).slice(0, 100);
-    }
-
-    out.push(entry);
-  }
-  return out;
-}
-
-
-// Attachments (robust)
-// --- replace extractAttachments in content.js ---
-function extractAttachments(item: Element, body: Element): Attachment[] {
-    const map = new Map<string, Attachment>();
-    const merge = (prev: Attachment, next: Attachment): Attachment => {
-        const merged: Attachment = { ...prev };
-        if (!merged.href && next.href) merged.href = next.href;
-        if (!merged.label && next.label) merged.label = next.label;
-        for (const field of ['type', 'size', 'owner', 'metaText'] as const) {
-            const val = next[field];
-            if (!merged[field] && val) merged[field] = val;
-        }
-        return merged;
-    };
-    const guessTypeFromLabel = (label = '') => {
-        const m = label.trim().match(/\.([A-Za-z0-9]{1,6})$/);
-        return m ? m[1].toUpperCase() : null;
-    };
-    const collectMetaText = (node: Element | null, label?: string) => {
-        const parts = new Set<string>();
-        const add = (val?: string | null) => {
-            if (!val || typeof val !== 'string') return;
-            const trimmed = val.trim();
-            if (!trimmed) return;
-            parts.add(trimmed);
-        };
-        if (node) {
-            add(node.getAttribute?.('aria-label'));
-            add(node.getAttribute?.('title'));
-            const txt = node.textContent?.trim();
-            if (txt && txt !== label?.trim()) add(txt);
-        }
-        if (!parts.size) return '';
-        return Array.from(parts).join(' • ').replace(/\s+/g, ' ').trim();
-    };
-    const inferOwner = (text = '') => {
-        const match = text.match(/(?:Shared by|Uploaded by|Sent by|From|Owner)\s*:?\s*([^•]+)/i);
-        return match ? match[1].trim() : null;
-    };
-    const inferSize = (text = '') => {
-        const match = text.match(/\b\d+(?:[.,]\d+)?\s*(?:bytes?|KB|MB|GB|TB)\b/i);
-        return match ? match[0].replace(',', '.').trim() : null;
-    };
-    const inferType = (label: string, text?: string | null) => {
-        return guessTypeFromLabel(label) || (text ? (text.match(/\b(PDF|DOCX|XLSX|PPTX|TXT|PNG|JPE?G|GIF|ZIP|RAR|CSV|MP4|MP3)\b/i)?.[0]?.toUpperCase() || null) : null);
-    };
-    const push = (sourceNode: Element | null, data: Partial<Attachment> = {}) => {
-        const att: Attachment = { ...data };
-        const linkish = sourceNode as HTMLAnchorElement | null;
-        if (!att.href && linkish?.href) att.href = linkish.href;
-        if (!att.label) {
-            const ariaLabel = sourceNode?.getAttribute?.('aria-label');
-            if (ariaLabel) att.label = ariaLabel.split(/\n+/)[0].trim();
-        }
-        if (!att.label && sourceNode?.getAttribute?.('title')) {
-            att.label = sourceNode.getAttribute('title')!.split(/\n+/)[0].trim();
-        }
-        if (!att.label && sourceNode?.textContent) {
-            const text = sourceNode.textContent.trim();
-            if (text) att.label = text.split(/\n+/)[0].trim();
-        }
-        if (!att.href && !att.label) return;
-
-        const metaText = collectMetaText(sourceNode, att.label || undefined);
-        if (metaText) att.metaText = metaText;
-        const type = inferType(att.label || '', metaText);
-        if (type) att.type = type;
-        const size = inferSize(metaText || '');
-        if (size) att.size = size;
-        const owner = inferOwner(metaText || '');
-        if (owner) att.owner = owner;
-
-        const key = `${att.href || ''}@@${att.label || ''}`;
-        const prev = map.get(key);
-        map.set(key, prev ? merge(prev, att) : att);
-    };
-    const parseTitle = (t: string | null) => {
-        if (!t) return null;
-        const parts = t.split(/\n+/).map(s => s.trim()).filter(Boolean);
-        if (parts.length >= 2 && /^https?:\/\//i.test(parts[1])) {
-            return { label: parts[0], href: parts[1], metaText: parts.slice(2).join(' • ') };
-        }
-        const m = t.match(/https?:\/\/\S+/);
-        if (m) {
-            const url = m[0];
-            const label = (parts[0] && parts[0] !== url) ? parts[0] : url;
-            return { label, href: url, metaText: parts.slice(1).join(' • ') };
-        }
-        return null;
-    };
-
-    const roots: Element[] = [];
-    const aria = body?.getAttribute('aria-labelledby') || '';
-    const attId = aria.split(/\s+/).find(s => s.startsWith('attachments-'));
-    if (attId) {
-        const el = document.getElementById(attId);
-        if (el) roots.push(el);
-    }
-    ['[data-tid="file-attachment-grid"]', '[data-tid="file-preview-root"]', '[data-tid="attachments"]'].forEach(sel => {
-        const el = body && body.querySelector(sel);
-        if (el && !roots.includes(el)) roots.push(el);
-    });
-
-    for (const root of roots) {
-        root.querySelectorAll('[data-testid="file-attachment"], [data-tid^="file-chiclet-"]').forEach(el => {
-            const t = el.getAttribute('title') || el.getAttribute('aria-label') || '';
-            const parsed = parseTitle(t);
-            if (parsed) push(el, parsed);
-            el.querySelectorAll<HTMLAnchorElement>('a[href^="http"]').forEach(a => {
-                const label = textFrom(a) || a.getAttribute('aria-label') || a.title || a.href;
-                push(a, { href: a.href, label });
-            });
-        });
-        root.querySelectorAll('button[data-testid="rich-file-preview-button"][title]').forEach(btn => {
-            const parsed = parseTitle(btn.getAttribute('title'));
-            if (parsed) push(btn, parsed);
-        });
-        root.querySelectorAll<HTMLAnchorElement>('a[href^="http"]').forEach(a => {
-            const label = textFrom(a) || a.getAttribute('aria-label') || a.title || a.href;
-            push(a, { href: a.href, label });
-        });
-    }
-
-    const contentRoot = body && (body.querySelector('[id^="content-"]') || body.querySelector('[data-tid="message-content"]'));
-    if (contentRoot) {
-        contentRoot.querySelectorAll<HTMLAnchorElement>('a[data-testid="atp-safelink"], a[href^="http"]').forEach(a => {
-            push(a, { href: a.href, label: textFrom(a) || a.getAttribute('aria-label') || a.title || a.href });
-        });
-        contentRoot.querySelectorAll<HTMLImageElement>('[data-testid="lazy-image-wrapper"] img').forEach(img => {
-            const src = img.getAttribute('src') || '';
-            if (/^https?:\/\//i.test(src)) {
-                push(img, { href: src, label: img.getAttribute('alt') || 'image' });
-            }
-        });
-    }
-
-    return Array.from(map.values());
-}
 
 // Helpers -------------------------------------------------------
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-const cssEscape = (s: string) => {
-    if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(s);
-    return (s || '').toString().replace(/([\0-\x1f\x7f-\x9f!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1');
-};
-
-const normalizeText = (s: string) => (s ?? '').replace(/\u00a0/g, ' ');
-const isPlaceholderText = (s: string) => {
-    const clean = normalizeText(s).trim();
-    if (!clean) return true;
-    return /^loading(?:\.\.\.?|…)?$/i.test(clean);
-};
-const textScore = (s: string) => normalizeText(s).trim().length;
-const preferText = (prev: string, next: string | null | undefined) => {
-    if (next == null) return prev;
-    const nextPlaceholder = isPlaceholderText(next);
-    const prevPlaceholder = isPlaceholderText(prev);
-    if (nextPlaceholder && !prevPlaceholder) return prev;
-    if (!nextPlaceholder && prevPlaceholder) return next;
-    if (nextPlaceholder && prevPlaceholder) return prev;
-    const prevLen = textScore(prev);
-    const nextLen = textScore(next);
-    return nextLen >= prevLen ? next : prev;
-};
 
 const findPaneItemByMessageId = (id: string | null | undefined): Element | null => {
     if (!id) return null;
@@ -650,9 +318,6 @@ function parseDateDividerText(txt: string, yearHint?: number | null) {
 
     return null;
 }
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
 const controlTimeRe = /(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i;
 
 function parseControlTimestamp(text: string, yearHint?: number | null): number | null {
@@ -672,47 +337,10 @@ function parseControlTimestamp(text: string, yearHint?: number | null): number |
     return Number.isNaN(date.getTime()) ? null : date.getTime();
 }
 
-function startOfLocalDay(ts: number) {
-    const d = new Date(ts);
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
-}
-
-function formatDayLabelForExport(ts: number) {
-    const dayStart = startOfLocalDay(ts);
-    const todayStart = startOfLocalDay(Date.now());
-    const diffDays = Math.round((todayStart - dayStart) / MS_PER_DAY);
-
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays === -1) return 'Tomorrow';
-    if (diffDays >= -6 && diffDays <= 6) {
-        return new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(new Date(ts));
-    }
-    return new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date(ts));
-}
-
-function makeDayDivider(dayKey: number, ts: number): ContentAggregated {
-    const label = formatDayLabelForExport(ts);
-    return {
-        message: {
-            id: `day-${dayKey}`,
-            author: '[system]',
-            timestamp: '',
-            text: label,
-            reactions: [],
-            attachments: [],
-            edited: false,
-            avatar: null,
-            replyTo: null,
-            system: true
-        },
-        orderKey: ts,
-        tsMs: ts,
-        kind: 'day-divider',
-        timeLabel: label
-    };
-}
+const makeDayDivider = (dayKey: number, ts: number): ContentAggregated => {
+    const base = buildDayDivider(dayKey, ts);
+    return { ...base, message: base.message as ExtractedMessage };
+};
 
 // Extract one item into a message object + an orderKey
 async function extractOne(

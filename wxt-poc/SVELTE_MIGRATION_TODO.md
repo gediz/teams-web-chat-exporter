@@ -28,16 +28,26 @@ Incremental plan to port to Svelte with full TypeScript. Start with the popup, t
 - [x] Docs:
   - [x] Update `README.md`/`QUICKSTART.md`/`DEPLOYMENT_GUIDE.md`/`FIXES.md` to reflect Svelte popup and new scripts.
   - [x] Note mixed stack (popup in Svelte, background/content still JS) in docs/notes.
-- [ ] Optional polish:
-  - [x] Add `npm run check` using `svelte-check` and `@tsconfig/svelte`.
-  - [x] Migrate background/content scripts to TypeScript and share utilities as a follow-up.
-  - [x] Remove `// @ts-nocheck` from background/content by adding real types or explicit `any` where needed; extract shared types (messages, meta, options).
-  - [x] Factor popup into smaller Svelte components (header, range, options, advanced, footer) for readability.
-  - [ ] Extract shared utilities:
-    - [ ] Move date/time helpers (parseTimeStamp, formatElapsed, local<->ISO, range labeling) to `src/utils/time.ts`.
-    - [ ] Move text helpers (normalizeText, isPlaceholderText, preferText, textFrom, cssEscape) to `src/utils/text.ts`.
-    - [ ] Add DOM helpers (`$`, `$$`) to `src/utils/dom.ts` for typed query selection.
-    - [ ] Add message builders (makeDayDivider, attachment merge) to `src/utils/messages.ts` as needed.
-    - [ ] Update background/content/popup to import these helpers; remove duplicated inline helpers.
-    - [ ] Re-run `npm run check` and `npm run build` after refactor.
+  - [ ] Optional polish:
+    - [x] Add `npm run check` using `svelte-check` and `@tsconfig/svelte`.
+    - [x] Migrate background/content scripts to TypeScript and share utilities as a follow-up.
+    - [x] Remove `// @ts-nocheck` from background/content by adding real types or explicit `any` where needed; extract shared types (messages, meta, options).
+    - [x] Factor popup into smaller Svelte components (header, range, options, advanced, footer) for readability.
+    - [ ] Extract shared utilities:
+      - [x] Move date/time helpers (parseTimeStamp, formatElapsed, local<->ISO, range labeling) to `src/utils/time.ts`.
+      - [x] Move text helpers (normalizeText, isPlaceholderText, preferText, textFrom, cssEscape) to `src/utils/text.ts`.
+      - [x] Add DOM helpers (`$`, `$$`) to `src/utils/dom.ts` for typed query selection.
+      - [x] Add message builders (makeDayDivider, attachment merge) to `src/utils/messages.ts` as needed.
+      - [x] Update background/content/popup to import these helpers; remove duplicated inline helpers.
+      - [x] Re-run `npm run check` and `npm run build` after refactor.
+      - [ ] Consider shared UI/logic utilities beyond core helpers (popup option persistence, typed messaging wrappers) if duplication grows.
+        - [x] Extract popup options/error persistence + range validation into `src/utils/options.ts`; App uses shared helpers.
+        - [x] Add typed runtime messaging helpers (`src/utils/messaging.ts`, `src/types/messaging.ts`) and consume in popup.
+        - [x] Add badge/progress helper (`src/utils/badge.ts`) and wire background to it.
+    - [ ] Upcoming refactors (readability/maintainability):
+      - [ ] Content decomposition: move DOM/selectors, text/mentions, attachments/replies, scroll/aggregate into small modules under `src/utils/` or `src/content/*`; import into the entrypoint (no behavior change).
+        - [x] Extracted text/mentions, replies, reactions, attachments into `src/content/*` and wired `content.ts`.
+      - [ ] Background helpers: move build/download/HTML/CSV generators into dedicated modules to shrink the background entrypoint.
+      - [ ] Popup polish: extract quick-range logic to a helper, and add a small `StatusBar/Banner` component to isolate status + elapsed UI (no visual redesign).
+      - [ ] Typed message bus (optional): central registry of runtime messages/handlers so popup/content/background share one source of truth; only pursue if we add more message types.
   - [ ] Investigate HUD/elapsed timer occasional stalls; ensure timers are cleaned up and status updates stay in sync.

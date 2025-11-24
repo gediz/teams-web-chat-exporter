@@ -7,7 +7,10 @@
 <script lang="ts">
   import './popup.css';
 import { onDestroy, onMount } from 'svelte';
-import { formatElapsedSuffix, localInputToISO, isoToLocalInput } from '../../utils/time';
+import { clearLastError, DEFAULT_OPTIONS, loadLastError, loadOptions, persistErrorMessage, saveOptions, validateRange, type OptionFormat, type Options, type Theme } from '../../utils/options';
+import { formatElapsedSuffix, isoToLocalInput, localInputToISO } from '../../utils/time';
+import { runtimeSend } from '../../utils/messaging';
+import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, StartExportRequest, StartExportResponse } from '../../types/messaging';
   import HeaderSection from './components/HeaderSection.svelte';
   import QuickRangeSection from './components/QuickRangeSection.svelte';
   import OptionsSection from './components/OptionsSection.svelte';
@@ -17,23 +20,6 @@ import { formatElapsedSuffix, localInputToISO, isoToLocalInput } from '../../uti
   const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
   const tabs = typeof browser !== 'undefined' ? browser.tabs : chrome.tabs;
   const storage = typeof browser !== 'undefined' ? browser.storage : chrome.storage;
-
-  type OptionFormat = 'json' | 'csv' | 'html';
-  type Theme = 'light' | 'dark';
-
-  type Options = {
-    startAt: string;
-    startAtISO: string;
-    endAt: string;
-    endAtISO: string;
-    format: OptionFormat;
-    includeReplies: boolean;
-    includeReactions: boolean;
-    includeSystem: boolean;
-    embedAvatars: boolean;
-    showHud: boolean;
-    theme: Theme;
-  };
 
   type ExportStatusMsg = {
     tabId?: number;
@@ -50,27 +36,11 @@ import { formatElapsedSuffix, localInputToISO, isoToLocalInput } from '../../uti
     info?: { startedAt?: number | string; lastStatus?: ExportStatusMsg };
   };
 
-  const STORAGE_KEY = 'teamsExporterOptions';
-  const ERROR_STORAGE_KEY = 'teamsExporterLastError';
   const DEFAULT_RUN_LABEL = 'Export current chat';
   const BUSY_LABEL_EXPORTING = 'Exporting…';
   const BUSY_LABEL_BUILDING = 'Building…';
   const EMPTY_RESULT_MESSAGE = 'No messages found for the selected range.';
   const DAY_MS = 24 * 60 * 60 * 1000;
-
-  const DEFAULT_OPTIONS: Options = {
-    startAt: '',
-    startAtISO: '',
-    endAt: '',
-    endAtISO: '',
-    format: 'json',
-    includeReplies: true,
-    includeReactions: true,
-    includeSystem: false,
-    embedAvatars: false,
-    showHud: true,
-    theme: 'light',
-  };
 
   const quickRanges = [
     { key: 'none', label: 'No limit', icon: '∞' },
@@ -195,64 +165,22 @@ import { formatElapsedSuffix, localInputToISO, isoToLocalInput } from '../../uti
   const showErrorBanner = (message: string, persist = true) => {
     if (!alive) return;
     bannerMessage = message;
-    if (persist) void persistError(message);
+    if (persist) void persistErrorMessage(storage, message);
   };
 
   const hideErrorBanner = (clearStorage = false) => {
     if (!alive) return;
     bannerMessage = null;
-    if (clearStorage) void clearPersistedError();
+    if (clearStorage) void clearLastError(storage);
   };
 
-  const persistError = async (message: string) => {
-    try {
-      await storage.local.set({ [ERROR_STORAGE_KEY]: { message, timestamp: Date.now() } });
-    } catch {
-      /* ignore */
-    }
-  };
+  const loadPersistedError = () => loadLastError(storage);
 
-  const clearPersistedError = async () => {
-    try {
-      await storage.local.remove(ERROR_STORAGE_KEY);
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const loadPersistedError = async () => {
-    try {
-      const res = await storage.local.get(ERROR_STORAGE_KEY);
-      return res?.[ERROR_STORAGE_KEY] || null;
-    } catch {
-      return null;
-    }
-  };
-
-  const loadStoredOptions = async (): Promise<Options> => {
-    try {
-      const stored = await storage.local.get(STORAGE_KEY);
-      const loaded = (stored?.[STORAGE_KEY] || {}) as Partial<Options>;
-      const merged: Options = { ...DEFAULT_OPTIONS, ...loaded };
-      merged.startAt = merged.startAt || isoToLocalInput(merged.startAtISO);
-      merged.endAt = merged.endAt || isoToLocalInput(merged.endAtISO);
-      return merged;
-    } catch {
-      return { ...DEFAULT_OPTIONS };
-    }
-  };
+  const loadStoredOptions = () => loadOptions(storage, DEFAULT_OPTIONS);
 
   const persistOptions = async () => {
-    const startISO = localInputToISO(options.startAt);
-    const endISO = localInputToISO(options.endAt);
-    const payload: Options = { ...options, startAtISO: startISO || '', endAtISO: endISO || '' };
     if (!alive) return;
-    options = payload;
-    try {
-      await storage.local.set({ [STORAGE_KEY]: payload });
-    } catch {
-      /* ignore */
-    }
+    options = await saveOptions(storage, options, DEFAULT_OPTIONS);
   };
 
   const updateOption = <K extends keyof Options>(key: K, value: Options[K]) => {
@@ -297,30 +225,13 @@ import { formatElapsedSuffix, localInputToISO, isoToLocalInput } from '../../uti
   };
 
   const getValidatedRangeISO = () => {
-    const rawStart = (options.startAt || '').trim();
-    const rawEnd = (options.endAt || '').trim();
-    const startISO = rawStart ? localInputToISO(rawStart) : null;
-    if (rawStart && !startISO) {
-      const message = 'Enter a valid start date/time.';
-      showErrorBanner(message);
-      throw new Error(message);
+    try {
+      return validateRange(options);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Invalid date range.';
+      showErrorBanner(msg);
+      throw e;
     }
-    const endISO = rawEnd ? localInputToISO(rawEnd) : null;
-    if (rawEnd && !endISO) {
-      const message = 'Enter a valid end date/time.';
-      showErrorBanner(message);
-      throw new Error(message);
-    }
-    if (startISO && endISO) {
-      const startMs = Date.parse(startISO);
-      const endMs = Date.parse(endISO);
-      if (!Number.isNaN(startMs) && !Number.isNaN(endMs) && startMs > endMs) {
-        const message = 'Start date must be before end date.';
-        showErrorBanner(message);
-        throw new Error(message);
-      }
-    }
-    return { startISO, endISO };
   };
 
   const getActiveTeamsTab = async () => {
@@ -331,7 +242,7 @@ import { formatElapsedSuffix, localInputToISO, isoToLocalInput } from '../../uti
 
   const pingSW = async (timeoutMs = 4000) =>
     Promise.race([
-      runtime.sendMessage({ type: 'PING_SW' }),
+      runtimeSend<PingSWRequest>(runtime, { type: 'PING_SW' }),
       new Promise((_, rej) => setTimeout(() => rej(new Error('No response from background (PING_SW timeout)')), timeoutMs)),
     ]);
 
@@ -358,7 +269,7 @@ import { formatElapsedSuffix, localInputToISO, isoToLocalInput } from '../../uti
       setBusy(false);
       setStatus(message, { stopElapsed: true });
       showErrorBanner(message, false);
-      void clearPersistedError();
+      void clearLastError(storage);
     } else if (phase === 'complete') {
       setBusy(false);
       if (msg.filename) {
@@ -402,7 +313,7 @@ import { formatElapsedSuffix, localInputToISO, isoToLocalInput } from '../../uti
       const format = options.format;
       const { includeReplies, includeReactions, includeSystem, embedAvatars, showHud } = options;
       setStatus('Export running… you can close this popup.');
-      const response = await runtime.sendMessage({
+      const response = await runtimeSend<StartExportRequest>(runtime, {
         type: 'START_EXPORT',
         data: {
           tabId: tab.id,
@@ -421,7 +332,7 @@ import { formatElapsedSuffix, localInputToISO, isoToLocalInput } from '../../uti
         const message = response.error || EMPTY_RESULT_MESSAGE;
         setStatus(message, { stopElapsed: true });
         showErrorBanner(message, false);
-        await clearPersistedError();
+        await clearLastError(storage);
         return;
       }
       if (!response || response.error) {
@@ -458,10 +369,10 @@ import { formatElapsedSuffix, localInputToISO, isoToLocalInput } from '../../uti
       try {
       const tab = await getActiveTeamsTab();
       currentTabId = tab.id ?? null;
-      const status = (await runtime.sendMessage({
+      const status = await runtimeSend<GetExportStatusRequest>(runtime, {
         type: 'GET_EXPORT_STATUS',
         tabId: currentTabId,
-      })) as ExportStatusResponse;
+      });
         if (!alive) return;
         if (status?.active) {
           const last = status.info?.lastStatus;
