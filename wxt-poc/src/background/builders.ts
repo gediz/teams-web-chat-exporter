@@ -97,11 +97,16 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
 
   const style = `<style>
     :root { --muted:#6b7280; --border:#e5e7eb; --bg:#ffffff; --chip:#f3f4f6; }
-    body{font:14px system-ui, -apple-system, Segoe UI, Roboto; background:#fff; color:#111; padding:20px}
+    body{font:14px system-ui, -apple-system, Segoe UI, Roboto; background:#fff; color:#111; padding:24px; margin:0}
     h1{margin:0 0 10px 0}
     .meta{color:var(--muted); margin:0 0 12px 0}
+    .toolbar{margin:0 0 12px 0; display:flex; gap:8px; align-items:center}
+    .toolbar button{border:1px solid var(--border); background:#f9fafb; color:#111; padding:6px 10px; border-radius:6px; cursor:pointer; font:13px system-ui}
+    .toolbar button:hover{background:#eef2f7}
     .msg{display:flex; gap:10px; margin:12px 0; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--bg)}
     .msg.system{background:#f8fafc; border-style:dashed; color:#374151}
+    body.compact .msg{padding:10px; margin:8px 0}
+    body.compact .header{flex-wrap:wrap}
     .avatar{width:36px; height:36px; border-radius:50%; background:var(--chip); display:flex; align-items:center; justify-content:center; font-weight:600; color:#111; overflow:hidden}
     .avatar img{width:36px; height:36px; border-radius:50%; object-fit:cover}
     .avatar.system{background:#e5e7eb; color:#4b5563}
@@ -130,6 +135,9 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
   const head = `
     <h1>Teams Chat Export</h1>
     <div class="meta">${metaLines.join(' ')}<div>Generated ${fmtTs(Date.now())}</div></div>
+    <div class="toolbar">
+      <button type="button" data-toggle-compact>Toggle compact view</button>
+    </div>
   `;
 
   const body = rows
@@ -184,7 +192,9 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     })
     .join('\n');
 
-  return `<!doctype html><meta charset="utf-8">${style}${head}${body}`;
+  const script = `<script>(()=>{const btn=document.querySelector('[data-toggle-compact]');if(!btn)return;const key='teamsExporterCompact';const apply=(c)=>{document.body.classList.toggle('compact',c);btn.textContent=c?'Switch to expanded view':'Switch to compact view';};const stored=localStorage.getItem(key);let compact=stored==='1';apply(compact);btn.addEventListener('click',()=>{compact=!compact;apply(compact);try{localStorage.setItem(key,compact?'1':'0');}catch(_){}});})();</script>`;
+
+  return `<!doctype html><html><head><meta charset="utf-8">${style}</head><body>${head}${body}${script}</body></html>`;
 }
 
 // Encode text to a data URL to download from SW (works reliably in MV3)
