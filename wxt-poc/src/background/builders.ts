@@ -84,9 +84,16 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
   };
   const escapeHtml = (str = '') =>
     str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  const autolink = (plain: string) => {
-    const safe = escapeHtml(plain || '');
-    return safe.replace(/https?:\/\/[^\s<>"']+/g, u => `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">${escapeHtml(u)}</a>`);
+  const urlRe = /https?:\/\/[^\s<>"']+/g;
+  const autolinkEscaped = (escaped: string) =>
+    escaped.replace(urlRe, u => `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">${escapeHtml(u)}</a>`);
+  const formatText = (plain: string) => {
+    const escaped = escapeHtml(plain || '');
+    const linked = autolinkEscaped(escaped);
+    return linked
+      .replace(/\r\n/g, '\n')
+      .replace(/\n{2,}/g, '<br>&nbsp;<br>')
+      .replace(/\n/g, '<br>');
   };
   const initials = (name = '') => (name.trim().split(/\s+/).map(p => p[0]).join('').slice(0, 2) || '•');
 
@@ -152,7 +159,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
       const reactions = Array.isArray(m.reactions) ? m.reactions : [];
       const atts = Array.isArray(m.attachments) ? m.attachments : [];
       const replyTo = m.replyTo;
-      const text = autolink(m.text || '');
+      const text = formatText(m.text || '');
       const avatar = m.avatar
         ? `<img src="${escapeHtml(m.avatar)}" alt="avatar" />`
         : escapeHtml((m.author || '').split(' ').map(p => p[0]).join('').slice(0, 2) || '•');
@@ -187,7 +194,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
       <div class="main">
         <div class="hdr">${escapeHtml(m.author || '')} — <span title="${escapeHtml(ts)}">${tsLabel}</span>${rel ? `<span class="rel">(${rel})</span>` : ''}${m.edited ? ' <span class="edited">• edited</span>' : ''}</div>
         ${replyHtml}
-        <div>${text}</div>
+        <div>${text || '<span class="meta">(no text)</span>'}</div>
         ${reactHtml ? `<div class="reactions">${reactHtml}</div>` : ''}
         ${attsHtml ? `<div class="atts">${attsHtml}</div>` : ''}
       </div>
