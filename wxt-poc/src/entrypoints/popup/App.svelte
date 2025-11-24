@@ -11,6 +11,7 @@
   import QuickRangeSection from './components/QuickRangeSection.svelte';
   import OptionsSection from './components/OptionsSection.svelte';
   import AdvancedSection from './components/AdvancedSection.svelte';
+  import ActionSection from './components/ActionSection.svelte';
 
   const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
   const tabs = typeof browser !== 'undefined' ? browser.tabs : chrome.tabs;
@@ -571,15 +572,11 @@
     on:showHudChange={(e) => updateOption('showHud', e.detail)}
   />
 
-  <button id="run" class:busy={busy} on:click={startExport} disabled={busy}>
-    <span class="spinner" aria-hidden="true"></span>
-    <span class="button-icon" aria-hidden="true">⤓</span>
-    <span class="label">{busy ? busyLabel : DEFAULT_RUN_LABEL}</span>
-  </button>
-
-  <div id="status" aria-live="polite">{statusText}</div>
-
-  <p class="footer-note">
-    Keep this popup open to monitor progress, or close it and watch the badge.
-  </p>
+  <ActionSection
+    busy={busy}
+    busyLabel={busyLabel}
+    defaultRunLabel={DEFAULT_RUN_LABEL}
+    statusText={statusText}
+    on:run={startExport}
+  />
 </div>
