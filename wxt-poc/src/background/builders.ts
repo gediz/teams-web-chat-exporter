@@ -100,12 +100,11 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     body{font:14px system-ui, -apple-system, Segoe UI, Roboto; background:#fff; color:#111; padding:20px}
     h1{margin:0 0 10px 0}
     .meta{color:var(--muted); margin:0 0 12px 0}
-    .toolbar{margin-bottom:12px; display:flex; gap:8px; align-items:center}
-    .toolbar button{border:1px solid var(--border); background:#f9fafb; color:#111; padding:6px 10px; border-radius:6px; cursor:pointer; font:13px system-ui}
-    .toolbar button:hover{background:#eef2f7}
     .msg{display:flex; gap:10px; margin:12px 0; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--bg)}
+    .msg.system{background:#f8fafc; border-style:dashed; color:#374151}
     .avatar{width:36px; height:36px; border-radius:50%; background:var(--chip); display:flex; align-items:center; justify-content:center; font-weight:600; color:#111; overflow:hidden}
     .avatar img{width:36px; height:36px; border-radius:50%; object-fit:cover}
+    .avatar.system{background:#e5e7eb; color:#4b5563}
     .content{flex:1; min-width:0}
     .header{display:flex; align-items:center; gap:8px; font-weight:600}
     .author{font-weight:600}
@@ -131,10 +130,6 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
   const head = `
     <h1>Teams Chat Export</h1>
     <div class="meta">${metaLines.join(' ')}<div>Generated ${fmtTs(Date.now())}</div></div>
-    <div class="toolbar">
-      <button onclick="window.print()">Print</button>
-      <button onclick="navigator.clipboard?.writeText(location.href)">Copy URL</button>
-    </div>
   `;
 
   const body = rows
@@ -170,11 +165,12 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
            <div class="meta-line">${escapeHtml((replyTo.text || '').slice(0, 300))}</div>`
         : '';
 
-      return `<div class="msg" id="msg-${idx}">
-        <div class="avatar">${avatar}</div>
+      const systemClass = m.system ? ' system' : '';
+      return `<div class="msg${systemClass}" id="msg-${idx}">
+        <div class="avatar${systemClass}">${avatar}</div>
         <div class="content">
           <div class="header">
-            <span class="author">${escapeHtml(m.author || '')}</span>
+            <span class="author">${escapeHtml(m.author || '')}${m.system ? ' [system]' : ''}</span>
             <span class="timestamp">${tsLabel}${rel ? ` • ${rel}` : ''}</span>
             ${m.edited ? `<span class="meta-line">(edited)</span>` : ''}
             ${m.system ? `<span class="meta-line">[system]</span>` : ''}
@@ -188,9 +184,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     })
     .join('\n');
 
-  const script = `<script>(()=>{const root=document.body;const key='teamsExporterCompact';const apply=(s)=>{if(s){root.classList.add('compact');toggle.textContent='Switch to expanded view';}else{root.classList.remove('compact');toggle.textContent='Switch to compact view';}};const toggle=document.createElement('button');toggle.className='toggle';toggle.style.cssText='position:fixed;top:12px;right:12px;z-index:9999;';toggle.textContent='Switch to compact view';document.body.appendChild(toggle);const stored=localStorage.getItem(key);let compact=stored==='1';apply(compact);toggle.addEventListener('click',()=>{compact=!compact;apply(compact);try{localStorage.setItem(key,compact?'1':'0');}catch(_){}});})();</script>`;
-
-  return `<!doctype html><meta charset="utf-8">${style}${head}${body}${script}`;
+  return `<!doctype html><meta charset="utf-8">${style}${head}${body}`;
 }
 
 // Encode text to a data URL to download from SW (works reliably in MV3)
