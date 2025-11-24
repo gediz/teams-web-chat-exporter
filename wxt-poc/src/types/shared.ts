@@ -1,0 +1,91 @@
+export type Reaction = { emoji: string; count: number; reactors?: string[] };
+
+export type Attachment = {
+  href?: string;
+  label?: string;
+  type?: string | null;
+  size?: string | null;
+  owner?: string | null;
+  metaText?: string | null;
+};
+
+export type ReplyContext = {
+  author: string;
+  timestamp: string;
+  text: string;
+};
+
+export type ExportMessage = {
+  id?: string;
+  author?: string;
+  timestamp?: string;
+  text?: string;
+  edited?: boolean;
+  system?: boolean;
+  avatar?: string | null;
+  reactions?: Reaction[];
+  attachments?: Attachment[];
+  replyTo?: ReplyContext | null;
+};
+
+export type ExportMeta = {
+  title?: string | null;
+  startAt?: string | null;
+  endAt?: string | null;
+  timeRange?: string | null;
+  [key: string]: unknown;
+};
+
+export type ScrapeOptions = {
+  startAt?: string | null;
+  endAt?: string | null;
+  includeReplies?: boolean;
+  includeReactions?: boolean;
+  includeSystem?: boolean;
+  showHud?: boolean;
+};
+
+export type BuildOptions = {
+  format?: 'json' | 'csv' | 'html';
+  saveAs?: boolean;
+  embedAvatars?: boolean;
+};
+
+export type ScrapeResult = {
+  messages: ExportMessage[];
+  meta?: ExportMeta;
+};
+
+export type ExportStatusPayload = {
+  tabId?: number;
+  phase?: string;
+  messages?: number;
+  messagesExtracted?: number;
+  filename?: string;
+  error?: string;
+  message?: string;
+  startedAt?: number | string;
+};
+
+export type ActiveExportInfo = {
+  startedAt?: number;
+  lastStatus?: ExportStatusPayload;
+  phase?: string;
+  completedAt?: number;
+};
+
+export type AggregatedItem = {
+  message?: ExportMessage;
+  orderKey: number;
+  tsMs: number | null;
+  kind: 'message' | 'system-control' | 'day-divider';
+  timeLabel?: string;
+};
+
+export type OrderContext = {
+  lastTimeMs: number | null;
+  yearHint: number | null;
+  seqBase: number;
+  lastAuthor: string | null;
+  lastId: string | null;
+};

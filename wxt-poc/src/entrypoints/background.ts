@@ -1,55 +1,18 @@
 import { defineBackground } from 'wxt/sandbox';
+import type {
+  ActiveExportInfo,
+  BuildOptions,
+  ExportMessage,
+  ExportMeta,
+  ExportStatusPayload,
+  Reaction,
+  ScrapeOptions,
+  ScrapeResult,
+} from '../types/shared';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Typed globals for Firefox builds
 declare const browser: typeof chrome | undefined;
-
-type Reaction = { emoji: string; count: number; reactors?: string[] };
-type Attachment = { href: string; label: string; type?: string; size?: string; owner?: string; metaText?: string };
-type ExportMessage = {
-  id?: string;
-  author?: string;
-  timestamp?: string;
-  text?: string;
-  edited?: boolean;
-  system?: boolean;
-  avatar?: string | null;
-  reactions?: Reaction[];
-  attachments?: Attachment[];
-  replyTo?: { author: string; timestamp: string; text: string } | null;
-};
-type ExportMeta = {
-  title?: string | null;
-  startAt?: string | null;
-  endAt?: string | null;
-  timeRange?: string | null;
-  [key: string]: unknown;
-};
-type ScrapeOptions = {
-  startAt?: string | null;
-  endAt?: string | null;
-  includeReplies?: boolean;
-  includeReactions?: boolean;
-  includeSystem?: boolean;
-  showHud?: boolean;
-};
-type BuildOptions = {
-  format?: 'json' | 'csv' | 'html';
-  saveAs?: boolean;
-  embedAvatars?: boolean;
-};
-type ExportStatusPayload = {
-  tabId?: number;
-  phase?: string;
-  messages?: number;
-  messagesExtracted?: number;
-  filename?: string;
-  error?: string;
-  message?: string;
-  startedAt?: number | string;
-};
-type ActiveExportInfo = { startedAt?: number; lastStatus?: ExportStatusPayload; phase?: string; completedAt?: number };
-type ScrapeResult = { messages: ExportMessage[]; meta?: ExportMeta };
 
 // ===== service-worker.js (WXT version) =====
 export default defineBackground(() => {

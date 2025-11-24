@@ -1,5 +1,11 @@
 // @ts-nocheck
 /* eslint-disable no-console */
+import { defineContentScript } from 'wxt/sandbox';
+import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ScrapeOptions } from '../types/shared';
+
+// Typed globals for Firefox builds
+declare const browser: typeof chrome | undefined;
+
 export default defineContentScript({
   matches: [
     'https://*.teams.microsoft.com/*',
@@ -12,11 +18,17 @@ export default defineContentScript({
 // Browser API compatibility for Firefox
 const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
 
-const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel: string, root: Document | Element = document) => Array.from(root.querySelectorAll(sel));
+const $ = (sel: string, root: Document | Element = document) => root.querySelector(sel);
+
+const textFrom = (el: Element | null | undefined): string => {
+    if (!el) return '';
+    const h = el as HTMLElement;
+    return (h.innerText || h.textContent || '').trim();
+};
 
 let hudEnabled = true;
-let currentRunStartedAt = null;
+let currentRunStartedAt: number | null = null;
 
 function isChatNavSelected() {
     return Boolean(document.querySelector('[data-tid="app-bar-wrapper"] button[aria-pressed="true"][aria-label^="Chat" i]'));
@@ -28,7 +40,7 @@ function hasChatMessageSurface() {
     );
 }
 
-function parseTimeStamp(value) {
+function parseTimeStamp(value: string | null | undefined) {
     if (!value) return null;
     const ts = Date.parse(value);
     if (!Number.isNaN(ts)) return ts;
@@ -71,7 +83,7 @@ function ensureHUD() {
     }
     return hud;
 }
-function hud(text, { includeElapsed = true } = {}) {
+function hud(text: string, { includeElapsed = true }: { includeElapsed?: boolean } = {}) {
     if (!hudEnabled) return;
     const hudNode = ensureHUD();
     if (hudNode) {
@@ -87,7 +99,7 @@ function hud(text, { includeElapsed = true } = {}) {
     } catch (e) { /* ignore */ }
 }
 
-function formatElapsed(ms) {
+function formatElapsed(ms: number) {
     const totalSeconds = Math.max(0, Math.floor(ms / 1000));
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -104,20 +116,20 @@ function getScroller() {
 }
 
 // Author/timestamp/edited/avatar helpers ------------------------
-function resolveAuthor(body, lastAuthor = "") {
-    let author = ($('[data-tid="message-author-name"]', body)?.innerText || '').trim();
+function resolveAuthor(body: Element, lastAuthor = ""): string {
+    let author = textFrom($('[data-tid="message-author-name"]', body));
     if (!author) {
         const aria = body.getAttribute('aria-labelledby') || '';
         const aId = aria.split(/\s+/).find(s => s.startsWith('author-'));
-        if (aId) author = (document.getElementById(aId)?.innerText || '').trim();
+        if (aId) author = textFrom(document.getElementById(aId));
     }
     return author || lastAuthor || '';
 }
-function resolveTimestamp(item) {
+function resolveTimestamp(item: Element): string {
     const t = $('time[datetime]', item) || $('time', item) || $('[data-tid="message-status"] time', item);
-    return t?.getAttribute?.('datetime') || t?.getAttribute?.('title') || t?.innerText || '';
+    return t?.getAttribute?.('datetime') || t?.getAttribute?.('title') || textFrom(t) || '';
 }
-function resolveEdited(item, body) {
+function resolveEdited(item: Element, body: Element): boolean {
     const aria = body?.getAttribute('aria-labelledby') || '';
     const editedId = aria.split(/\s+/).find(s => s.startsWith('edited-'));
     if (editedId) {
@@ -134,30 +146,34 @@ function resolveEdited(item, body) {
     }
     return false;
 }
-function resolveAvatar(item) {
-    const perMsg = $('[data-tid="message-avatar"] img', item); // per-message avatar
-    if (perMsg?.src) return perMsg.src;                       // :contentReference[oaicite:4]{index=4}
-    const header = $('[data-tid="chat-title-avatar"] img');   // header fallback
-    return header?.src || null;                                // :contentReference[oaicite:5]{index=5}
+function resolveAvatar(item: Element): string | null {
+    const perMsg = $('[data-tid="message-avatar"] img', item) as HTMLImageElement | null; // per-message avatar
+    if (perMsg?.src) return perMsg.src;
+    const header = $('[data-tid="chat-title-avatar"] img') as HTMLImageElement | null;   // header fallback
+    return header?.src || null;
 }
 
 // Text with emoji (IMG alt) + block breaks
-function extractTextWithEmojis(root) {
+function extractTextWithEmojis(root: Element | null): string {
     if (!root) return '';
-    let out = ''; const walk = (n) => {
+    let out = '';
+    const walk = (n: ChildNode) => {
         if (n.nodeType === Node.TEXT_NODE) { out += n.nodeValue; return; }
         if (n.nodeType !== Node.ELEMENT_NODE) return;
-        const el = n, tag = el.tagName;
+        const el = n as Element;
+        const tag = el.tagName;
         if (tag === 'BR') { out += '\n'; return; }
         if (tag === 'IMG') { out += (el.getAttribute('alt') || el.getAttribute('aria-label') || ''); return; }
-        const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/; const start = out.length;
+        const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/;
+        const start = out.length;
         for (const c of el.childNodes) walk(c);
         if (blockish.test(tag) && out.length > start) out += '\n';
-    }; walk(root);
+    };
+    walk(root);
     return out.replace(/\n{3,}/g, '\n\n').trim();
 }
 
-function normalizeMentions(root) {
+function normalizeMentions(root: Element) {
     if (!root || typeof root.querySelectorAll !== 'function') return;
     const wrappers = Array.from(root.querySelectorAll('[data-lpc-hover-target-id][aria-label^="Mentioned"], [itemtype*="schema.skype.com/Mention"]'));
     if (!wrappers.length) return;
@@ -168,11 +184,14 @@ function normalizeMentions(root) {
         const parent = wrapper.parentElement;
         const group = [];
         if (parent) {
-            for (const sibling of parent.childNodes) {
-                if (sibling === wrapper || (sibling.closest && sibling.closest('[data-lpc-hover-target-id][aria-label^="Mentioned"]') === wrapper)) {
+            for (const sibling of Array.from(parent.childNodes)) {
+                if (sibling === wrapper) {
                     group.push(wrapper);
-                } else if (sibling.nodeType === Node.ELEMENT_NODE) {
-                    const mentionWrapper = sibling.closest?.('[data-lpc-hover-target-id][aria-label^="Mentioned"]');
+                    continue;
+                }
+                if (sibling.nodeType === Node.ELEMENT_NODE) {
+                    const sibEl = sibling as Element;
+                    const mentionWrapper = sibEl.closest?.('[data-lpc-hover-target-id][aria-label^="Mentioned"]');
                     if (mentionWrapper && wrappers.includes(mentionWrapper)) {
                         group.push(mentionWrapper);
                         processed.add(mentionWrapper);
@@ -210,7 +229,9 @@ function normalizeMentions(root) {
     }
 }
 
-function extractReplyContext(item, body) {
+type ReplyContext = { author: string; timestamp: string; text: string } | null;
+
+function extractReplyContext(item: Element, body: Element): ReplyContext {
   // 1) Structured quoted-reply card (preferred)
   const card = body?.querySelector('[data-tid="quoted-reply-card"]');
   if (card) {
@@ -218,8 +239,8 @@ function extractReplyContext(item, body) {
     const authorEl = tsEl?.previousElementSibling || null; // author sits right before timestamp
     const textEl = card.querySelector('[data-tid="quoted-reply-preview-content"]');
 
-    const author = (authorEl?.innerText || '').trim();
-    const timestamp = (tsEl?.innerText || '').trim(); // e.g. "12/09/2025, 11:12"
+    const author = textFrom(authorEl);
+    const timestamp = textFrom(tsEl); // e.g. "12/09/2025, 11:12"
     const text = extractTextWithEmojis(textEl || card).trim(); // full preview text
 
     if (author || timestamp || text) return { author, timestamp, text };
@@ -230,7 +251,7 @@ function extractReplyContext(item, body) {
   if (group) {
     const aria = group.getAttribute('aria-label') || '';
     // Greedy capture for text; last two comma-separated tokens are author and timestamp
-    const m = aria.match(/^Begin Reference,\s*(.*),\s*([^,]+),\s*([^,]+),\s*End reference$/s);
+    const m = aria.match(/^Begin Reference,\s*([\s\S]*),\s*([^,]+),\s*([^,]+),\s*End reference$/);
     if (m) {
       const [, text, author, timestamp] = m;
       return { author: (author||'').trim(), timestamp: (timestamp||'').trim(), text: (text||'').trim() };
@@ -248,9 +269,9 @@ function extractReplyContext(item, body) {
 }
 
 
-function extractReactions(item) {
-  const pills = Array.from(item.querySelectorAll('[data-tid="diverse-reaction-pill-button"]'));
-  const out = [];
+function extractReactions(item: Element): Reaction[] {
+  const pills = Array.from(item.querySelectorAll<HTMLButtonElement>('[data-tid="diverse-reaction-pill-button"]'));
+  const out: Reaction[] = [];
 
   for (const btn of pills) {
     // Emoji icon (static)
@@ -273,9 +294,9 @@ function extractReactions(item) {
     }
 
     // Parse count (first integer we find; Teams strings usually contain it)
-    const count = parseInt((labelText.match(/\d+/) || [1])[0], 10) || 1;
+    const count = parseInt((labelText.match(/\d+/) || ['1'])[0], 10) || 1;
 
-    const entry = { emoji, count };
+    const entry: Reaction = { emoji, count };
 
     // Inline-only names (no clicking): if label lists names before “react…”
     // e.g., "Alice, Bob and 2 others reacted with 👍"
@@ -298,14 +319,15 @@ function extractReactions(item) {
 
 // Attachments (robust)
 // --- replace extractAttachments in content.js ---
-function extractAttachments(item, body) {
-    const map = new Map();
-    const merge = (prev, next) => {
-        const merged = { ...prev };
+function extractAttachments(item: Element, body: Element): Attachment[] {
+    const map = new Map<string, Attachment>();
+    const merge = (prev: Attachment, next: Attachment): Attachment => {
+        const merged: Attachment = { ...prev };
         if (!merged.href && next.href) merged.href = next.href;
         if (!merged.label && next.label) merged.label = next.label;
-        for (const field of ['type', 'size', 'owner', 'metaText']) {
-            if (!merged[field] && next[field]) merged[field] = next[field];
+        for (const field of ['type', 'size', 'owner', 'metaText'] as const) {
+            const val = next[field];
+            if (!merged[field] && val) merged[field] = val;
         }
         return merged;
     };
@@ -313,9 +335,9 @@ function extractAttachments(item, body) {
         const m = label.trim().match(/\.([A-Za-z0-9]{1,6})$/);
         return m ? m[1].toUpperCase() : null;
     };
-    const collectMetaText = (node, label) => {
-        const parts = new Set();
-        const add = (val) => {
+    const collectMetaText = (node: Element | null, label?: string) => {
+        const parts = new Set<string>();
+        const add = (val?: string | null) => {
             if (!val || typeof val !== 'string') return;
             const trimmed = val.trim();
             if (!trimmed) return;
@@ -338,18 +360,19 @@ function extractAttachments(item, body) {
         const match = text.match(/\b\d+(?:[.,]\d+)?\s*(?:bytes?|KB|MB|GB|TB)\b/i);
         return match ? match[0].replace(',', '.').trim() : null;
     };
-    const inferType = (label, text) => {
+    const inferType = (label: string, text?: string | null) => {
         return guessTypeFromLabel(label) || (text ? (text.match(/\b(PDF|DOCX|XLSX|PPTX|TXT|PNG|JPE?G|GIF|ZIP|RAR|CSV|MP4|MP3)\b/i)?.[0]?.toUpperCase() || null) : null);
     };
-    const push = (sourceNode, data = {}) => {
-        const att = { ...data };
-        if (!att.href && sourceNode?.href) att.href = sourceNode.href;
+    const push = (sourceNode: Element | null, data: Partial<Attachment> = {}) => {
+        const att: Attachment = { ...data };
+        const linkish = sourceNode as HTMLAnchorElement | null;
+        if (!att.href && linkish?.href) att.href = linkish.href;
         if (!att.label) {
             const ariaLabel = sourceNode?.getAttribute?.('aria-label');
             if (ariaLabel) att.label = ariaLabel.split(/\n+/)[0].trim();
         }
         if (!att.label && sourceNode?.getAttribute?.('title')) {
-            att.label = sourceNode.getAttribute('title').split(/\n+/)[0].trim();
+            att.label = sourceNode.getAttribute('title')!.split(/\n+/)[0].trim();
         }
         if (!att.label && sourceNode?.textContent) {
             const text = sourceNode.textContent.trim();
@@ -357,20 +380,20 @@ function extractAttachments(item, body) {
         }
         if (!att.href && !att.label) return;
 
-        const metaText = collectMetaText(sourceNode, att.label);
+        const metaText = collectMetaText(sourceNode, att.label || undefined);
         if (metaText) att.metaText = metaText;
         const type = inferType(att.label || '', metaText);
         if (type) att.type = type;
-        const size = inferSize(metaText);
+        const size = inferSize(metaText || '');
         if (size) att.size = size;
-        const owner = inferOwner(metaText);
+        const owner = inferOwner(metaText || '');
         if (owner) att.owner = owner;
 
         const key = `${att.href || ''}@@${att.label || ''}`;
         const prev = map.get(key);
         map.set(key, prev ? merge(prev, att) : att);
     };
-    const parseTitle = (t) => {
+    const parseTitle = (t: string | null) => {
         if (!t) return null;
         const parts = t.split(/\n+/).map(s => s.trim()).filter(Boolean);
         if (parts.length >= 2 && /^https?:\/\//i.test(parts[1])) {
@@ -385,7 +408,7 @@ function extractAttachments(item, body) {
         return null;
     };
 
-    const roots = [];
+    const roots: Element[] = [];
     const aria = body?.getAttribute('aria-labelledby') || '';
     const attId = aria.split(/\s+/).find(s => s.startsWith('attachments-'));
     if (attId) {
