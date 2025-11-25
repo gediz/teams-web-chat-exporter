@@ -1,8 +1,8 @@
 import { defineBackground } from 'wxt/sandbox';
 import { createBadgeManager } from '../utils/badge';
-import { formatRangeLabel, sanitizeBase } from '../utils/messages';
 import { buildAndDownload } from '../background/download';
 import { formatDayLabelForExport, parseTimeStamp } from '../utils/time';
+import type { BackgroundIncomingMessage } from '../types/messaging';
 import type {
   ActiveExportInfo,
   BuildOptions,
@@ -13,7 +13,6 @@ import type {
   ScrapeOptions,
   ScrapeResult,
 } from '../types/shared';
-import { embedAvatarsInRows, textToBlobUrl, textToDataUrl, toCSV, toHTML } from '../background/builders';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Typed globals for Firefox builds
@@ -212,7 +211,7 @@ function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
 
 resetBadge();
 
-runtime.onMessage.addListener((msg, sender, sendResponse) => {
+runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendResponse) => {
     if (!msg || !msg.type) return;
 
     if (msg.type === 'PING_SW') {
