@@ -304,7 +304,7 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
     try {
       hideErrorBanner(true);
       setBusy(true, BUSY_LABEL_EXPORTING);
-      setStatus('Preparing…');
+      setStatus('Preparing export (waking content script)…');
       const tab = await getActiveTeamsTab();
       if (!alive) return;
       currentTabId = tab.id ?? null;
