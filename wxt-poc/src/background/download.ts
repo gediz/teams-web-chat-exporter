@@ -11,7 +11,7 @@ export type BuildDownloadDeps = {
 
 export async function buildAndDownload(
   deps: BuildDownloadDeps,
-  { messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false }: { messages?: ExportMessage[]; meta?: ExportMeta; format?: 'json' | 'csv' | 'html'; saveAs?: boolean; embedAvatars?: boolean },
+  { messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false }: { messages?: ExportMessage[]; meta?: ExportMeta; format?: 'json' | 'csv' | 'html' | 'txt'; saveAs?: boolean; embedAvatars?: boolean },
 ) {
   const { downloads, isFirefox } = deps;
   let rows = messages;
@@ -47,6 +47,10 @@ export async function buildAndDownload(
     filename = `${base}.html`;
     mime = 'text/html';
     content = toHTML(rows, { ...enrichedMeta, count: messages.length });
+  } else if (format === 'txt') {
+    filename = `${base}.txt`;
+    mime = 'text/plain';
+    content = toPlainText(messages);
   } else {
     throw new Error('Unknown format: ' + format);
   }
@@ -68,4 +72,15 @@ export async function buildAndDownload(
       throw new Error(e2?.message || String(e2));
     }
   }
+}
+
+function toPlainText(messages: ExportMessage[]) {
+  const lines: string[] = [];
+  for (const m of messages) {
+    const ts = m.timestamp || '';
+    const author = m.author || '[unknown]';
+    const text = (m.text || '').replace(/\r\n/g, '\n').replace(/\n{2,}/g, '\n\n');
+    lines.push(`[${ts}] ${author}: ${text}`);
+  }
+  return lines.join('\n');
 }

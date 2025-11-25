@@ -48,7 +48,7 @@ export type ScrapeOptions = {
 };
 
 export type BuildOptions = {
-  format?: 'json' | 'csv' | 'html';
+  format?: 'json' | 'csv' | 'html' | 'txt';
   saveAs?: boolean;
   embedAvatars?: boolean;
 };

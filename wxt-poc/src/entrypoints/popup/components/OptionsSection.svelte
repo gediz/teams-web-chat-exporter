@@ -1,5 +1,5 @@
 <script lang="ts" context="module">
-  export type OptionFormat = 'json' | 'csv' | 'html';
+  export type OptionFormat = 'json' | 'csv' | 'html' | 'txt';
 </script>
 
 <script lang="ts">
@@ -35,6 +35,7 @@
       <option value="json">JSON</option>
       <option value="csv">CSV</option>
       <option value="html">HTML</option>
+      <option value="txt">Plain text</option>
     </select>
   </div>
 

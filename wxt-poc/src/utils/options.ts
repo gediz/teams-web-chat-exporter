@@ -1,6 +1,6 @@
 import { isoToLocalInput, localInputToISO } from './time';
 
-export type OptionFormat = 'json' | 'csv' | 'html';
+export type OptionFormat = 'json' | 'csv' | 'html' | 'txt';
 export type Theme = 'light' | 'dark';
 
 export type Options = {
