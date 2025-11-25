@@ -1,6 +1,7 @@
 import { defineBackground } from 'wxt/sandbox';
 import { createBadgeManager } from '../utils/badge';
 import { formatRangeLabel, sanitizeBase } from '../utils/messages';
+import { buildAndDownload } from '../background/download';
 import { formatDayLabelForExport, parseTimeStamp } from '../utils/time';
 import type {
   ActiveExportInfo,
@@ -31,6 +32,7 @@ const downloads = typeof browser !== 'undefined' ? browser.downloads : chrome.do
 const scripting = typeof browser !== 'undefined' ? browser.scripting : chrome.scripting;
 const badge = createBadgeManager(action);
 const { set: setBadge, reset: resetBadge, clearSoon: clearBadgeSoon, updateForStatus: updateBadgeForStatus, updateForProgress: updateBadgeForProgress } = badge;
+const isFirefox = typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox');
 
 function log(...a: unknown[]) { try { console.log("[Teams Exporter SW]", ...a) } catch { } }
 log("boot");
@@ -69,9 +71,6 @@ function updateActiveExport(tabId: number, patch: Partial<ActiveExportInfo> = {}
     return next;
 }
 
-// Detect if we're in Firefox
-const isFirefox = typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox');
-
 const sendMessageToTab = (tabId: number, msg: unknown) => new Promise<any>((resolve, reject) => {
     tabs.sendMessage(tabId, msg, (resp) => {
         const err = runtime.lastError;
@@ -100,83 +99,6 @@ async function requestScrape(tabId: number, options: ScrapeOptions): Promise<Scr
     if (!res) throw new Error('No response from content script');
     if (res.error) throw new Error(res.error);
     return res;
-}
-
-async function buildAndDownload({ messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false }: { messages?: ExportMessage[]; meta?: ExportMeta; format?: 'json' | 'csv' | 'html'; saveAs?: boolean; embedAvatars?: boolean }) {
-    let rows = messages;
-    if (format === 'html' && embedAvatars) {
-        try {
-            rows = await embedAvatarsInRows(messages);
-        } catch (e: any) {
-            log('embed avatars failed', e?.message || e);
-            rows = messages;
-        }
-    }
-
-    const rangeLabel = formatRangeLabel(meta.startAt, meta.endAt);
-    const enrichedMeta = { ...meta };
-    if (rangeLabel) enrichedMeta.timeRange = rangeLabel;
-
-    const baseTitle = sanitizeBase(enrichedMeta.title || 'teams-chat');
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const base = `${baseTitle}-${stamp}`;
-    let filename, mime, content;
-
-    if (format === 'json') {
-        filename = `${base}.json`;
-        mime = 'application/json';
-        const payload = { meta: { ...enrichedMeta, count: messages.length }, messages };
-        content = JSON.stringify(payload, null, 2);
-    } else if (format === 'csv') {
-        filename = `${base}.csv`;
-        mime = 'text/csv';
-        content = toCSV(messages);
-    } else if (format === 'html') {
-        filename = `${base}.html`;
-        mime = 'text/html';
-        content = toHTML(rows, { ...enrichedMeta, count: messages.length });
-    } else {
-        throw new Error('Unknown format: ' + format);
-    }
-
-    // Firefox requires blob URLs, Chrome works with both
-    const url = isFirefox ? textToBlobUrl(content, mime) : textToDataUrl(content, mime);
-    log('download build', { format, bytes: content.length, filename, browser: isFirefox ? 'firefox' : 'chrome' });
-
-    try {
-        const id = await downloads.download({ url, filename, saveAs });
-        log('download started', { id, filename });
-
-        // Cleanup blob URL after download starts (Firefox only)
-        if (isFirefox) {
-            setTimeout(() => URL.revokeObjectURL(url), 60000); // Revoke after 1 minute
-        }
-
-        return { ok: true, filename, id };
-    } catch (e: any) {
-        log('download primary failed', e?.message || e);
-        const safe = `${sanitizeBase('teams-chat')}-${Date.now()}.${format === 'html' ? 'html' : format === 'csv' ? 'csv' : 'json'}`;
-
-        // Cleanup failed blob URL
-        if (isFirefox) {
-            URL.revokeObjectURL(url);
-        }
-
-        try {
-            const url2 = isFirefox ? textToBlobUrl(content, mime) : textToDataUrl(content, mime);
-            const id2 = await downloads.download({ url: url2, filename: safe, saveAs });
-
-            // Cleanup blob URL after download starts (Firefox only)
-            if (isFirefox) {
-                setTimeout(() => URL.revokeObjectURL(url2), 60000);
-            }
-
-            return { ok: true, filename: safe, id: id2 };
-        } catch (e2: any) {
-            log('download fallback failed', e2?.message || e2);
-            throw new Error(e2?.message || String(e2));
-        }
-    }
 }
 
 function broadcastStatus(payload: ExportStatusPayload) {
@@ -213,7 +135,7 @@ function broadcastStatus(payload: ExportStatusPayload) {
 function handleBuildAndDownloadMessage(msg: any, sendResponse: (res: any) => void) {
     (async () => {
         try {
-            const result = await buildAndDownload(msg.data || {});
+            const result = await buildAndDownload({ downloads, isFirefox }, msg.data || {});
             sendResponse(result);
         } catch (err: any) {
             sendResponse({ error: err?.message || String(err) });
@@ -263,13 +185,16 @@ function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
                 return;
             }
 
-            const buildRes = await buildAndDownload({
-                messages: scrapeRes.messages || [],
-                meta: scrapeRes.meta || {},
-                format: buildOptions.format || 'json',
-                saveAs: buildOptions.saveAs !== false,
-                embedAvatars: Boolean(buildOptions.embedAvatars)
-            });
+            const buildRes = await buildAndDownload(
+                { downloads, isFirefox },
+                {
+                    messages: scrapeRes.messages || [],
+                    meta: scrapeRes.meta || {},
+                    format: buildOptions.format || 'json',
+                    saveAs: buildOptions.saveAs !== false,
+                    embedAvatars: Boolean(buildOptions.embedAvatars)
+                }
+            );
 
             broadcastStatus({ tabId, phase: 'complete', filename: buildRes.filename });
             sendResponse({ ok: true, filename: buildRes.filename, downloadId: buildRes.id });
