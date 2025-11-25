@@ -22,8 +22,12 @@ export async function loadLocale(lang: string) {
   applyDir('en');
 }
 
-export function t(key: string, params: Record<string, string | number> = {}) {
-  const raw = currentMessages[key] ?? catalogs.en?.[key] ?? key;
+export function t(key: string, params: Record<string, string | number> = {}, langOverride?: string) {
+  const messages =
+    langOverride && catalogs[langOverride]
+      ? catalogs[langOverride]
+      : currentMessages || catalogs[currentLang] || catalogs.en || {};
+  const raw = messages[key] ?? catalogs.en?.[key] ?? key;
   return Object.entries(params).reduce((acc, [k, v]) => acc.replace(new RegExp(`{${k}}`, 'g'), String(v)), raw);
 }
 

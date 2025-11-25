@@ -1,5 +1,6 @@
 {
   "lang.label": "Language",
+  "lang.subtitle": "UI language (exports unchanged).",
   "range.title": "Date range",
   "range.subtitle": "Leave blank to include everything.",
   "range.from": "From (inclusive)",
@@ -33,6 +34,8 @@
   "status.preparing": "Preparing export…",
   "status.running": "Export running… you can close this popup.",
   "status.building": "Building…",
+  "status.scroll": "Scrolling… pass {pass} • seen {seen}",
+  "status.extract": "Extracting… found {count} messages",
   "status.empty": "No messages found for the selected range.",
   "status.complete": "Export complete.",
   "status.error": "Export failed.",

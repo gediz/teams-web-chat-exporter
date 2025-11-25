@@ -21,29 +21,29 @@
 
 <section class="card" aria-labelledby="range-section" data-lang={lang}>
   <div class="section-head">
-    <h2 class="section-title" id="range-section">{t('range.title')}</h2>
-    <p class="section-sub">{t('range.subtitle')}</p>
+    <h2 class="section-title" id="range-section">{t('range.title', {}, lang)}</h2>
+    <p class="section-sub">{t('range.subtitle', {}, lang)}</p>
   </div>
   <div class="grid-two">
     <div class="field">
-      <label for="startAt">{t('range.from')}</label>
+      <label for="startAt">{t('range.from', {}, lang)}</label>
       <input
         id="startAt"
         class="input-text"
         type="text"
-        placeholder={t('range.placeholder')}
+        placeholder={t('range.placeholder', {}, lang)}
         autocomplete="off"
         value={startAt}
         on:input={(e) => dispatch('changeStart', (e.currentTarget as HTMLInputElement).value)}
       />
     </div>
     <div class="field">
-      <label for="endAt">{t('range.to')}</label>
+      <label for="endAt">{t('range.to', {}, lang)}</label>
       <input
         id="endAt"
         class="input-text"
         type="text"
-        placeholder={t('range.placeholder')}
+        placeholder={t('range.placeholder', {}, lang)}
         autocomplete="off"
         value={endAt}
         on:input={(e) => dispatch('changeEnd', (e.currentTarget as HTMLInputElement).value)}
@@ -51,8 +51,8 @@
     </div>
   </div>
   <div class="field">
-    <label class="section-sub" for="quickRanges">{t('range.quick')}</label>
-    <div id="quickRanges" aria-label={t('range.quick')}>
+    <label class="section-sub" for="quickRanges">{t('range.quick', {}, lang)}</label>
+    <div id="quickRanges" aria-label={t('range.quick', {}, lang)}>
       {#each ranges as qr}
         <button
           type="button"

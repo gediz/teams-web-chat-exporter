@@ -20,7 +20,7 @@
 <div id="status" aria-live="polite">{statusText}</div>
 
 <p class="footer-note">
-  {t('footer.tip1')}
+  {t('footer.tip1', {}, lang)}
   <br />
-  {t('footer.tip2')}
+  {t('footer.tip2', {}, lang)}
 </p>

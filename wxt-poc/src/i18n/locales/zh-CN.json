@@ -1,5 +1,6 @@
 {
   "lang.label": "语言",
+  "lang.subtitle": "界面语言（导出不变）。",
   "range.title": "日期范围",
   "range.subtitle": "留空以包含所有内容。",
   "range.from": "开始（含）",
@@ -28,9 +29,13 @@
   "actions.busy.exporting": "正在导出…",
   "actions.busy.building": "正在生成…",
   "actions.retry": "重试",
+  "title.app": "Teams 聊天导出器",
+  "title.tagline": "用你喜欢的格式和过滤器导出当前的 Teams 聊天。",
   "status.preparing": "准备导出…",
   "status.running": "导出进行中…你可以关闭此弹窗。",
   "status.building": "正在生成…",
+  "status.scroll": "滚动中… 第 {pass} 轮 • 已查看 {seen}",
+  "status.extract": "提取中… 发现 {count} 条消息",
   "status.empty": "所选范围内没有消息。",
   "status.complete": "导出完成。",
   "status.error": "导出失败。",
@@ -39,5 +44,7 @@
   "errors.needsTeams": "请先打开 Teams 网页标签。",
   "errors.ping": "后台无响应。",
   "banner.error": "导出失败。",
-  "banner.empty": "所选范围内没有消息。"
+  "banner.empty": "所选范围内没有消息。",
+  "footer.tip1": "保持弹窗打开以查看进度，或关注图标徽章。",
+  "footer.tip2": "需要帮助？重新打开弹窗以重新连接到正在进行的导出。"
 }

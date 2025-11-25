@@ -1,5 +1,6 @@
 {
   "lang.label": "Idioma",
+  "lang.subtitle": "Idioma da UI (exportes intactos).",
   "range.title": "Período",
   "range.subtitle": "Deixe em branco para incluir tudo.",
   "range.from": "De (inclusivo)",
@@ -12,7 +13,7 @@
   "quick.30d": "Últimos 30 dias",
   "options.title": "Opções",
   "options.subtitle": "Escolha formato e detalhes da exportação.",
-  "options.format": "Formato",
+  "options.format": "Formato de exportação",
   "format.json": "JSON",
   "format.csv": "CSV",
   "format.html": "HTML",
@@ -28,9 +29,13 @@
   "actions.busy.exporting": "Exportando…",
   "actions.busy.building": "Gerando…",
   "actions.retry": "Tentar novamente",
+  "title.app": "Exportador de Chat do Teams",
+  "title.tagline": "Exporte o chat do Teams aberto no formato e com os filtros que preferir.",
   "status.preparing": "Preparando exportação…",
   "status.running": "Exportando… você pode fechar este popup.",
   "status.building": "Gerando arquivo…",
+  "status.scroll": "Rolando… passagem {pass} • vistos {seen}",
+  "status.extract": "Extraindo… {count} mensagens encontradas",
   "status.empty": "Nenhuma mensagem no período selecionado.",
   "status.complete": "Exportação concluída.",
   "status.error": "Falha na exportação.",
@@ -39,5 +44,7 @@
   "errors.needsTeams": "Abra a aba do Teams primeiro.",
   "errors.ping": "Sem resposta do plano de fundo.",
   "banner.error": "Falha na exportação.",
-  "banner.empty": "Nenhuma mensagem no período selecionado."
+  "banner.empty": "Nenhuma mensagem no período selecionado.",
+  "footer.tip1": "Mantenha este popup aberto para ver o progresso ou observe o ícone.",
+  "footer.tip2": "Precisa de ajuda? Reabra o popup para reconectar a uma exportação ativa."
 }

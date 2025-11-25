@@ -6,17 +6,34 @@
 
 <script lang="ts">
   import './popup.css';
-import { onDestroy, onMount } from 'svelte';
-import { clearLastError, DEFAULT_OPTIONS, loadLastError, loadOptions, persistErrorMessage, saveOptions, validateRange, type OptionFormat, type Options, type Theme } from '../../utils/options';
-import { formatElapsedSuffix, isoToLocalInput, localInputToISO } from '../../utils/time';
-import { runtimeSend } from '../../utils/messaging';
-import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, StartExportRequest, StartExportResponse } from '../../types/messaging';
+  import { onDestroy, onMount } from 'svelte';
+  import {
+    clearLastError,
+    DEFAULT_OPTIONS,
+    loadLastError,
+    loadOptions,
+    persistErrorMessage,
+    saveOptions,
+    validateRange,
+    type OptionFormat,
+    type Options,
+    type Theme,
+  } from '../../utils/options';
+  import { formatElapsedSuffix, isoToLocalInput, localInputToISO } from '../../utils/time';
+  import { runtimeSend } from '../../utils/messaging';
+  import type {
+    GetExportStatusRequest,
+    GetExportStatusResponse,
+    PingSWRequest,
+    StartExportRequest,
+    StartExportResponse,
+  } from '../../types/messaging';
   import HeaderSection from './components/HeaderSection.svelte';
   import QuickRangeSection from './components/QuickRangeSection.svelte';
   import OptionsSection from './components/OptionsSection.svelte';
   import AdvancedSection from './components/AdvancedSection.svelte';
   import ActionSection from './components/ActionSection.svelte';
-  import { t, setLanguage, getLanguage, loadLocale } from '../../i18n/i18n';
+  import { t, setLanguage, getLanguage } from '../../i18n/i18n';
 
   const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
   const tabs = typeof browser !== 'undefined' ? browser.tabs : chrome.tabs;
@@ -38,20 +55,36 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
   };
 
   const DAY_MS = 24 * 60 * 60 * 1000;
-
-  const runLabel = () => t('actions.export');
-  const busyExportLabel = () => t('actions.busy.exporting');
-  const busyBuildLabel = () => t('actions.busy.building');
-  const emptyLabel = () => t('status.empty');
-
-  let quickRanges = [
-    { key: 'none', label: t('quick.none'), icon: '∞' },
-    { key: '1d', label: t('quick.1d'), icon: '24h' },
-    { key: '7d', label: t('quick.7d'), icon: '7d' },
-    { key: '30d', label: t('quick.30d'), icon: '30d' },
+  const languageOptions = [
+    { value: 'en', label: 'English' },
+    { value: 'zh-CN', label: '简体中文' },
+    { value: 'pt-BR', label: 'Português (Brasil)' },
+    { value: 'nl', label: 'Nederlands' },
+    { value: 'fr', label: 'Français' },
+    { value: 'de', label: 'Deutsch' },
+    { value: 'it', label: 'Italiano' },
+    { value: 'ja', label: '日本語' },
+    { value: 'ko', label: '한국어' },
+    { value: 'ru', label: 'Русский' },
+    { value: 'es', label: 'Español' },
+    { value: 'tr', label: 'Türkçe' },
+    { value: 'ar', label: 'العربية' },
+    { value: 'he', label: 'עברית' },
   ];
 
   let options: Options = { ...DEFAULT_OPTIONS };
+  const currentLang = () => options.lang || 'en';
+  const runLabel = () => t('actions.export', {}, currentLang());
+  const busyExportLabel = () => t('actions.busy.exporting', {}, currentLang());
+  const busyBuildLabel = () => t('actions.busy.building', {}, currentLang());
+  const emptyLabel = () => t('status.empty', {}, currentLang());
+
+  let quickRanges = [
+    { key: 'none', label: t('quick.none', {}, currentLang()), icon: '∞' },
+    { key: '1d', label: t('quick.1d', {}, currentLang()), icon: '24h' },
+    { key: '7d', label: t('quick.7d', {}, currentLang()), icon: '7d' },
+    { key: '30d', label: t('quick.30d', {}, currentLang()), icon: '30d' },
+  ];
   let bannerMessage: string | null = null;
   let advancedOpen = false;
   let quickActive = 'none';
@@ -76,11 +109,12 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
   const applyLanguage = async (lang: string) => {
     await setLanguage(lang || 'en');
     options = { ...options, lang: getLanguage() };
+    const langNow = currentLang();
     quickRanges = [
-      { key: 'none', label: t('quick.none'), icon: '∞' },
-      { key: '1d', label: t('quick.1d'), icon: '24h' },
-      { key: '7d', label: t('quick.7d'), icon: '7d' },
-      { key: '30d', label: t('quick.30d'), icon: '30d' },
+      { key: 'none', label: t('quick.none', {}, langNow), icon: '∞' },
+      { key: '1d', label: t('quick.1d', {}, langNow), icon: '24h' },
+      { key: '7d', label: t('quick.7d', {}, langNow), icon: '7d' },
+      { key: '30d', label: t('quick.30d', {}, langNow), icon: '30d' },
     ];
     if (!busy) busyLabel = runLabel();
   };
@@ -245,25 +279,29 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
     try {
       return validateRange(options);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Invalid date range.';
+      const raw = e instanceof Error ? e.message : '';
+      const msg = raw.includes('Start date must be before end date.')
+        ? t('errors.startAfterEnd')
+        : t('errors.invalidRange');
       showErrorBanner(msg);
-      throw e;
+      throw new Error(msg);
     }
   };
 
   const getActiveTeamsTab = async () => {
     const [tab] = await tabs.query({ active: true, currentWindow: true });
-    if (!tab || !isTeamsUrl(tab.url)) throw new Error('Open the Teams web app tab first.');
+    if (!tab || !isTeamsUrl(tab.url)) throw new Error(t('errors.needsTeams'));
     return tab;
   };
 
   const pingSW = async (timeoutMs = 4000) =>
     Promise.race([
       runtimeSend<PingSWRequest>(runtime, { type: 'PING_SW' }),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('No response from background (PING_SW timeout)')), timeoutMs)),
+      new Promise((_, rej) => setTimeout(() => rej(new Error(t('errors.ping'))), timeoutMs)),
     ]);
 
   const handleExportStatus = (msg: ExportStatusMsg) => {
+    const langNow = currentLang();
     const tabId = msg?.tabId;
     if (typeof tabId === 'number') {
       if (currentTabId && tabId !== currentTabId) return;
@@ -274,13 +312,13 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
       hideErrorBanner(true);
       const startedAt = normalizeStart(msg.startedAt);
       setBusy(true, busyExportLabel());
-      setStatus(t('status.preparing'), { startElapsedAt: startedAt });
+      setStatus(t('status.preparing', {}, langNow), { startElapsedAt: startedAt });
     } else if (phase === 'scrape:start') {
       setBusy(true, busyExportLabel());
-      setStatus(t('status.running'));
+      setStatus(t('status.running', {}, langNow));
     } else if (phase === 'scrape:complete') {
       setBusy(true, busyBuildLabel());
-      setStatus(t('status.building'));
+      setStatus(t('status.building', {}, langNow));
     } else if (phase === 'empty') {
       const message = msg.message || emptyLabel();
       setBusy(false);
@@ -290,26 +328,27 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
     } else if (phase === 'complete') {
       setBusy(false);
       if (msg.filename) {
-        setStatus(t('status.complete'), { stopElapsed: true });
+        setStatus(t('status.complete', {}, langNow), { stopElapsed: true });
       } else {
-        setStatus(t('status.complete'), { stopElapsed: true });
+        setStatus(t('status.complete', {}, langNow), { stopElapsed: true });
       }
       hideErrorBanner(true);
     } else if (phase === 'error') {
       setBusy(false);
-      setStatus(msg.error || t('status.error'), { stopElapsed: true });
-      showErrorBanner(msg.error || t('status.error'));
+      setStatus(msg.error || t('status.error', {}, langNow), { stopElapsed: true });
+      showErrorBanner(msg.error || t('status.error', {}, langNow));
     }
   };
 
   const onRuntimeMessage = (msg: any) => {
     if (msg?.type === 'SCRAPE_PROGRESS') {
+      const langNow = currentLang();
       const p = msg.payload || {};
       if (p.phase === 'scroll') {
         const seen = p.seen ?? p.aggregated ?? p.messagesVisible ?? 0;
-        setStatus(`Scrolling… pass ${p.passes} • seen ${seen}`);
+        setStatus(t('status.scroll', { pass: p.passes ?? 0, seen }, langNow));
       } else if (p.phase === 'extract') {
-        setStatus(`Extracting… found ${p.messagesExtracted} messages`);
+        setStatus(t('status.extract', { count: p.messagesExtracted ?? 0 }, langNow));
       }
     } else if (msg?.type === 'EXPORT_STATUS') {
       handleExportStatus(msg);
@@ -321,7 +360,7 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
     try {
       hideErrorBanner(true);
       setBusy(true, busyExportLabel());
-      setStatus(t('status.preparing'));
+      setStatus(t('status.preparing', {}, currentLang()));
       const tab = await getActiveTeamsTab();
       if (!alive) return;
       currentTabId = tab.id ?? null;
@@ -329,7 +368,7 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
       const range = getValidatedRangeISO();
       const format = options.format;
       const { includeReplies, includeReactions, includeSystem, embedAvatars, showHud } = options;
-      setStatus(t('status.running'));
+      setStatus(t('status.running', {}, currentLang()));
       const response = await runtimeSend<StartExportRequest>(runtime, {
         type: 'START_EXPORT',
         data: {
@@ -353,12 +392,19 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
         return;
       }
       if (!response || response.error) {
-        throw new Error(response?.error || t('status.error'));
+        throw new Error(response?.error || t('status.error', {}, currentLang()));
       }
-      setStatus(response.filename ? `${t('status.complete')} (${response.filename})` : t('status.complete'));
+      const langNow = currentLang();
+      setStatus(response.filename ? `${t('status.complete', {}, langNow)} (${response.filename})` : t('status.complete', {}, langNow));
       hideErrorBanner(true);
     } catch (e: any) {
-      const msg = e?.message || t('status.error');
+      const raw = e?.message || '';
+      const msg =
+        raw.includes('Teams web app') || raw.includes('Teams tab')
+          ? t('errors.needsTeams', {}, currentLang())
+          : raw.includes('background')
+            ? t('errors.ping', {}, currentLang())
+            : raw || t('status.error', {}, currentLang());
       setStatus(msg);
       showErrorBanner(msg);
     } finally {
@@ -403,7 +449,7 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
             handleExportStatus(last);
           } else {
             setBusy(true, busyExportLabel());
-            setStatus('Export running…');
+            setStatus(t('status.running'));
           }
         }
       } catch {
@@ -422,14 +468,14 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
 </script>
 
 <div class="popup">
-  <HeaderSection theme={options.theme} lang={options.lang || 'en'} on:toggleTheme={(e) => updateOption('theme', e.detail)} />
+  <HeaderSection lang={options.lang || 'en'} />
 
-  {#if bannerMessage}
-    <div id="banner" class="alert error show" role="alert" aria-live="assertive">
-      <span class="alert-title">{t('banner.error')}</span>
-      <span class="alert-message">{bannerMessage}</span>
-    </div>
-  {/if}
+{#if bannerMessage}
+  <div id="banner" class="alert error show" role="alert" aria-live="assertive">
+    <span class="alert-title">{t('banner.error', {}, options.lang || 'en')}</span>
+    <span class="alert-message">{bannerMessage}</span>
+  </div>
+{/if}
 
   <QuickRangeSection
     lang={options.lang || 'en'}
@@ -449,7 +495,6 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
     includeReactions={options.includeReactions}
     includeSystem={options.includeSystem}
     embedAvatars={options.embedAvatars}
-    on:langChange={(e) => updateOption('lang', e.detail)}
     on:formatChange={(e) => updateOption('format', e.detail)}
     on:includeRepliesChange={(e) => updateOption('includeReplies', e.detail)}
     on:includeReactionsChange={(e) => updateOption('includeReactions', e.detail)}
@@ -461,8 +506,12 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
     lang={options.lang || 'en'}
     open={advancedOpen}
     showHud={options.showHud}
+    theme={options.theme}
+    languages={languageOptions}
     on:toggleOpen={(e) => (advancedOpen = e.detail)}
     on:showHudChange={(e) => updateOption('showHud', e.detail)}
+    on:themeChange={(e) => updateOption('theme', e.detail)}
+    on:langChange={(e) => updateOption('lang', e.detail)}
   />
 
   <ActionSection
