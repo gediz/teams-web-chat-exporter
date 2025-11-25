@@ -1,8 +1,10 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { t } from '../../../i18n/i18n';
 
   export let open = false;
   export let showHud = true;
+  export let lang = 'en';
 
   const dispatch = createEventDispatcher<{
     toggleOpen: boolean;
@@ -10,7 +12,7 @@
   }>();
 </script>
 
-<section class="card" aria-labelledby="advanced-section">
+<section class="card" aria-labelledby="advanced-section" data-lang={lang}>
   <button
     type="button"
     class="card-toggle"
@@ -20,8 +22,8 @@
     on:click={() => dispatch('toggleOpen', !open)}
   >
     <div class="section-head">
-      <h2 class="section-title" id="advanced-section">Advanced</h2>
-      <p class="section-sub">Developer / diagnostic features.</p>
+      <h2 class="section-title" id="advanced-section">{t('advanced.title')}</h2>
+      <p class="section-sub">{t('advanced.subtitle')}</p>
     </div>
     <span class="card-toggle-icon" aria-hidden="true">▼</span>
   </button>
@@ -30,7 +32,7 @@
       <label class="toggle">
         <span class="toggle-label">
           <span class="toggle-icon">👁</span>
-          <span>Show in-page progress HUD</span>
+          <span>{t('advanced.hud')}</span>
         </span>
         <input
           id="showHud"

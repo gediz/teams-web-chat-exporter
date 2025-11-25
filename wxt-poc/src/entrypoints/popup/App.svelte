@@ -16,6 +16,7 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
   import OptionsSection from './components/OptionsSection.svelte';
   import AdvancedSection from './components/AdvancedSection.svelte';
   import ActionSection from './components/ActionSection.svelte';
+  import { t, setLanguage, getLanguage, loadLocale } from '../../i18n/i18n';
 
   const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
   const tabs = typeof browser !== 'undefined' ? browser.tabs : chrome.tabs;
@@ -36,17 +37,18 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
     info?: { startedAt?: number | string; lastStatus?: ExportStatusMsg };
   };
 
-  const DEFAULT_RUN_LABEL = 'Export current chat';
-  const BUSY_LABEL_EXPORTING = 'Exporting…';
-  const BUSY_LABEL_BUILDING = 'Building…';
-  const EMPTY_RESULT_MESSAGE = 'No messages found for the selected range.';
   const DAY_MS = 24 * 60 * 60 * 1000;
 
-  const quickRanges = [
-    { key: 'none', label: 'No limit', icon: '∞' },
-    { key: '1d', label: 'Last 24h', icon: '24h' },
-    { key: '7d', label: 'Last 7d', icon: '7d' },
-    { key: '30d', label: 'Last 30d', icon: '30d' },
+  const runLabel = () => t('actions.export');
+  const busyExportLabel = () => t('actions.busy.exporting');
+  const busyBuildLabel = () => t('actions.busy.building');
+  const emptyLabel = () => t('status.empty');
+
+  let quickRanges = [
+    { key: 'none', label: t('quick.none'), icon: '∞' },
+    { key: '1d', label: t('quick.1d'), icon: '24h' },
+    { key: '7d', label: t('quick.7d'), icon: '7d' },
+    { key: '30d', label: t('quick.30d'), icon: '30d' },
   ];
 
   let options: Options = { ...DEFAULT_OPTIONS };
@@ -57,7 +59,7 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
   let statusBaseText = '';
   let alive = true;
   let busy = false;
-  let busyLabel = DEFAULT_RUN_LABEL;
+  let busyLabel = runLabel();
   let currentTabId: number | null = null;
   let startedAtMs: number | null = null;
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
@@ -69,6 +71,18 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
     const next = theme === 'dark' ? 'dark' : 'light';
     document.body.dataset.theme = next;
     options = { ...options, theme: next };
+  };
+
+  const applyLanguage = async (lang: string) => {
+    await setLanguage(lang || 'en');
+    options = { ...options, lang: getLanguage() };
+    quickRanges = [
+      { key: 'none', label: t('quick.none'), icon: '∞' },
+      { key: '1d', label: t('quick.1d'), icon: '24h' },
+      { key: '7d', label: t('quick.7d'), icon: '7d' },
+      { key: '30d', label: t('quick.30d'), icon: '30d' },
+    ];
+    if (!busy) busyLabel = runLabel();
   };
 
   const normalizeStart = (value: unknown) => {
@@ -111,10 +125,10 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
     quickActive = active;
   };
 
-  const setBusy = (state: boolean, labelText = BUSY_LABEL_EXPORTING) => {
+  const setBusy = (state: boolean, labelText?: string) => {
     if (!alive) return;
     busy = state;
-    busyLabel = state ? labelText : DEFAULT_RUN_LABEL;
+    busyLabel = state ? (labelText ?? busyExportLabel()) : runLabel();
   };
 
   const updateStatusText = () => {
@@ -192,6 +206,9 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
     if (key === 'theme') {
       applyTheme(value as Theme);
     }
+    if (key === 'lang') {
+      void applyLanguage(String(value));
+    }
     void persistOptions();
   };
 
@@ -256,16 +273,16 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
     if (phase === 'starting') {
       hideErrorBanner(true);
       const startedAt = normalizeStart(msg.startedAt);
-      setBusy(true, BUSY_LABEL_EXPORTING);
-      setStatus('Starting export…', { startElapsedAt: startedAt });
+      setBusy(true, busyExportLabel());
+      setStatus(t('status.preparing'), { startElapsedAt: startedAt });
     } else if (phase === 'scrape:start') {
-      setBusy(true, BUSY_LABEL_EXPORTING);
-      setStatus('Running auto-scroll + scrape…');
+      setBusy(true, busyExportLabel());
+      setStatus(t('status.running'));
     } else if (phase === 'scrape:complete') {
-      setBusy(true, BUSY_LABEL_BUILDING);
-      setStatus(`Collected ${msg.messages ?? 0} messages. Building…`);
+      setBusy(true, busyBuildLabel());
+      setStatus(t('status.building'));
     } else if (phase === 'empty') {
-      const message = msg.message || EMPTY_RESULT_MESSAGE;
+      const message = msg.message || emptyLabel();
       setBusy(false);
       setStatus(message, { stopElapsed: true });
       showErrorBanner(message, false);
@@ -273,15 +290,15 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
     } else if (phase === 'complete') {
       setBusy(false);
       if (msg.filename) {
-        setStatus(`Exported ${msg.filename}`, { stopElapsed: true });
+        setStatus(t('status.complete'), { stopElapsed: true });
       } else {
-        setStatus('Export complete.', { stopElapsed: true });
+        setStatus(t('status.complete'), { stopElapsed: true });
       }
       hideErrorBanner(true);
     } else if (phase === 'error') {
       setBusy(false);
-      setStatus(msg.error || 'Export failed.', { stopElapsed: true });
-      showErrorBanner(msg.error || 'Export failed.');
+      setStatus(msg.error || t('status.error'), { stopElapsed: true });
+      showErrorBanner(msg.error || t('status.error'));
     }
   };
 
@@ -303,8 +320,8 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
     if (busy || !alive) return;
     try {
       hideErrorBanner(true);
-      setBusy(true, BUSY_LABEL_EXPORTING);
-      setStatus('Preparing export…');
+      setBusy(true, busyExportLabel());
+      setStatus(t('status.preparing'));
       const tab = await getActiveTeamsTab();
       if (!alive) return;
       currentTabId = tab.id ?? null;
@@ -312,7 +329,7 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
       const range = getValidatedRangeISO();
       const format = options.format;
       const { includeReplies, includeReactions, includeSystem, embedAvatars, showHud } = options;
-      setStatus('Export running… you can close this popup.');
+      setStatus(t('status.running'));
       const response = await runtimeSend<StartExportRequest>(runtime, {
         type: 'START_EXPORT',
         data: {
@@ -329,19 +346,19 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
         },
       });
       if (response?.code === 'EMPTY_RESULTS') {
-        const message = response.error || EMPTY_RESULT_MESSAGE;
+        const message = response.error || emptyLabel();
         setStatus(message, { stopElapsed: true });
         showErrorBanner(message, false);
         await clearLastError(storage);
         return;
       }
       if (!response || response.error) {
-        throw new Error(response?.error || 'Export failed.');
+        throw new Error(response?.error || t('status.error'));
       }
-      setStatus(`Exported ${response.filename}`);
+      setStatus(response.filename ? `${t('status.complete')} (${response.filename})` : t('status.complete'));
       hideErrorBanner(true);
     } catch (e: any) {
-      const msg = e?.message || 'Export failed.';
+      const msg = e?.message || t('status.error');
       setStatus(msg);
       showErrorBanner(msg);
     } finally {
@@ -355,6 +372,7 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
       const loaded = await loadStoredOptions();
       if (!alive) return;
       options = loaded;
+      await applyLanguage(options.lang || 'en');
       applyTheme(options.theme || 'light');
       updateQuickRangeActive();
       advancedOpen = false;
@@ -384,7 +402,7 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
           if (last) {
             handleExportStatus(last);
           } else {
-            setBusy(true, BUSY_LABEL_EXPORTING);
+            setBusy(true, busyExportLabel());
             setStatus('Export running…');
           }
         }
@@ -404,16 +422,17 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
 </script>
 
 <div class="popup">
-  <HeaderSection theme={options.theme} on:toggleTheme={(e) => updateOption('theme', e.detail)} />
+  <HeaderSection theme={options.theme} lang={options.lang || 'en'} on:toggleTheme={(e) => updateOption('theme', e.detail)} />
 
   {#if bannerMessage}
     <div id="banner" class="alert error show" role="alert" aria-live="assertive">
-      <span class="alert-title">Error</span>
+      <span class="alert-title">{t('banner.error')}</span>
       <span class="alert-message">{bannerMessage}</span>
     </div>
   {/if}
 
   <QuickRangeSection
+    lang={options.lang || 'en'}
     startAt={options.startAt}
     endAt={options.endAt}
     activeRange={quickActive}
@@ -424,11 +443,13 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
   />
 
   <OptionsSection
+    lang={options.lang || 'en'}
     format={options.format}
     includeReplies={options.includeReplies}
     includeReactions={options.includeReactions}
     includeSystem={options.includeSystem}
     embedAvatars={options.embedAvatars}
+    on:langChange={(e) => updateOption('lang', e.detail)}
     on:formatChange={(e) => updateOption('format', e.detail)}
     on:includeRepliesChange={(e) => updateOption('includeReplies', e.detail)}
     on:includeReactionsChange={(e) => updateOption('includeReactions', e.detail)}
@@ -437,6 +458,7 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
   />
 
   <AdvancedSection
+    lang={options.lang || 'en'}
     open={advancedOpen}
     showHud={options.showHud}
     on:toggleOpen={(e) => (advancedOpen = e.detail)}
@@ -444,9 +466,10 @@ import type { GetExportStatusRequest, GetExportStatusResponse, PingSWRequest, St
   />
 
   <ActionSection
+    lang={options.lang || 'en'}
     busy={busy}
     busyLabel={busyLabel}
-    defaultRunLabel={DEFAULT_RUN_LABEL}
+    defaultRunLabel={runLabel()}
     statusText={statusText}
     on:run={startExport}
   />

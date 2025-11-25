@@ -1,15 +1,17 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { t } from '../../../i18n/i18n';
 
   export let busy = false;
   export let busyLabel = '';
   export let defaultRunLabel = '';
   export let statusText = '';
+  export let lang = 'en';
 
   const dispatch = createEventDispatcher<{ run: void }>();
 </script>
 
-<button id="run" class:busy={busy} on:click={() => dispatch('run')} disabled={busy}>
+<button id="run" class:busy={busy} on:click={() => dispatch('run')} disabled={busy} data-lang={lang}>
   <span class="spinner" aria-hidden="true"></span>
   <span class="button-icon" aria-hidden="true">⤓</span>
   <span class="label">{busy ? busyLabel : defaultRunLabel}</span>
@@ -18,7 +20,7 @@
 <div id="status" aria-live="polite">{statusText}</div>
 
 <p class="footer-note">
-  Keep this popup open to monitor progress, or close it and watch the badge.
+  {t('footer.tip1')}
   <br />
-  Need help? Reopen the popup to reconnect to an active export.
+  {t('footer.tip2')}
 </p>

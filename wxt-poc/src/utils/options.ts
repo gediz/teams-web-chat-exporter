@@ -4,6 +4,7 @@ export type OptionFormat = 'json' | 'csv' | 'html' | 'txt';
 export type Theme = 'light' | 'dark';
 
 export type Options = {
+  lang?: string;
   startAt: string;
   startAtISO: string;
   endAt: string;
@@ -23,6 +24,7 @@ export const OPTIONS_STORAGE_KEY = 'teamsExporterOptions';
 export const ERROR_STORAGE_KEY = 'teamsExporterLastError';
 
 export const DEFAULT_OPTIONS: Options = {
+  lang: 'en',
   startAt: '',
   startAtISO: '',
   endAt: '',

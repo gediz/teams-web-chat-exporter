@@ -1,7 +1,9 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { t } from '../../../i18n/i18n';
 
   export let theme: Theme = 'light';
+  export let lang = 'en';
 
   const dispatch = createEventDispatcher<{ toggleTheme: Theme }>();
 
@@ -11,9 +13,9 @@
   };
 </script>
 
-<header class="header">
+<header class="header" data-lang={lang}>
   <div class="header-top">
-    <h1>Teams Chat Exporter</h1>
+    <h1>{t('title.app') || 'Teams Chat Exporter'}</h1>
     <label class="theme-toggle" for="themeToggle">
       <span class="icon" aria-hidden="true">☀</span>
       <input
@@ -26,7 +28,7 @@
       <span class="icon" aria-hidden="true">🌙</span>
     </label>
   </div>
-  <p>Export the active Teams chat with your preferred format and filters.</p>
+  <p>{t('title.tagline') || ''}</p>
 </header>
 <script lang="ts" context="module">
   export type Theme = 'light' | 'dark';
