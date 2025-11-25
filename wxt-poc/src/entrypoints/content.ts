@@ -8,6 +8,7 @@ import { extractAttachments } from '../content/attachments';
 import { extractReactions } from '../content/reactions';
 import { extractReplyContext } from '../content/replies';
 import { extractTextWithEmojis, normalizeMentions } from '../content/text';
+import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scroll';
 import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ReplyContext, ScrapeOptions } from '../types/shared';
 
 // Typed globals for Firefox builds
@@ -744,7 +745,18 @@ runtime.onMessage.addListener((msg, _sender, sendResponse) => {
                 console.debug('[Teams Exporter] SCRAPE_TEAMS', location.href, msg.options);
                 currentRunStartedAt = Date.now();
                 hud('starting…');
-                const messages = await autoScrollAggregate(scrapeOpts);
+                const messages = await autoScrollAggregateHelper(
+                    {
+                        hud,
+                        runtime,
+                        extractOne,
+                        hydrateSparseMessages,
+                        getScroller,
+                        makeDayDivider
+                    },
+                    scrapeOpts,
+                    currentRunStartedAt
+                );
                 try {
                     const msgPromise = runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'extract', messagesExtracted: messages.length } });
                     if (msgPromise && msgPromise.catch) msgPromise.catch(() => { });
