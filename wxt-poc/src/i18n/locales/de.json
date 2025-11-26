@@ -55,5 +55,11 @@
   "errors.ping": "Keine Antwort vom Hintergrund.",
   "banner.error": "Export fehlgeschlagen.",
   "footer.tip1": "Lass dieses Popup offen, um den Fortschritt zu sehen, oder beobachte das Badge.",
-  "footer.tip2": "Brauchst du Hilfe? Öffne das Popup erneut, um eine aktive Exportverbindung wiederherzustellen."
+  "footer.tip2": "Brauchst du Hilfe? Öffne das Popup erneut, um eine aktive Exportverbindung wiederherzustellen.",
+  "errors.alreadyRunning": "Für diesen Tab läuft bereits ein Export",
+  "errors.contentScript": "Erweiterung konnte auf dieser Seite nicht geladen werden",
+  "errors.noMessages": "Keine Nachrichten im ausgewählten Bereich.",
+  "errors.missingTabId": "Tab-Informationen fehlen",
+  "errors.chatNotOpen": "Öffnen Sie eine Chat-Unterhaltung vor dem Exportieren.",
+  "errors.switchToChat": "Wechseln Sie vor dem Exportieren zur Chat-App in Teams."
 }

@@ -109,19 +109,18 @@
 
   // Update date displays when dates or language change
   $: {
-    if (startInputEl) {
-      startInputEl.value = formatDateForDisplay(startAt);
-    }
-    // Force update for Svelte reactivity
-    startAt, lang;
-  }
+    // Track all dependencies explicitly
+    const _startAt = startAt;
+    const _endAt = endAt;
+    const _lang = lang;
 
-  $: {
-    if (endInputEl) {
-      endInputEl.value = formatDateForDisplay(endAt);
+    // Update both inputs whenever any dependency changes
+    if (startInputEl) {
+      startInputEl.value = formatDateForDisplay(_startAt);
     }
-    // Force update for Svelte reactivity
-    endAt, lang;
+    if (endInputEl) {
+      endInputEl.value = formatDateForDisplay(_endAt);
+    }
   }
 </script>
 
@@ -159,7 +158,6 @@
           type="text"
           id="start-date"
           class="date-input"
-          value={formatDateForDisplay(startAt)}
           placeholder={t('range.placeholder', {}, lang)}
           readonly
         />
@@ -177,7 +175,6 @@
           type="text"
           id="end-date"
           class="date-input"
-          value={formatDateForDisplay(endAt)}
           placeholder={t('range.placeholder', {}, lang)}
           readonly
         />

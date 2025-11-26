@@ -53,6 +53,12 @@
   "errors.startAfterEnd": "Başlangıç tarihi bitiş tarihinden önce olmalı.",
   "errors.needsTeams": "Önce Teams web sekmesini açın.",
   "errors.ping": "Arka plandan yanıt yok.",
+  "errors.alreadyRunning": "Bu sekme için zaten bir dışa aktarma çalışıyor",
+  "errors.contentScript": "Bu sayfada eklenti yüklenemedi",
+  "errors.noMessages": "Seçilen aralıkta mesaj bulunamadı.",
+  "errors.missingTabId": "Sekme bilgisi eksik",
+  "errors.chatNotOpen": "Dışa aktarmadan önce bir sohbet konuşması açın.",
+  "errors.switchToChat": "Dışa aktarmadan önce Teams'de Sohbet uygulamasına geçin.",
   "banner.error": "Dışa aktarma başarısız.",
   "footer.tip1": "İlerlemeyi görmek için bu pencereyi açık tutun veya simgeye bakın.",
   "footer.tip2": "Yardıma mı ihtiyacınız var? Aktif dışa aktarmaya yeniden bağlanmak için pencereyi tekrar açın."

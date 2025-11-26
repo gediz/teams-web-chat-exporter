@@ -55,5 +55,11 @@
   "errors.ping": "Sem resposta do plano de fundo.",
   "banner.error": "Falha na exportação.",
   "footer.tip1": "Mantenha este popup aberto para ver o progresso ou observe o ícone.",
-  "footer.tip2": "Precisa de ajuda? Reabra o popup para reconectar a uma exportação ativa."
+  "footer.tip2": "Precisa de ajuda? Reabra o popup para reconectar a uma exportação ativa.",
+  "errors.alreadyRunning": "Uma exportação já está em andamento para esta aba",
+  "errors.contentScript": "Não foi possível carregar a extensão nesta página",
+  "errors.noMessages": "Nenhuma mensagem no período selecionado.",
+  "errors.missingTabId": "Informação da aba ausente",
+  "errors.chatNotOpen": "Abra uma conversa de chat antes de exportar.",
+  "errors.switchToChat": "Mude para o aplicativo de Chat no Teams antes de exportar."
 }

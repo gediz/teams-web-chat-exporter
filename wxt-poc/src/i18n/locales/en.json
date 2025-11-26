@@ -53,6 +53,12 @@
   "errors.startAfterEnd": "Start date must be before end date.",
   "errors.needsTeams": "Open the Teams web app tab first.",
   "errors.ping": "No response from background.",
+  "errors.alreadyRunning": "An export is already running for this tab",
+  "errors.contentScript": "Could not load extension on this page",
+  "errors.noMessages": "No messages found for the selected range.",
+  "errors.missingTabId": "Missing tab information",
+  "errors.chatNotOpen": "Open a chat conversation before exporting.",
+  "errors.switchToChat": "Switch to the Chat app in Teams before exporting.",
   "banner.error": "Export failed.",
   "footer.tip1": "Keep this popup open to monitor progress, or close it and watch the badge.",
   "footer.tip2": "Need help? Reopen the popup to reconnect to an active export."

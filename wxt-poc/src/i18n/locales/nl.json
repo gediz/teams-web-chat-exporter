@@ -55,5 +55,11 @@
   "errors.ping": "Geen reactie van achtergrond.",
   "banner.error": "Export mislukt.",
   "footer.tip1": "Houd dit venster open om de voortgang te zien, of kijk naar het pictogram.",
-  "footer.tip2": "Hulp nodig? Open het venster opnieuw om te reconnecten met een actieve export."
+  "footer.tip2": "Hulp nodig? Open het venster opnieuw om te reconnecten met een actieve export.",
+  "errors.alreadyRunning": "Er wordt al een export uitgevoerd voor dit tabblad",
+  "errors.contentScript": "Kon extensie niet laden op deze pagina",
+  "errors.noMessages": "Geen berichten in het geselecteerde bereik.",
+  "errors.missingTabId": "Tabbladinformatie ontbreekt",
+  "errors.chatNotOpen": "Open een chatgesprek voordat u exporteert.",
+  "errors.switchToChat": "Schakel over naar de Chat-app in Teams voordat u exporteert."
 }

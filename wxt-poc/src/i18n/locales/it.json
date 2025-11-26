@@ -55,5 +55,11 @@
   "errors.ping": "Nessuna risposta dal background.",
   "banner.error": "Export non riuscito.",
   "footer.tip1": "Lascia aperto questo popup per seguire l’avanzamento, o guarda l’icona.",
-  "footer.tip2": "Serve aiuto? Riapri il popup per ricollegarti a un export attivo."
+  "footer.tip2": "Serve aiuto? Riapri il popup per ricollegarti a un export attivo.",
+  "errors.alreadyRunning": "Un'esportazione è già in corso per questa scheda",
+  "errors.contentScript": "Impossibile caricare l'estensione su questa pagina",
+  "errors.noMessages": "Nessun messaggio nell'intervallo selezionato.",
+  "errors.missingTabId": "Informazioni scheda mancanti",
+  "errors.chatNotOpen": "Apri una conversazione prima di esportare.",
+  "errors.switchToChat": "Passa all'app Chat in Teams prima di esportare."
 }

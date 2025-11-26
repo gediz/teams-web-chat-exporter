@@ -259,10 +259,36 @@
     updateStatusText();
   };
 
+  const translateError = (message: string): string => {
+    const lang = currentLang();
+    // Map common error messages to translation keys
+    if (message.includes('already running')) {
+      return t('errors.alreadyRunning', {}, lang);
+    }
+    if (message.includes('Could not load file') || message.includes('content.js')) {
+      return t('errors.contentScript', {}, lang);
+    }
+    if (message.includes('No messages found')) {
+      return t('errors.noMessages', {}, lang);
+    }
+    if (message.includes('Missing tabId')) {
+      return t('errors.missingTabId', {}, lang);
+    }
+    if (message.includes('Switch to the Chat app')) {
+      return t('errors.switchToChat', {}, lang);
+    }
+    if (message.includes('Open a chat conversation')) {
+      return t('errors.chatNotOpen', {}, lang);
+    }
+    // Return original message if no translation found
+    return message;
+  };
+
   const showErrorBanner = (message: string, persist = true) => {
     if (!alive) return;
-    bannerMessage = message;
-    if (persist) void persistErrorMessage(storage, message);
+    const translated = translateError(message);
+    bannerMessage = translated;
+    if (persist) void persistErrorMessage(storage, translated);
   };
 
   const hideErrorBanner = (clearStorage = false) => {

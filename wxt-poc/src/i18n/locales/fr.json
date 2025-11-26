@@ -55,5 +55,11 @@
   "errors.ping": "Aucune réponse de l’arrière-plan.",
   "banner.error": "Échec de l’export.",
   "footer.tip1": "Laissez ce popup ouvert pour suivre la progression, ou regardez l’icône.",
-  "footer.tip2": "Besoin d’aide ? Rouvrez le popup pour vous reconnecter à un export actif."
+  "footer.tip2": "Besoin d’aide ? Rouvrez le popup pour vous reconnecter à un export actif.",
+  "errors.alreadyRunning": "Une exportation est déjà en cours pour cet onglet",
+  "errors.contentScript": "Impossible de charger l'extension sur cette page",
+  "errors.noMessages": "Aucun message pour la plage sélectionnée.",
+  "errors.missingTabId": "Informations d'onglet manquantes",
+  "errors.chatNotOpen": "Ouvrez une conversation avant d'exporter.",
+  "errors.switchToChat": "Passez à l'application Chat dans Teams avant d'exporter."
 }

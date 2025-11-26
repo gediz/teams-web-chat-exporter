@@ -55,5 +55,11 @@
   "errors.ping": "Sin respuesta del proceso en segundo plano.",
   "banner.error": "Error en la exportación.",
   "footer.tip1": "Deja este popup abierto para ver el progreso o mira el icono.",
-  "footer.tip2": "¿Necesitas ayuda? Vuelve a abrir el popup para reconectar con una exportación activa."
+  "footer.tip2": "¿Necesitas ayuda? Vuelve a abrir el popup para reconectar con una exportación activa.",
+  "errors.alreadyRunning": "Ya se está ejecutando una exportación para esta pestaña",
+  "errors.contentScript": "No se pudo cargar la extensión en esta página",
+  "errors.noMessages": "No se encontraron mensajes en el rango seleccionado.",
+  "errors.missingTabId": "Falta información de la pestaña",
+  "errors.chatNotOpen": "Abre una conversación de chat antes de exportar.",
+  "errors.switchToChat": "Cambia a la aplicación de Chat en Teams antes de exportar."
 }

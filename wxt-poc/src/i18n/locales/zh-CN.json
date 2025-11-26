@@ -55,5 +55,11 @@
   "errors.ping": "后台无响应。",
   "banner.error": "导出失败。",
   "footer.tip1": "保持弹窗打开以查看进度，或关注图标徽章。",
-  "footer.tip2": "需要帮助？重新打开弹窗以重新连接到正在进行的导出。"
+  "footer.tip2": "需要帮助？重新打开弹窗以重新连接到正在进行的导出。",
+  "errors.alreadyRunning": "此标签页的导出已在运行中",
+  "errors.contentScript": "无法在此页面加载扩展",
+  "errors.noMessages": "所选范围内没有消息。",
+  "errors.missingTabId": "缺少标签页信息",
+  "errors.chatNotOpen": "导出前请打开一个聊天对话。",
+  "errors.switchToChat": "导出前请切换到 Teams 中的聊天应用。"
 }

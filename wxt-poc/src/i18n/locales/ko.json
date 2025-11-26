@@ -55,5 +55,11 @@
   "errors.ping": "백그라운드에서 응답이 없습니다.",
   "banner.error": "내보내기 실패.",
   "footer.tip1": "진행 상황을 보려면 이 팝업을 열어 두거나 배지를 확인하세요.",
-  "footer.tip2": "도움이 필요하신가요? 활성 내보내기에 다시 연결하려면 팝업을 다시 여세요."
+  "footer.tip2": "도움이 필요하신가요? 활성 내보내기에 다시 연결하려면 팝업을 다시 여세요.",
+  "errors.alreadyRunning": "이 탭에서 이미 내보내기가 실행 중입니다",
+  "errors.contentScript": "이 페이지에서 확장 프로그램을 로드할 수 없습니다",
+  "errors.noMessages": "선택한 범위에 메시지가 없습니다.",
+  "errors.missingTabId": "탭 정보가 없습니다",
+  "errors.chatNotOpen": "내보내기 전에 채팅 대화를 여세요.",
+  "errors.switchToChat": "내보내기 전에 Teams의 채팅 앱으로 전환하세요."
 }
