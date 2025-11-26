@@ -25,7 +25,27 @@ export const makeDayDivider = (dayKey: number, ts: number): AggregatedItem => {
 
 export const sanitizeBase = (name: string | null | undefined): string => {
   const raw = (name || 'teams-chat').toString();
-  const cleaned = raw.replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').replace(/\s+/g, ' ').trim().replace(/[. ]+$/g, '');
+
+  // Remove notification counts like "(1) " or "(42) " from the beginning
+  let cleaned = raw.replace(/^\(\d+\)\s+/, '');
+
+  // Remove " | Microsoft Teams" and similar suffixes
+  cleaned = cleaned.replace(/\s*\|\s*Microsoft Teams.*$/i, '');
+  cleaned = cleaned.replace(/\s*\|\s*Teams.*$/i, '');
+
+  // Remove other common suffixes
+  cleaned = cleaned.replace(/\s*-\s*Microsoft Teams.*$/i, '');
+
+  // Remove pipe separators and extra content (e.g., "Calendar | Calendar" -> "Calendar")
+  const parts = cleaned.split('|').map(p => p.trim());
+  if (parts.length > 1) {
+    // Use the first non-empty part
+    cleaned = parts.find(p => p.length > 0) || parts[0];
+  }
+
+  // Remove invalid filename characters
+  cleaned = cleaned.replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').replace(/\s+/g, ' ').trim().replace(/[. ]+$/g, '');
+
   return (cleaned || 'teams-chat').slice(0, 80);
 };
 

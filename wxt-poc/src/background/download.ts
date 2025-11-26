@@ -27,9 +27,9 @@ export async function buildAndDownload(
   const enrichedMeta = { ...meta };
   if (rangeLabel) enrichedMeta.timeRange = rangeLabel;
 
-  const baseTitle = sanitizeBase(enrichedMeta.title || 'teams-chat');
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const base = `${baseTitle}-${stamp}`;
+  const baseTitle = sanitizeBase(enrichedMeta.title || 'UnknownChat');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19).replace('T', '_');
+  const base = `TeamsExport_${baseTitle}_${stamp}`;
   let filename: string;
   let mime: string;
   let content: string;

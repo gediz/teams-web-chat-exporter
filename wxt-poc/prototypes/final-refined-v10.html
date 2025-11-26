@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Final Refined v10 - Teams Chat Exporter</title>
+    <!-- Vanilla Calendar Pro CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/vanilla-calendar-pro/styles/index.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/vanilla-calendar-pro/styles/themes/light.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/vanilla-calendar-pro/styles/themes/dark.min.css" rel="stylesheet">
+
+    <style>
+        :root {
+            --color-bg: #f8fafc;
+            --color-surface: #ffffff;
+            --color-border: #e2e8f0;
+            --color-border-hover: #cbd5e1;
+            --color-text: #0f172a;
+            --color-subtle: #64748b;
+            --color-accent: #2563eb;
+            --color-accent-hover: #1d4ed8;
+            --color-accent-light: rgba(37, 99, 235, 0.1);
+            --radius-lg: 12px;
+            --radius-md: 10px;
+            --gap: 12px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+
+        body[data-theme='dark'] {
+            --color-bg: #0f172a;
+            --color-surface: #1e293b;
+            --color-border: #334155;
+            --color-border-hover: #475569;
+            --color-text: #e2e8f0;
+            --color-subtle: #94a3b8;
+            --color-accent: #60a5fa;
+            --color-accent-hover: #3b82f6;
+            --color-accent-light: rgba(96, 165, 250, 0.15);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--color-bg);
+            color: var(--color-text);
+            transition: background 0.25s ease, color 0.25s ease;
+        }
+
+        .popup-container {
+            width: 420px;
+            height: 640px;
+            margin: 40px auto;
+            border: 2px solid var(--color-border);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+            display: flex;
+            flex-direction: column;
+            background: var(--color-bg);
+        }
+
+        .popup-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px 14px 0;
+        }
+
+        /* Add padding at bottom to prevent touching status bar */
+        .popup-content::after {
+            content: '';
+            display: block;
+            height: 14px;
+        }
+
+        /* === HEADER === */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+        }
+
+        .header h1 {
+            font-size: 16px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 6px;
+        }
+
+        .icon-btn {
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            border: 1px solid var(--color-border);
+            background: var(--color-surface);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            position: relative;
+        }
+
+        .icon-btn svg {
+            width: 18px;
+            height: 18px;
+            stroke: var(--color-text);
+            fill: none;
+            stroke-width: 2;
+        }
+
+        .icon-btn:hover {
+            border-color: var(--color-accent);
+            background: var(--color-accent-light);
+        }
+
+        .icon-btn:hover svg {
+            stroke: var(--color-accent);
+        }
+
+        /* Language dropdown */
+        .lang-dropdown {
+            position: relative;
+        }
+
+        .lang-menu {
+            position: absolute;
+            top: 40px;
+            right: 0;
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: 10px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+            min-width: 180px;
+            z-index: 100;
+            padding: 6px;
+            display: none;
+        }
+
+        body[data-theme='dark'] .lang-menu {
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        .lang-menu.show {
+            display: block;
+        }
+
+        .lang-item {
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.12s ease;
+            font-size: 13px;
+        }
+
+        .lang-item:hover {
+            background: var(--color-accent-light);
+        }
+
+        .lang-item.active {
+            background: var(--color-accent);
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .lang-flag {
+            font-size: 16px;
+            width: 20px;
+        }
+
+        /* === EXPORT BUTTON === */
+        .export-primary {
+            background: var(--color-accent);
+            border: none;
+            border-radius: var(--radius-lg);
+            padding: 14px;
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 100%;
+        }
+
+        .export-primary:hover:not(:disabled) {
+            background: var(--color-accent-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 10px 20px -6px rgba(37, 99, 235, 0.5);
+        }
+
+        body[data-theme='dark'] .export-primary:hover:not(:disabled) {
+            box-shadow: 0 10px 20px -6px rgba(96, 165, 250, 0.4);
+        }
+
+        .export-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .export-btn-content {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #fff;
+        }
+
+        .export-icon {
+            width: 22px;
+            height: 22px;
+            flex-shrink: 0;
+        }
+
+        .export-icon svg {
+            width: 22px;
+            height: 22px;
+            stroke: #fff;
+            fill: none;
+            stroke-width: 2;
+        }
+
+        .export-text {
+            flex: 1;
+            text-align: left;
+            min-width: 0;
+            /* Enable truncation in flex item */
+        }
+
+        .export-title {
+            font-size: 14px;
+            font-weight: 600;
+            display: block;
+            margin-bottom: 2px;
+        }
+
+        .export-summary {
+            font-size: 11px;
+            opacity: 0.9;
+            font-weight: 400;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: block;
+        }
+
+        /* === CARD STYLES === */
+        .card {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
+            padding: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            margin-bottom: 11px;
+        }
+
+        .card-icon {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .card-icon svg {
+            width: 16px;
+            height: 16px;
+            stroke: var(--color-accent);
+            fill: none;
+            stroke-width: 2;
+        }
+
+        .card-title {
+            font-size: 13px;
+            font-weight: 600;
+            margin: 0;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            color: var(--color-subtle);
+            line-height: 1;
+        }
+
+        /* === FORMAT SECTION (FULL WIDTH AT TOP) === */
+        .format-section {
+            margin-bottom: var(--gap);
+        }
+
+        .format-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        .format-radio {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 11px 8px;
+            border: 1.5px solid var(--color-border);
+            border-radius: 8px;
+            background: var(--color-bg);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+            position: relative;
+        }
+
+        .format-radio:hover {
+            border-color: var(--color-accent);
+            background: var(--color-accent-light);
+        }
+
+        .format-radio.active {
+            border-color: var(--color-accent);
+            background: var(--color-accent);
+            color: #fff;
+        }
+
+        .format-radio input[type="radio"] {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .format-icon {
+            width: 22px;
+            height: 22px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .format-icon svg {
+            width: 22px;
+            height: 22px;
+            stroke: var(--color-text);
+            fill: none;
+            stroke-width: 2;
+        }
+
+        .format-radio.active .format-icon svg {
+            stroke: #fff;
+        }
+
+        .format-label {
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        /* === TWO-COLUMN GRID (DATE + INCLUDE) === */
+        .settings-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--gap);
+        }
+
+        /* Date Range */
+        .date-chips {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            /* 2x2 Grid */
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+
+        .date-chip {
+            padding: 7px 4px;
+            border-radius: 7px;
+            border: 1px solid var(--color-border);
+            background: var(--color-surface);
+            font-size: 11px;
+            font-weight: 600;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            color: var(--color-text);
+        }
+
+        .date-chip:hover {
+            border-color: var(--color-accent);
+            background: var(--color-accent-light);
+            color: var(--color-text);
+        }
+
+        .date-chip.active {
+            background: var(--color-accent);
+            border-color: var(--color-accent);
+            color: #fff;
+        }
+
+        /* Date inputs - vertical stack */
+        .date-fields {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .date-field {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .date-field label {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--color-subtle);
+        }
+
+        .date-input-wrapper {
+            position: relative;
+            width: 100%;
+        }
+
+        .date-input {
+            width: 100%;
+            border-radius: 8px;
+            border: 1px solid var(--color-border);
+            background: var(--color-bg);
+            padding: 8px 10px 8px 32px;
+            font-size: 12px;
+            color: var(--color-text);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .date-input:hover,
+        .date-input:focus {
+            border-color: var(--color-accent);
+            outline: none;
+        }
+
+        .date-input.flash {
+            animation: flash 0.6s ease;
+        }
+
+        @keyframes flash {
+
+            0%,
+            100% {
+                background: var(--color-bg);
+            }
+
+            50% {
+                background: var(--color-accent-light);
+                border-color: var(--color-accent);
+            }
+        }
+
+        .date-input-icon {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 14px;
+            height: 14px;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .date-input-icon svg {
+            width: 14px;
+            height: 14px;
+            stroke: var(--color-subtle);
+            fill: none;
+            stroke-width: 2;
+        }
+
+        /* === CHECKBOXES === */
+        .checkbox-list {
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 9px 11px;
+            border: 1px solid var(--color-border);
+            border-radius: 7px;
+            background: var(--color-bg);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+
+        .checkbox-item:hover {
+            border-color: var(--color-border-hover);
+        }
+
+        .checkbox-content {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            flex: 1;
+        }
+
+        .checkbox-icon {
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .checkbox-icon svg {
+            width: 18px;
+            height: 18px;
+            stroke: var(--color-accent);
+            stroke-width: 2;
+            fill: none;
+        }
+
+        .checkbox-label {
+            font-size: 13px;
+            font-weight: 500;
+            line-height: 1.3;
+        }
+
+        .checkbox-item input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin: 0;
+            cursor: pointer;
+            accent-color: var(--color-accent);
+            flex-shrink: 0;
+        }
+
+        /* === STATUS BAR === */
+        .status-section {
+            position: sticky;
+            bottom: 0;
+            background: var(--color-bg);
+            border-top: 1px solid var(--color-border);
+            padding: 11px 14px;
+            box-shadow: 0 -3px 10px rgba(0, 0, 0, 0.04);
+            min-height: 60px;
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 9px 11px;
+            border-radius: 8px;
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            min-height: 38px;
+        }
+
+        .status-icon {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #10b981;
+            flex-shrink: 0;
+        }
+
+        .status-icon.busy {
+            background: var(--color-accent);
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        .status-text {
+            flex: 1;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-count {
+            font-size: 11px;
+            color: var(--color-subtle);
+            background: var(--color-accent-light);
+            padding: 2px 7px;
+            border-radius: 999px;
+            font-weight: 600;
+            min-width: 30px;
+            text-align: center;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.4;
+            }
+        }
+
+        /* Demo controls */
+        .demo-controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .demo-controls button {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--color-border);
+            background: var(--color-surface);
+            color: var(--color-text);
+            cursor: pointer;
+            margin: 0 4px;
+            font-size: 13px;
+        }
+
+        .demo-controls button:hover {
+            border-color: var(--color-accent);
+            color: var(--color-accent);
+        }
+
+        /* Scrollbar */
+        .popup-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .popup-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .popup-content::-webkit-scrollbar-thumb {
+            background: var(--color-border);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="demo-controls">
+        <h2 style="margin-bottom: 8px;">Final Refined v10</h2>
+        <p style="color: var(--color-subtle); margin: 0 0 12px 0; font-size: 13px;">
+            Fixes: Calendar Global Variable • Smart Text Summary
+        </p>
+        <button onclick="toggleTheme()">Toggle Theme</button>
+        <button onclick="simulateExport()">Test Export</button>
+    </div>
+
+    <div class="popup-container">
+        <div class="popup-content">
+            <!-- HEADER -->
+            <div class="header">
+                <h1>Teams Chat Exporter</h1>
+                <div class="header-actions">
+                    <button class="icon-btn" onclick="toggleTheme()" title="Toggle theme" id="themeBtn">
+                        <i data-lucide="moon" id="themeIcon"></i>
+                    </button>
+                    <div class="lang-dropdown">
+                        <button class="icon-btn" onclick="toggleLangMenu()" title="Language" id="langBtn">
+                            <i data-lucide="globe"></i>
+                        </button>
+                        <div class="lang-menu" id="langMenu">
+                            <div class="lang-item active" onclick="selectLang('en', 'English')">
+                                <span class="lang-flag">🇬🇧</span>
+                                <span>English</span>
+                            </div>
+                            <div class="lang-item" onclick="selectLang('zh', '简体中文')">
+                                <span class="lang-flag">🇨🇳</span>
+                                <span>简体中文</span>
+                            </div>
+                            <div class="lang-item" onclick="selectLang('pt', 'Português')">
+                                <span class="lang-flag">🇧🇷</span>
+                                <span>Português</span>
+                            </div>
+                            <div class="lang-item" onclick="selectLang('es', 'Español')">
+                                <span class="lang-flag">🇪🇸</span>
+                                <span>Español</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- EXPORT BUTTON -->
+            <button class="export-primary" id="exportBtn" onclick="simulateExport()">
+                <div class="export-btn-content">
+                    <div class="export-icon">
+                        <i data-lucide="download"></i>
+                    </div>
+                    <div class="export-text">
+                        <span class="export-title">Export Current Chat</span>
+                        <span class="export-summary" id="exportSummary">HTML • Last 7 days • Messages, Replies...</span>
+                    </div>
+                </div>
+            </button>
+
+            <!-- FORMAT SECTION (FULL WIDTH) -->
+            <div class="format-section card">
+                <div class="card-header">
+                    <div class="card-icon">
+                        <i data-lucide="file-type"></i>
+                    </div>
+                    <h2 class="card-title">Format</h2>
+                </div>
+
+                <div class="format-grid">
+                    <label class="format-radio" onclick="selectFormat('json')">
+                        <input type="radio" name="format" value="json">
+                        <div class="format-icon">
+                            <i data-lucide="file-json"></i>
+                        </div>
+                        <span class="format-label">JSON</span>
+                    </label>
+
+                    <label class="format-radio" onclick="selectFormat('csv')">
+                        <input type="radio" name="format" value="csv">
+                        <div class="format-icon">
+                            <i data-lucide="file-spreadsheet"></i>
+                        </div>
+                        <span class="format-label">CSV</span>
+                    </label>
+
+                    <label class="format-radio active" onclick="selectFormat('html')">
+                        <input type="radio" name="format" value="html" checked>
+                        <div class="format-icon">
+                            <i data-lucide="file-code"></i>
+                        </div>
+                        <span class="format-label">HTML</span>
+                    </label>
+
+                    <label class="format-radio" onclick="selectFormat('txt')">
+                        <input type="radio" name="format" value="txt">
+                        <div class="format-icon">
+                            <i data-lucide="file-text"></i>
+                        </div>
+                        <span class="format-label">Text</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- TWO-COLUMN GRID: Date Range + Include -->
+            <div class="settings-grid">
+                <!-- Date Range -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-icon">
+                            <i data-lucide="calendar"></i>
+                        </div>
+                        <h2 class="card-title">Date Range</h2>
+                    </div>
+
+                    <div class="date-chips">
+                        <button class="date-chip" onclick="selectDateRange('all')">All</button>
+                        <button class="date-chip" onclick="selectDateRange('24h')">24h</button>
+                        <button class="date-chip active" onclick="selectDateRange('7d')">7d</button>
+                        <button class="date-chip" onclick="selectDateRange('30d')">30d</button>
+                    </div>
+
+                    <div class="date-fields">
+                        <div class="date-field">
+                            <label>From (inclusive)</label>
+                            <div class="date-input-wrapper">
+                                <div class="date-input-icon">
+                                    <i data-lucide="calendar-days" style="width: 14px; height: 14px;"></i>
+                                </div>
+                                <input type="text" class="date-input" id="startDate" placeholder="Custom..." readonly>
+                            </div>
+                        </div>
+                        <div class="date-field">
+                            <label>To (exclusive)</label>
+                            <div class="date-input-wrapper">
+                                <div class="date-input-icon">
+                                    <i data-lucide="calendar-days" style="width: 14px; height: 14px;"></i>
+                                </div>
+                                <input type="text" class="date-input" id="endDate" placeholder="Custom..." readonly>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Include Options -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-icon">
+                            <i data-lucide="list-checks"></i>
+                        </div>
+                        <h2 class="card-title">Include</h2>
+                    </div>
+
+                    <div class="checkbox-list">
+                        <label class="checkbox-item">
+                            <div class="checkbox-content">
+                                <div class="checkbox-icon">
+                                    <i data-lucide="message-square-quote" id="iconReplies"></i>
+                                </div>
+                                <span class="checkbox-label">Reply context</span>
+                            </div>
+                            <input type="checkbox" id="checkReplies" checked onchange="updateSummary()">
+                        </label>
+
+                        <label class="checkbox-item">
+                            <div class="checkbox-content">
+                                <div class="checkbox-icon">
+                                    <i data-lucide="smile" id="iconReactions"></i>
+                                </div>
+                                <span class="checkbox-label">Reactions</span>
+                            </div>
+                            <input type="checkbox" id="checkReactions" checked onchange="updateSummary()">
+                        </label>
+
+                        <label class="checkbox-item">
+                            <div class="checkbox-content">
+                                <div class="checkbox-icon">
+                                    <i data-lucide="bell" id="iconSystem"></i>
+                                </div>
+                                <span class="checkbox-label">System notifications</span>
+                            </div>
+                            <input type="checkbox" id="checkSystem" onchange="updateSummary()">
+                        </label>
+
+                        <label class="checkbox-item">
+                            <div class="checkbox-content">
+                                <div class="checkbox-icon">
+                                    <i data-lucide="user-circle" id="iconAvatars"></i>
+                                </div>
+                                <span class="checkbox-label">User avatars</span>
+                            </div>
+                            <input type="checkbox" id="checkAvatars" checked onchange="updateSummary()">
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- STATUS BAR -->
+        <div class="status-section">
+            <div class="status-bar">
+                <div class="status-icon" id="statusIcon"></div>
+                <div class="status-text" id="statusText">Ready to export</div>
+                <div class="status-count" id="statusCount" style="visibility: hidden;">0</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Vanilla Calendar Pro JS (Global) -->
+    <script src="https://cdn.jsdelivr.net/npm/vanilla-calendar-pro/index.js" defer></script>
+
+    <script>
+        let currentLang = 'en';
+        let startCalendar, endCalendar;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            updateSummary(); // Initial summary update
+
+            // Check if loaded immediately or wait
+            if (window.VanillaCalendarPro) {
+                initCalendar();
+            } else {
+                // Fallback or wait loop if defer takes time
+                setTimeout(initCalendar, 100);
+            }
+        });
+
+        function initCalendar() {
+            if (!window.VanillaCalendarPro) return;
+
+            const commonOptions = {
+                input: true,
+                actions: {
+                    changeToInput(e, calendar, dates, time, hours, minutes, keeping) {
+                        if (dates[0]) {
+                            calendar.HTMLInputElement.value = dates[0];
+                            document.querySelectorAll('.date-chip').forEach(c => c.classList.remove('active'));
+                            calendar.HTMLInputElement.classList.add('flash');
+                            setTimeout(() => calendar.HTMLInputElement.classList.remove('flash'), 600);
+                            updateSummary();
+                        }
+                    }
+                },
+                settings: {
+                    visibility: {
+                        theme: 'light',
+                    }
+                }
+            };
+
+            startCalendar = new VanillaCalendarPro('#startDate', commonOptions);
+            startCalendar.init();
+
+            endCalendar = new VanillaCalendarPro('#endDate', commonOptions);
+            endCalendar.init();
+
+            updateCalendarTheme(document.body.dataset.theme || 'light');
+        }
+
+        function updateCalendarTheme(theme) {
+            if (!startCalendar || !endCalendar) return;
+            const calendarTheme = theme === 'dark' ? 'dark' : 'light';
+            startCalendar.settings.visibility.theme = calendarTheme;
+            startCalendar.update();
+            endCalendar.settings.visibility.theme = calendarTheme;
+            endCalendar.update();
+        }
+
+        // Theme toggle
+        function toggleTheme() {
+            const body = document.body;
+            const icon = document.getElementById('themeIcon');
+            let newTheme;
+
+            if (body.dataset.theme === 'dark') {
+                body.dataset.theme = 'light';
+                newTheme = 'light';
+                icon.setAttribute('data-lucide', 'moon');
+            } else {
+                body.dataset.theme = 'dark';
+                newTheme = 'dark';
+                icon.setAttribute('data-lucide', 'sun');
+            }
+
+            lucide.createIcons();
+            updateCalendarTheme(newTheme);
+        }
+
+        // Language menu
+        function toggleLangMenu() {
+            const menu = document.getElementById('langMenu');
+            menu.classList.toggle('show');
+        }
+
+        function selectLang(code, name) {
+            currentLang = code;
+            document.querySelectorAll('.lang-item').forEach(i => i.classList.remove('active'));
+            event.target.closest('.lang-item').classList.add('active');
+            toggleLangMenu();
+        }
+
+        // Close lang menu when clicking outside
+        document.addEventListener('click', (e) => {
+            const dropdown = document.querySelector('.lang-dropdown');
+            if (!dropdown.contains(e.target)) {
+                document.getElementById('langMenu').classList.remove('show');
+            }
+        });
+
+        // Format selection
+        function selectFormat(format) {
+            document.querySelectorAll('.format-radio').forEach(r => r.classList.remove('active'));
+            event.target.closest('.format-radio').classList.add('active');
+            document.querySelector('input[value="' + format + '"]').checked = true;
+            updateSummary();
+        }
+
+        // Date range selection
+        function selectDateRange(range) {
+            document.querySelectorAll('.date-chip').forEach(c => c.classList.remove('active'));
+            event.target.classList.add('active');
+
+            const now = new Date();
+            let start = null, end = null;
+
+            if (range === '24h') {
+                start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                end = now;
+            } else if (range === '7d') {
+                start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                end = now;
+            } else if (range === '30d') {
+                start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                end = now;
+            } else {
+                document.getElementById('startDate').value = '';
+                document.getElementById('endDate').value = '';
+                updateSummary();
+                return;
+            }
+
+            const formatDate = (d) => d.toISOString().split('T')[0];
+            document.getElementById('startDate').value = formatDate(start);
+            document.getElementById('endDate').value = formatDate(end);
+
+            document.getElementById('startDate').classList.add('flash');
+            document.getElementById('endDate').classList.add('flash');
+            setTimeout(() => {
+                document.getElementById('startDate').classList.remove('flash');
+                document.getElementById('endDate').classList.remove('flash');
+            }, 600);
+
+            updateSummary();
+        }
+
+        // Update export summary
+        function updateSummary() {
+            const activeFormat = document.querySelector('.format-radio.active .format-label');
+            const format = activeFormat ? activeFormat.textContent : 'HTML';
+            const activeChip = document.querySelector('.date-chip.active');
+            let range = 'Custom dates';
+            if (activeChip) {
+                const rangeText = activeChip.textContent.trim();
+                range = rangeText === 'All' ? 'All time' : 'Last ' + rangeText;
+            }
+
+            // Build include string
+            const extras = [];
+            if (document.getElementById('checkReplies').checked) extras.push('Replies');
+            if (document.getElementById('checkReactions').checked) extras.push('Reactions');
+            if (document.getElementById('checkSystem').checked) extras.push('System');
+            if (document.getElementById('checkAvatars').checked) extras.push('Avatars');
+
+            let includeText = 'Messages';
+            if (extras.length > 0) {
+                const joined = extras.join(', ');
+                // Simple truncation logic
+                if (joined.length > 25) {
+                    includeText += ', ' + extras[0] + ' (+' + (extras.length - 1) + ')';
+                } else {
+                    includeText += ', ' + joined;
+                }
+            } else {
+                includeText += ' only';
+            }
+
+            document.getElementById('exportSummary').textContent =
+                `${format} • ${range} • ${includeText}`;
+        }
+
+        // Simulate export
+        function simulateExport() {
+            const btn = document.getElementById('exportBtn');
+            const statusText = document.getElementById('statusText');
+            const statusIcon = document.getElementById('statusIcon');
+            const statusCount = document.getElementById('statusCount');
+
+            btn.disabled = true;
+            btn.querySelector('.export-title').textContent = 'Exporting...';
+            statusIcon.classList.add('busy');
+            statusText.textContent = 'Scrolling chat history...';
+            statusCount.style.visibility = 'visible';
+
+            let count = 0;
+            const interval = setInterval(() => {
+                count += Math.floor(Math.random() * 50) + 10;
+                statusCount.textContent = count;
+                statusText.textContent = `Collecting messages (pass ${Math.floor(count / 100) + 1})...`;
+            }, 300);
+
+            setTimeout(() => {
+                clearInterval(interval);
+                statusCount.textContent = '1,247';
+                statusText.textContent = 'Export complete!';
+                statusIcon.classList.remove('busy');
+                btn.disabled = false;
+                btn.querySelector('.export-title').textContent = 'Export Current Chat';
+
+                setTimeout(() => {
+                    statusText.textContent = 'Ready to export';
+                    statusCount.style.visibility = 'hidden';
+                }, 3000);
+            }, 3000);
+        }
+    </script>
+
+</body>
+
+</html>

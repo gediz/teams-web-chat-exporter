@@ -34,7 +34,7 @@ export const DEFAULT_OPTIONS: Options = {
   includeReactions: true,
   includeSystem: false,
   embedAvatars: false,
-  showHud: true,
+  showHud: false,
   theme: 'light',
 };
 

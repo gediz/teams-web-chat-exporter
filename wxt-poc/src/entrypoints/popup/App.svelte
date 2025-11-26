@@ -1,4 +1,4 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
   // Firefox polyfill global (typed loosely to avoid pulling extra deps)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   declare const browser: any;
@@ -19,7 +19,7 @@
     type Options,
     type Theme,
   } from '../../utils/options';
-  import { formatElapsedSuffix, isoToLocalInput, localInputToISO } from '../../utils/time';
+  import { formatElapsed, isoToLocalInput, localInputToISO } from '../../utils/time';
   import { runtimeSend } from '../../utils/messaging';
   import type {
     GetExportStatusRequest,
@@ -28,11 +28,12 @@
     StartExportRequest,
     StartExportResponse,
   } from '../../types/messaging';
-  import HeaderSection from './components/HeaderSection.svelte';
-  import QuickRangeSection from './components/QuickRangeSection.svelte';
-  import OptionsSection from './components/OptionsSection.svelte';
-  import AdvancedSection from './components/AdvancedSection.svelte';
-  import ActionSection from './components/ActionSection.svelte';
+  import ExportButton from './components/ExportButton.svelte';
+  import FormatSection from './components/FormatSection.svelte';
+  import DateRangeSection, { type QuickRange } from './components/DateRangeSection.svelte';
+  import IncludeSection from './components/IncludeSection.svelte';
+  import StatusBar from './components/StatusBar.svelte';
+  import HeaderActions from './components/HeaderActions.svelte';
   import { t, setLanguage, getLanguage } from '../../i18n/i18n';
 
   const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
@@ -79,26 +80,30 @@
   const busyBuildLabel = () => t('actions.busy.building', {}, currentLang());
   const emptyLabel = () => t('status.empty', {}, currentLang());
 
-  let quickRanges = [
+  let quickRanges: QuickRange[] = [
     { key: 'none', label: t('quick.none', {}, currentLang()), icon: '∞' },
     { key: '1d', label: t('quick.1d', {}, currentLang()), icon: '24h' },
     { key: '7d', label: t('quick.7d', {}, currentLang()), icon: '7d' },
     { key: '30d', label: t('quick.30d', {}, currentLang()), icon: '30d' },
   ];
   let bannerMessage: string | null = null;
-  let advancedOpen = false;
   let quickActive = 'none';
-  let statusText = '';
+  let statusText = t('status.ready', {}, currentLang());
   let statusBaseText = '';
+  let statusCount = 0;
   let alive = true;
   let busy = false;
   let busyLabel = runLabel();
   let currentTabId: number | null = null;
   let startedAtMs: number | null = null;
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
+  let exportSummary = '';
 
   const isTeamsUrl = (u?: string | null) =>
     /^https:\/\/(.*\.)?(teams\.microsoft\.com|cloud\.microsoft)\//.test(u || '');
+
+  const formatElapsedSuffix = (ms: number) =>
+    ` — ${t('status.elapsed', {}, currentLang())}: ${formatElapsed(ms)}`;
 
   const applyTheme = (theme: Theme) => {
     const next = theme === 'dark' ? 'dark' : 'light';
@@ -117,6 +122,11 @@
       { key: '30d', label: t('quick.30d', {}, langNow), icon: '30d' },
     ];
     if (!busy) busyLabel = runLabel();
+    // Update status text if it's still at "Ready"
+    if (!busy && !startedAtMs) {
+      statusText = t('status.ready', {}, langNow);
+      statusBaseText = '';
+    }
   };
 
   const normalizeStart = (value: unknown) => {
@@ -174,6 +184,44 @@
     statusText = text;
   };
 
+  const computeSummary = () => {
+    const parts: string[] = [];
+    const lang = currentLang();
+
+    // Format
+    const formatLabel = t(`format.${options.format}`, {}, lang);
+    parts.push(formatLabel);
+
+    // Date range
+    if (quickActive && quickActive !== 'none') {
+      const rangeLabel = quickRanges.find(r => r.key === quickActive)?.label;
+      if (rangeLabel) parts.push(rangeLabel);
+    }
+
+    // Include options (only for non-txt formats)
+    if (options.format !== 'txt') {
+      const includes: string[] = [];
+      if (options.includeReplies) includes.push(t('summary.replies', {}, lang));
+      if (options.includeReactions) includes.push(t('summary.reactions', {}, lang));
+      if (options.includeSystem) includes.push(t('summary.system', {}, lang));
+      if (options.embedAvatars) includes.push(t('summary.avatars', {}, lang));
+      if (includes.length > 0) parts.push(includes.join(', '));
+    }
+
+    return parts.join(' • ');
+  };
+
+  // Update summary when options change
+  $: {
+    options.format;
+    options.includeReplies;
+    options.includeReactions;
+    options.includeSystem;
+    options.embedAvatars;
+    quickActive;
+    exportSummary = computeSummary();
+  }
+
   const ensureElapsedTimer = () => {
     if (elapsedTimer) return;
     elapsedTimer = setInterval(() => {
@@ -193,9 +241,10 @@
     }
   };
 
-  const setStatus = (text: string, opts: { startElapsedAt?: number | null; stopElapsed?: boolean } = {}) => {
+  const setStatus = (text: string, opts: { startElapsedAt?: number | null; stopElapsed?: boolean; count?: number } = {}) => {
     if (!alive) return;
     statusBaseText = text;
+    if (typeof opts.count === 'number') statusCount = opts.count;
     if (typeof opts.startElapsedAt === 'number' && !Number.isNaN(opts.startElapsedAt)) {
       startedAtMs = opts.startElapsedAt;
       ensureElapsedTimer();
@@ -346,9 +395,9 @@
       const p = msg.payload || {};
       if (p.phase === 'scroll') {
         const seen = p.seen ?? p.aggregated ?? p.messagesVisible ?? 0;
-        setStatus(t('status.scroll', { pass: p.passes ?? 0, seen }, langNow));
+        setStatus(t('status.scroll', { pass: p.passes ?? 0, seen }, langNow), { count: seen });
       } else if (p.phase === 'extract') {
-        setStatus(t('status.extract', { count: p.messagesExtracted ?? 0 }, langNow));
+        setStatus(t('status.extract', { count: p.messagesExtracted ?? 0 }, langNow), { count: p.messagesExtracted ?? 0 });
       }
     } else if (msg?.type === 'EXPORT_STATUS') {
       handleExportStatus(msg);
@@ -421,7 +470,6 @@
       await applyLanguage(options.lang || 'en');
       applyTheme(options.theme || 'light');
       updateQuickRangeActive();
-      advancedOpen = false;
       const persistedError = await loadPersistedError();
       if (!alive) return;
       if (persistedError?.message) {
@@ -431,12 +479,12 @@
         }
       }
       try {
-      const tab = await getActiveTeamsTab();
-      currentTabId = tab.id ?? null;
-      const status = await runtimeSend<GetExportStatusRequest>(runtime, {
-        type: 'GET_EXPORT_STATUS',
-        tabId: currentTabId,
-      });
+        const tab = await getActiveTeamsTab();
+        currentTabId = tab.id ?? null;
+        const status = await runtimeSend<GetExportStatusRequest>(runtime, {
+          type: 'GET_EXPORT_STATUS',
+          tabId: currentTabId,
+        });
         if (!alive) return;
         if (status?.active) {
           const last = status.info?.lastStatus;
@@ -468,58 +516,79 @@
 </script>
 
 <div class="popup">
-  <HeaderSection lang={options.lang || 'en'} />
+  <div class="popup-content">
+    <!-- Header -->
+    <header class="header">
+      <h1>{t('title.app', {}, options.lang || 'en') || 'Teams Chat Exporter'}</h1>
+      <HeaderActions
+        theme={options.theme}
+        lang={options.lang || 'en'}
+        languages={languageOptions}
+        on:themeChange={(e) => updateOption('theme', e.detail)}
+        on:langChange={(e) => updateOption('lang', e.detail)}
+      />
+    </header>
 
-{#if bannerMessage}
-  <div id="banner" class="alert error show" role="alert" aria-live="assertive">
-    <span class="alert-title">{t('banner.error', {}, options.lang || 'en')}</span>
-    <span class="alert-message">{bannerMessage}</span>
+    <!-- Alert Banner -->
+    {#if bannerMessage}
+      <div class="alert error show" role="alert" aria-live="assertive">
+        <span class="alert-title">{t('banner.error', {}, options.lang || 'en')}</span>
+        <span>{bannerMessage}</span>
+      </div>
+    {/if}
+
+    <!-- Export Button -->
+    <ExportButton
+      disabled={false}
+      busy={busy}
+      busyLabel={busyLabel}
+      summary={exportSummary}
+      lang={options.lang || 'en'}
+      on:run={startExport}
+    />
+
+    <!-- Format Section (Full Width) -->
+    <FormatSection
+      format={options.format}
+      lang={options.lang || 'en'}
+      on:formatChange={(e) => updateOption('format', e.detail)}
+    />
+
+    <!-- Two Column Grid: Date Range + Include -->
+    <div class="settings-grid">
+      <DateRangeSection
+        startAt={options.startAt}
+        endAt={options.endAt}
+        activeRange={quickActive}
+        ranges={quickRanges}
+        lang={options.lang || 'en'}
+        theme={options.theme || 'light'}
+        on:changeStart={(e) => updateOption('startAt', e.detail)}
+        on:changeEnd={(e) => updateOption('endAt', e.detail)}
+        on:quickSelect={(e) => handleQuickRange(e.detail)}
+      />
+
+      <IncludeSection
+        includeReplies={options.includeReplies}
+        includeReactions={options.includeReactions}
+        includeSystem={options.includeSystem}
+        embedAvatars={options.embedAvatars}
+        lang={options.lang || 'en'}
+        disableReplies={options.format === 'txt'}
+        disableReactions={options.format === 'txt'}
+        disableAvatars={options.format === 'txt'}
+        on:includeRepliesChange={(e) => updateOption('includeReplies', e.detail)}
+        on:includeReactionsChange={(e) => updateOption('includeReactions', e.detail)}
+        on:includeSystemChange={(e) => updateOption('includeSystem', e.detail)}
+        on:embedAvatarsChange={(e) => updateOption('embedAvatars', e.detail)}
+      />
+    </div>
   </div>
-{/if}
 
-  <QuickRangeSection
-    lang={options.lang || 'en'}
-    startAt={options.startAt}
-    endAt={options.endAt}
-    activeRange={quickActive}
-    ranges={quickRanges as any}
-    on:changeStart={(e) => updateOption('startAt', e.detail)}
-    on:changeEnd={(e) => updateOption('endAt', e.detail)}
-    on:quickSelect={(e) => handleQuickRange(e.detail)}
-  />
-
-  <OptionsSection
-    lang={options.lang || 'en'}
-    format={options.format}
-    includeReplies={options.includeReplies}
-    includeReactions={options.includeReactions}
-    includeSystem={options.includeSystem}
-    embedAvatars={options.embedAvatars}
-    on:formatChange={(e) => updateOption('format', e.detail)}
-    on:includeRepliesChange={(e) => updateOption('includeReplies', e.detail)}
-    on:includeReactionsChange={(e) => updateOption('includeReactions', e.detail)}
-    on:includeSystemChange={(e) => updateOption('includeSystem', e.detail)}
-    on:embedAvatarsChange={(e) => updateOption('embedAvatars', e.detail)}
-  />
-
-  <AdvancedSection
-    lang={options.lang || 'en'}
-    open={advancedOpen}
-    showHud={options.showHud}
-    theme={options.theme}
-    languages={languageOptions}
-    on:toggleOpen={(e) => (advancedOpen = e.detail)}
-    on:showHudChange={(e) => updateOption('showHud', e.detail)}
-    on:themeChange={(e) => updateOption('theme', e.detail)}
-    on:langChange={(e) => updateOption('lang', e.detail)}
-  />
-
-  <ActionSection
-    lang={options.lang || 'en'}
-    busy={busy}
-    busyLabel={busyLabel}
-    defaultRunLabel={runLabel()}
-    statusText={statusText}
-    on:run={startExport}
+  <!-- Status Bar (Sticky Bottom) -->
+  <StatusBar
+    status={statusText}
+    count={statusCount}
+    isBusy={busy}
   />
 </div>
