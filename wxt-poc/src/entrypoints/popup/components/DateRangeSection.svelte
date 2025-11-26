@@ -107,12 +107,21 @@
     }
   }
 
-  // Update date displays when language or dates change
-  $: if (startInputEl) {
-    startInputEl.value = formatDateForDisplay(startAt);
+  // Update date displays when dates or language change
+  $: {
+    if (startInputEl) {
+      startInputEl.value = formatDateForDisplay(startAt);
+    }
+    // Force update for Svelte reactivity
+    startAt, lang;
   }
-  $: if (endInputEl) {
-    endInputEl.value = formatDateForDisplay(endAt);
+
+  $: {
+    if (endInputEl) {
+      endInputEl.value = formatDateForDisplay(endAt);
+    }
+    // Force update for Svelte reactivity
+    endAt, lang;
   }
 </script>
 

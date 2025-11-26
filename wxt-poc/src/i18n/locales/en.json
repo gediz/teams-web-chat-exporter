@@ -39,7 +39,6 @@
   "actions.export": "Export current chat",
   "actions.busy.exporting": "Exporting…",
   "actions.busy.building": "Building…",
-  "actions.retry": "Retry",
   "title.app": "Teams Chat Exporter",
   "title.tagline": "Export the active Teams chat with your preferred format and filters.",
   "status.preparing": "Preparing export…",
@@ -55,7 +54,6 @@
   "errors.needsTeams": "Open the Teams web app tab first.",
   "errors.ping": "No response from background.",
   "banner.error": "Export failed.",
-  "banner.empty": "No messages found for the selected range.",
   "footer.tip1": "Keep this popup open to monitor progress, or close it and watch the badge.",
   "footer.tip2": "Need help? Reopen the popup to reconnect to an active export."
 }

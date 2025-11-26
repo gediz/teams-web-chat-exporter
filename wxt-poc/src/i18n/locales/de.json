@@ -39,7 +39,6 @@
   "actions.export": "Aktuellen Chat exportieren",
   "actions.busy.exporting": "Exportiere…",
   "actions.busy.building": "Wird erstellt…",
-  "actions.retry": "Erneut versuchen",
   "title.app": "Teams Chat Exporter",
   "title.tagline": "Exportiere den aktuellen Teams-Chat mit deinem Format und deinen Filtern.",
   "status.preparing": "Export wird vorbereitet…",
@@ -55,7 +54,6 @@
   "errors.needsTeams": "Öffne zuerst den Teams-Web-Tab.",
   "errors.ping": "Keine Antwort vom Hintergrund.",
   "banner.error": "Export fehlgeschlagen.",
-  "banner.empty": "Keine Nachrichten im ausgewählten Bereich.",
   "footer.tip1": "Lass dieses Popup offen, um den Fortschritt zu sehen, oder beobachte das Badge.",
   "footer.tip2": "Brauchst du Hilfe? Öffne das Popup erneut, um eine aktive Exportverbindung wiederherzustellen."
 }

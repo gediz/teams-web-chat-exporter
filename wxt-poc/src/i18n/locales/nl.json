@@ -39,7 +39,6 @@
   "actions.export": "Huidige chat exporteren",
   "actions.busy.exporting": "Bezig met exporteren…",
   "actions.busy.building": "Bezig met genereren…",
-  "actions.retry": "Opnieuw proberen",
   "title.app": "Teams Chat Exporter",
   "title.tagline": "Exporteer de huidige Teams-chat met jouw formaat en filters.",
   "status.preparing": "Export voorbereiden…",
@@ -55,7 +54,6 @@
   "errors.needsTeams": "Open eerst het Teams-tabblad.",
   "errors.ping": "Geen reactie van achtergrond.",
   "banner.error": "Export mislukt.",
-  "banner.empty": "Geen berichten in het geselecteerde bereik.",
   "footer.tip1": "Houd dit venster open om de voortgang te zien, of kijk naar het pictogram.",
   "footer.tip2": "Hulp nodig? Open het venster opnieuw om te reconnecten met een actieve export."
 }

@@ -39,7 +39,6 @@
   "actions.export": "Geçerli sohbeti dışa aktar",
   "actions.busy.exporting": "Dışa aktarılıyor…",
   "actions.busy.building": "Oluşturuluyor…",
-  "actions.retry": "Yeniden dene",
   "title.app": "Teams Sohbet Aktarıcı",
   "title.tagline": "Açık Teams sohbetini istediğiniz format ve filtrelerle dışa aktarın.",
   "status.preparing": "Dışa aktarma hazırlanıyor…",
@@ -55,7 +54,6 @@
   "errors.needsTeams": "Önce Teams web sekmesini açın.",
   "errors.ping": "Arka plandan yanıt yok.",
   "banner.error": "Dışa aktarma başarısız.",
-  "banner.empty": "Seçilen aralıkta mesaj bulunamadı.",
   "footer.tip1": "İlerlemeyi görmek için bu pencereyi açık tutun veya simgeye bakın.",
   "footer.tip2": "Yardıma mı ihtiyacınız var? Aktif dışa aktarmaya yeniden bağlanmak için pencereyi tekrar açın."
 }

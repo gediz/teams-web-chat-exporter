@@ -39,7 +39,6 @@
   "actions.export": "このチャットをエクスポート",
   "actions.busy.exporting": "エクスポート中…",
   "actions.busy.building": "生成中…",
-  "actions.retry": "再試行",
   "title.app": "Teamsチャットエクスポーター",
   "title.tagline": "開いているTeamsチャットを、希望の形式とフィルターでエクスポート。",
   "status.preparing": "エクスポートを準備中…",
@@ -55,7 +54,6 @@
   "errors.needsTeams": "まずTeamsのタブを開いてください。",
   "errors.ping": "バックグラウンドから応答がありません。",
   "banner.error": "エクスポートに失敗しました。",
-  "banner.empty": "選択した範囲にメッセージはありません。",
   "footer.tip1": "進行状況を見るにはこのポップアップを開いたままにするか、バッジを確認してください。",
   "footer.tip2": "サポートが必要ですか？ ポップアップを再度開いて進行中のエクスポートに再接続します。"
 }

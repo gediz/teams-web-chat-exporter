@@ -39,7 +39,6 @@
   "actions.export": "Esporta chat corrente",
   "actions.busy.exporting": "Esportazione…",
   "actions.busy.building": "Generazione…",
-  "actions.retry": "Riprova",
   "title.app": "Esportatore chat Teams",
   "title.tagline": "Esporta la chat Teams aperta con il formato e i filtri che preferisci.",
   "status.preparing": "Preparazione export…",
@@ -55,7 +54,6 @@
   "errors.needsTeams": "Apri prima la scheda web di Teams.",
   "errors.ping": "Nessuna risposta dal background.",
   "banner.error": "Export non riuscito.",
-  "banner.empty": "Nessun messaggio nell’intervallo selezionato.",
   "footer.tip1": "Lascia aperto questo popup per seguire l’avanzamento, o guarda l’icona.",
   "footer.tip2": "Serve aiuto? Riapri il popup per ricollegarti a un export attivo."
 }

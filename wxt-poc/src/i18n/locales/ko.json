@@ -39,7 +39,6 @@
   "actions.export": "현재 채팅 내보내기",
   "actions.busy.exporting": "내보내는 중…",
   "actions.busy.building": "생성 중…",
-  "actions.retry": "다시 시도",
   "title.app": "Teams 채팅 내보내기",
   "title.tagline": "원하는 형식과 필터로 현재 Teams 채팅을 내보내세요.",
   "status.preparing": "내보내기 준비 중…",
@@ -55,7 +54,6 @@
   "errors.needsTeams": "먼저 Teams 웹 탭을 여세요.",
   "errors.ping": "백그라운드에서 응답이 없습니다.",
   "banner.error": "내보내기 실패.",
-  "banner.empty": "선택한 범위에 메시지가 없습니다.",
   "footer.tip1": "진행 상황을 보려면 이 팝업을 열어 두거나 배지를 확인하세요.",
   "footer.tip2": "도움이 필요하신가요? 활성 내보내기에 다시 연결하려면 팝업을 다시 여세요."
 }

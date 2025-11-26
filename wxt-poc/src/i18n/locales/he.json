@@ -39,7 +39,6 @@
   "actions.export": "ייצוא הצ׳אט הנוכחי",
   "actions.busy.exporting": "מייצא…",
   "actions.busy.building": "יוצר קובץ…",
-  "actions.retry": "נסה שוב",
   "title.app": "מייצא הצ׳אט של Teams",
   "title.tagline": "ייצא את צ׳אט ה-Teams הפתוח בפורמט ובפילטרים שבחרת.",
   "status.preparing": "מכין את היצוא…",
@@ -55,7 +54,6 @@
   "errors.needsTeams": "פתח תחילה את כרטיסיית Teams בדפדפן.",
   "errors.ping": "אין תגובה מהרקע.",
   "banner.error": "היצוא נכשל.",
-  "banner.empty": "לא נמצאו הודעות בטווח שנבחר.",
   "footer.tip1": "השאר את החלון הקופץ פתוח כדי לעקוב אחר ההתקדמות או בדוק את הסמל.",
   "footer.tip2": "צריך עזרה? פתח מחדש את החלון כדי להתחבר מחדש ליצוא פעיל."
 }
