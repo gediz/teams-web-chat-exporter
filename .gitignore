@@ -22,3 +22,8 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Legacy
+legacy/etc/
+legacy/icons/candidate
+legacy/icons/solid-blue
