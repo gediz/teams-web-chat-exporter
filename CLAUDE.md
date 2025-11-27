@@ -6,7 +6,7 @@ This file provides AI assistants with context about the Teams Chat Exporter code
 
 **Teams Chat Exporter** is a cross-browser extension (Chrome, Edge, Firefox) that exports Microsoft Teams web chat conversations to JSON, CSV, HTML, or text formats.
 
-- **Version**: 2.0.0
+- **Version**: 1.1.0
 - **Framework**: WXT (Vite-based)
 - **Languages**: TypeScript + Svelte 5
 - **Supported Browsers**: Chrome, Edge, Firefox
@@ -172,12 +172,12 @@ Run through [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) testing checklist before 
 ## Documentation
 
 - **README.md**: User guide
+- **CLAUDE.md**: AI assistant guide (this file)
 - **docs/ARCHITECTURE.md**: Technical design
 - **docs/CONTRIBUTING.md**: Contribution guidelines
 - **docs/DEVELOPMENT.md**: Build/test instructions
 - **docs/DEPLOYMENT.md**: Store publishing
 - **docs/MANUAL_INSTALL.md**: Installation steps
-- **docs/MIGRATION_NOTES.md**: WXT migration history
 - **docs/TODO.md**: Project roadmap
 
 ## When Helping Users
@@ -209,9 +209,9 @@ This project was migrated from vanilla JavaScript to WXT in November 2025. The o
 - **Build system**: None → Vite (WXT)
 - **I18N**: English only → 14 languages
 
-See [docs/MIGRATION_NOTES.md](docs/MIGRATION_NOTES.md) for details.
+The migration was completed in November 2025, bringing modern tooling and cross-browser support.
 
 ---
 
 **Last Updated**: 2025-11-27
-**Version**: 2.0.0
+**Version**: 1.1.0
