@@ -1,0 +1,30 @@
+{
+  "name": "teams-chat-exporter-wxt",
+  "version": "1.1.0",
+  "description": "Teams Chat Exporter - WXT Framework Migration",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "lucide-svelte": "^0.554.0",
+    "vanilla-calendar-pro": "^3.0.5",
+    "wxt": "^0.19.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@tsconfig/svelte": "^5.0.6",
+    "@types/chrome": "^0.0.268",
+    "@types/node": "^22.0.0",
+    "svelte": "^5.43.14",
+    "svelte-check": "^4.3.4"
+  }
+}

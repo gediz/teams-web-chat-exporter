@@ -1,9 +1,43 @@
 /* eslint-disable no-console */
-const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-const $ = (sel, root = document) => root.querySelector(sel);
+import { defineContentScript } from 'wxt/sandbox';
+import { $, $$ } from '../utils/dom';
+import { makeDayDivider as buildDayDivider } from '../utils/messages';
+import { cssEscape, isPlaceholderText, preferText, textFrom } from '../utils/text';
+import { formatElapsed, parseTimeStamp, startOfLocalDay } from '../utils/time';
+import { extractAttachments } from '../content/attachments';
+import { extractReactions } from '../content/reactions';
+import { extractReplyContext } from '../content/replies';
+import { extractTextWithEmojis, normalizeMentions } from '../content/text';
+import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scroll';
+import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ReplyContext, ScrapeOptions } from '../types/shared';
+
+// Typed globals for Firefox builds
+declare const browser: typeof chrome | undefined;
+
+type ExtractedMessage = ExportMessage & {
+    id: string;
+    author: string;
+    timestamp: string;
+    text: string;
+    edited: boolean;
+    avatar: string | null;
+};
+
+type ContentAggregated = AggregatedItem & { message?: ExtractedMessage };
+export default defineContentScript({
+  matches: [
+    'https://*.teams.microsoft.com/*',
+    'https://teams.cloud.microsoft/*',
+  ],
+  runAt: 'document_idle',
+  allFrames: true,
+
+  main() {
+// Browser API compatibility for Firefox
+const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
 
 let hudEnabled = true;
-let currentRunStartedAt = null;
+let currentRunStartedAt: number | null = null;
 
 function isChatNavSelected() {
     return Boolean(document.querySelector('[data-tid="app-bar-wrapper"] button[aria-pressed="true"][aria-label^="Chat" i]'));
@@ -13,16 +47,6 @@ function hasChatMessageSurface() {
     return Boolean(
         document.querySelector('[data-tid="message-pane-list-viewport"], [data-tid="chat-message-list"], [data-tid="chat-pane"]')
     );
-}
-
-function parseTimeStamp(value) {
-    if (!value) return null;
-    const ts = Date.parse(value);
-    if (!Number.isNaN(ts)) return ts;
-    // Teams sometimes uses without timezone; treat as local.
-    const normalized = value.replace(/ /g, 'T');
-    const ts2 = Date.parse(normalized);
-    return Number.isNaN(ts2) ? null : ts2;
 }
 
 function checkChatContext() {
@@ -58,7 +82,7 @@ function ensureHUD() {
     }
     return hud;
 }
-function hud(text, { includeElapsed = true } = {}) {
+function hud(text: string, { includeElapsed = true }: { includeElapsed?: boolean } = {}) {
     if (!hudEnabled) return;
     const hudNode = ensureHUD();
     if (hudNode) {
@@ -68,18 +92,10 @@ function hud(text, { includeElapsed = true } = {}) {
         }
         hudNode.textContent = final;
     }
-    chrome.runtime.sendMessage({ type: "SCRAPE_PROGRESS", payload: { phase: "hud", text } }).catch(() => { });
-}
-
-function formatElapsed(ms) {
-    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    if (hours > 0) {
-        return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    }
-    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+    try {
+        const msgPromise = runtime.sendMessage({ type: "SCRAPE_PROGRESS", payload: { phase: "hud", text } });
+        if (msgPromise && msgPromise.catch) msgPromise.catch(() => { });
+    } catch (e) { /* ignore */ }
 }
 
 // Core DOM hooks ------------------------------------------------
@@ -88,20 +104,20 @@ function getScroller() {
 }
 
 // Author/timestamp/edited/avatar helpers ------------------------
-function resolveAuthor(body, lastAuthor = "") {
-    let author = ($('[data-tid="message-author-name"]', body)?.innerText || '').trim();
+function resolveAuthor(body: Element, lastAuthor = ""): string {
+    let author = textFrom($('[data-tid="message-author-name"]', body));
     if (!author) {
         const aria = body.getAttribute('aria-labelledby') || '';
         const aId = aria.split(/\s+/).find(s => s.startsWith('author-'));
-        if (aId) author = (document.getElementById(aId)?.innerText || '').trim();
+        if (aId) author = textFrom(document.getElementById(aId));
     }
     return author || lastAuthor || '';
 }
-function resolveTimestamp(item) {
+function resolveTimestamp(item: Element): string {
     const t = $('time[datetime]', item) || $('time', item) || $('[data-tid="message-status"] time', item);
-    return t?.getAttribute?.('datetime') || t?.getAttribute?.('title') || t?.innerText || '';
+    return t?.getAttribute?.('datetime') || t?.getAttribute?.('title') || textFrom(t) || '';
 }
-function resolveEdited(item, body) {
+function resolveEdited(item: Element, body: Element): boolean {
     const aria = body?.getAttribute('aria-labelledby') || '';
     const editedId = aria.split(/\s+/).find(s => s.startsWith('edited-'));
     if (editedId) {
@@ -118,342 +134,47 @@ function resolveEdited(item, body) {
     }
     return false;
 }
-function resolveAvatar(item) {
-    const perMsg = $('[data-tid="message-avatar"] img', item); // per-message avatar
-    if (perMsg?.src) return perMsg.src;                       // :contentReference[oaicite:4]{index=4}
-    const header = $('[data-tid="chat-title-avatar"] img');   // header fallback
-    return header?.src || null;                                // :contentReference[oaicite:5]{index=5}
+function resolveAvatar(item: Element): string | null {
+    const perMsg = $('[data-tid="message-avatar"] img', item) as HTMLImageElement | null; // per-message avatar
+    if (perMsg?.src) return perMsg.src;
+    const header = $('[data-tid="chat-title-avatar"] img') as HTMLImageElement | null;   // header fallback
+    return header?.src || null;
 }
 
 // Text with emoji (IMG alt) + block breaks
-function extractTextWithEmojis(root) {
+function extractTextWithEmojis(root: Element | null): string {
     if (!root) return '';
-    let out = ''; const walk = (n) => {
+    let out = '';
+    const walk = (n: ChildNode) => {
         if (n.nodeType === Node.TEXT_NODE) { out += n.nodeValue; return; }
         if (n.nodeType !== Node.ELEMENT_NODE) return;
-        const el = n, tag = el.tagName;
+        const el = n as Element;
+        const tag = el.tagName;
         if (tag === 'BR') { out += '\n'; return; }
         if (tag === 'IMG') { out += (el.getAttribute('alt') || el.getAttribute('aria-label') || ''); return; }
-        const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/; const start = out.length;
+        const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/;
+        const start = out.length;
         for (const c of el.childNodes) walk(c);
         if (blockish.test(tag) && out.length > start) out += '\n';
-    }; walk(root);
+    };
+    walk(root);
     return out.replace(/\n{3,}/g, '\n\n').trim();
 }
 
-function normalizeMentions(root) {
-    if (!root || typeof root.querySelectorAll !== 'function') return;
-    const wrappers = Array.from(root.querySelectorAll('[data-lpc-hover-target-id][aria-label^="Mentioned"], [itemtype*="schema.skype.com/Mention"]'));
-    if (!wrappers.length) return;
-    const processed = new Set();
-    for (const node of wrappers) {
-        const wrapper = node.closest('[data-lpc-hover-target-id][aria-label^="Mentioned"]') || node;
-        if (!wrapper || processed.has(wrapper) || !root.contains(wrapper)) continue;
-        const parent = wrapper.parentElement;
-        const group = [];
-        if (parent) {
-            for (const sibling of parent.childNodes) {
-                if (sibling === wrapper || (sibling.closest && sibling.closest('[data-lpc-hover-target-id][aria-label^="Mentioned"]') === wrapper)) {
-                    group.push(wrapper);
-                } else if (sibling.nodeType === Node.ELEMENT_NODE) {
-                    const mentionWrapper = sibling.closest?.('[data-lpc-hover-target-id][aria-label^="Mentioned"]');
-                    if (mentionWrapper && wrappers.includes(mentionWrapper)) {
-                        group.push(mentionWrapper);
-                        processed.add(mentionWrapper);
-                        continue;
-                    }
-                    if (group.length) break;
-                } else if (sibling.nodeType === Node.TEXT_NODE) {
-                    if (!sibling.textContent?.trim() && group.length) continue;
-                    if (group.length) break;
-                }
-            }
-        }
-        if (!group.length) {
-            group.push(wrapper);
-        }
-        let combined = group
-            .map(el => (el.textContent || '').replace(/\s+/g, ' ').trim())
-            .filter(Boolean)
-            .join(' ');
-        if (!combined) {
-            combined = group
-                .map(el => (el.getAttribute('aria-label') || '').replace(/^Mentioned\s+/i, '').trim())
-                .filter(Boolean)
-                .join(' ');
-        }
-        combined = combined.trim();
-        if (!combined) continue;
-        const owner = wrapper.ownerDocument || document;
-        const replacement = owner.createTextNode(`@${combined}`);
-        for (const el of group) {
-            processed.add(el);
-            if (el !== wrapper) el.remove();
-        }
-        wrapper.replaceWith(replacement);
-    }
-}
-
-function extractReplyContext(item, body) {
-  // 1) Structured quoted-reply card (preferred)
-  const card = body?.querySelector('[data-tid="quoted-reply-card"]');
-  if (card) {
-    const tsEl = card.querySelector('[data-tid="quoted-reply-timestamp"]');
-    const authorEl = tsEl?.previousElementSibling || null; // author sits right before timestamp
-    const textEl = card.querySelector('[data-tid="quoted-reply-preview-content"]');
-
-    const author = (authorEl?.innerText || '').trim();
-    const timestamp = (tsEl?.innerText || '').trim(); // e.g. "12/09/2025, 11:12"
-    const text = extractTextWithEmojis(textEl || card).trim(); // full preview text
-
-    if (author || timestamp || text) return { author, timestamp, text };
-  }
-
-  // 2) Fallback: aria-label on the group with "Begin Reference, …, <author>, <timestamp>, End reference"
-  const group = body?.querySelector('[role="group"][aria-label^="Begin Reference"]');
-  if (group) {
-    const aria = group.getAttribute('aria-label') || '';
-    // Greedy capture for text; last two comma-separated tokens are author and timestamp
-    const m = aria.match(/^Begin Reference,\s*(.*),\s*([^,]+),\s*([^,]+),\s*End reference$/s);
-    if (m) {
-      const [, text, author, timestamp] = m;
-      return { author: (author||'').trim(), timestamp: (timestamp||'').trim(), text: (text||'').trim() };
-    }
-  }
-
-  // 3) Legacy fallback: "Begin Reference, … by <author>"
-  const heading = item.querySelector('div[role="heading"]');
-  if (heading) {
-    const raw = heading.innerText || '';
-    const m = raw.match(/Begin Reference,\s*(.*?)\s*by\s*(.+)$/i);
-    if (m) return { author: m[2].trim(), timestamp: '', text: m[1].trim() };
-  }
-  return null;
-}
-
-
-function extractReactions(item) {
-  const pills = Array.from(item.querySelectorAll('[data-tid="diverse-reaction-pill-button"]'));
-  const out = [];
-
-  for (const btn of pills) {
-    // Emoji icon (static)
-    const emoji = btn.querySelector('[data-tid="emoticon-renderer"] img')?.getAttribute('alt') || '';
-
-    // Pull the descriptive text WITHOUT interacting
-    // Prefer aria-labelledby targets (Teams often renders the pill’s label there)
-    let labelText = '';
-    const labelledBy = btn.getAttribute('aria-labelledby');
-    if (labelledBy) {
-      labelText = labelledBy
-        .split(/\s+/)
-        .map(id => (document.getElementById(id)?.innerText || '').trim())
-        .filter(Boolean)
-        .join(' ')
-        .trim();
-    }
-    if (!labelText) {
-      labelText = (btn.getAttribute('aria-label') || '').trim();
-    }
-
-    // Parse count (first integer we find; Teams strings usually contain it)
-    const count = parseInt((labelText.match(/\d+/) || [1])[0], 10) || 1;
-
-    const entry = { emoji, count };
-
-    // Inline-only names (no clicking): if label lists names before “react…”
-    // e.g., "Alice, Bob and 2 others reacted with 👍"
-    if (labelText) {
-      const beforeReact = labelText.split(/react/i)[0]; // "Alice, Bob and 2 others "
-      // Split out explicit names; ignore the "X others" tail
-      let names = beforeReact
-        .split(/,\s*|\s+and\s+/)
-        .map(s => s.trim())
-        .filter(Boolean)
-        .filter(s => !/^\d+\s+others?$/i.test(s) && !/others$/i.test(s));
-      if (names.length) entry.reactors = Array.from(new Set(names)).slice(0, 100);
-    }
-
-    out.push(entry);
-  }
-  return out;
-}
-
-
-// Attachments (robust)
-// --- replace extractAttachments in content.js ---
-function extractAttachments(item, body) {
-    const map = new Map();
-    const merge = (prev, next) => {
-        const merged = { ...prev };
-        if (!merged.href && next.href) merged.href = next.href;
-        if (!merged.label && next.label) merged.label = next.label;
-        for (const field of ['type', 'size', 'owner', 'metaText']) {
-            if (!merged[field] && next[field]) merged[field] = next[field];
-        }
-        return merged;
-    };
-    const guessTypeFromLabel = (label = '') => {
-        const m = label.trim().match(/\.([A-Za-z0-9]{1,6})$/);
-        return m ? m[1].toUpperCase() : null;
-    };
-    const collectMetaText = (node, label) => {
-        const parts = new Set();
-        const add = (val) => {
-            if (!val || typeof val !== 'string') return;
-            const trimmed = val.trim();
-            if (!trimmed) return;
-            parts.add(trimmed);
-        };
-        if (node) {
-            add(node.getAttribute?.('aria-label'));
-            add(node.getAttribute?.('title'));
-            const txt = node.textContent?.trim();
-            if (txt && txt !== label?.trim()) add(txt);
-        }
-        if (!parts.size) return '';
-        return Array.from(parts).join(' • ').replace(/\s+/g, ' ').trim();
-    };
-    const inferOwner = (text = '') => {
-        const match = text.match(/(?:Shared by|Uploaded by|Sent by|From|Owner)\s*:?\s*([^•]+)/i);
-        return match ? match[1].trim() : null;
-    };
-    const inferSize = (text = '') => {
-        const match = text.match(/\b\d+(?:[.,]\d+)?\s*(?:bytes?|KB|MB|GB|TB)\b/i);
-        return match ? match[0].replace(',', '.').trim() : null;
-    };
-    const inferType = (label, text) => {
-        return guessTypeFromLabel(label) || (text ? (text.match(/\b(PDF|DOCX|XLSX|PPTX|TXT|PNG|JPE?G|GIF|ZIP|RAR|CSV|MP4|MP3)\b/i)?.[0]?.toUpperCase() || null) : null);
-    };
-    const push = (sourceNode, data = {}) => {
-        const att = { ...data };
-        if (!att.href && sourceNode?.href) att.href = sourceNode.href;
-        if (!att.label) {
-            const ariaLabel = sourceNode?.getAttribute?.('aria-label');
-            if (ariaLabel) att.label = ariaLabel.split(/\n+/)[0].trim();
-        }
-        if (!att.label && sourceNode?.getAttribute?.('title')) {
-            att.label = sourceNode.getAttribute('title').split(/\n+/)[0].trim();
-        }
-        if (!att.label && sourceNode?.textContent) {
-            const text = sourceNode.textContent.trim();
-            if (text) att.label = text.split(/\n+/)[0].trim();
-        }
-        if (!att.href && !att.label) return;
-
-        const metaText = collectMetaText(sourceNode, att.label);
-        if (metaText) att.metaText = metaText;
-        const type = inferType(att.label || '', metaText);
-        if (type) att.type = type;
-        const size = inferSize(metaText);
-        if (size) att.size = size;
-        const owner = inferOwner(metaText);
-        if (owner) att.owner = owner;
-
-        const key = `${att.href || ''}@@${att.label || ''}`;
-        const prev = map.get(key);
-        map.set(key, prev ? merge(prev, att) : att);
-    };
-    const parseTitle = (t) => {
-        if (!t) return null;
-        const parts = t.split(/\n+/).map(s => s.trim()).filter(Boolean);
-        if (parts.length >= 2 && /^https?:\/\//i.test(parts[1])) {
-            return { label: parts[0], href: parts[1], metaText: parts.slice(2).join(' • ') };
-        }
-        const m = t.match(/https?:\/\/\S+/);
-        if (m) {
-            const url = m[0];
-            const label = (parts[0] && parts[0] !== url) ? parts[0] : url;
-            return { label, href: url, metaText: parts.slice(1).join(' • ') };
-        }
-        return null;
-    };
-
-    const roots = [];
-    const aria = body?.getAttribute('aria-labelledby') || '';
-    const attId = aria.split(/\s+/).find(s => s.startsWith('attachments-'));
-    if (attId) {
-        const el = document.getElementById(attId);
-        if (el) roots.push(el);
-    }
-    ['[data-tid="file-attachment-grid"]', '[data-tid="file-preview-root"]', '[data-tid="attachments"]'].forEach(sel => {
-        const el = body && body.querySelector(sel);
-        if (el && !roots.includes(el)) roots.push(el);
-    });
-
-    for (const root of roots) {
-        root.querySelectorAll('[data-testid="file-attachment"], [data-tid^="file-chiclet-"]').forEach(el => {
-            const t = el.getAttribute('title') || el.getAttribute('aria-label') || '';
-            const parsed = parseTitle(t);
-            if (parsed) push(el, parsed);
-            el.querySelectorAll('a[href^="http"]').forEach(a => {
-                const label = a.innerText || a.getAttribute('aria-label') || a.title || a.href;
-                push(a, { href: a.href, label });
-            });
-        });
-        root.querySelectorAll('button[data-testid="rich-file-preview-button"][title]').forEach(btn => {
-            const parsed = parseTitle(btn.getAttribute('title'));
-            if (parsed) push(btn, parsed);
-        });
-        root.querySelectorAll('a[href^="http"]').forEach(a => {
-            const label = a.innerText || a.getAttribute('aria-label') || a.title || a.href;
-            push(a, { href: a.href, label });
-        });
-    }
-
-    const contentRoot = body && (body.querySelector('[id^="content-"]') || body.querySelector('[data-tid="message-content"]'));
-    if (contentRoot) {
-        contentRoot.querySelectorAll('a[data-testid="atp-safelink"], a[href^="http"]').forEach(a => {
-            push(a, { href: a.href, label: a.innerText || a.getAttribute('aria-label') || a.title || a.href });
-        });
-        contentRoot.querySelectorAll('[data-testid="lazy-image-wrapper"] img').forEach(img => {
-            const src = img.getAttribute('src') || '';
-            if (/^https?:\/\//i.test(src)) {
-                push(img, { href: src, label: img.getAttribute('alt') || 'image' });
-            }
-        });
-    }
-
-    return Array.from(map.values());
-}
 
 // Helpers -------------------------------------------------------
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const cssEscape = (s) => {
-    if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(s);
-    return (s || '').toString().replace(/([\0-\x1f\x7f-\x9f!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1');
-};
-
-const normalizeText = (s) => (s ?? '').replace(/\u00a0/g, ' ');
-const isPlaceholderText = (s) => {
-    const clean = normalizeText(s).trim();
-    if (!clean) return true;
-    return /^loading(?:\.\.\.?|…)?$/i.test(clean);
-};
-const textScore = (s) => normalizeText(s).trim().length;
-const preferText = (prev, next) => {
-    if (next == null) return prev;
-    const nextPlaceholder = isPlaceholderText(next);
-    const prevPlaceholder = isPlaceholderText(prev);
-    if (nextPlaceholder && !prevPlaceholder) return prev;
-    if (!nextPlaceholder && prevPlaceholder) return next;
-    if (nextPlaceholder && prevPlaceholder) return prev;
-    const prevLen = textScore(prev);
-    const nextLen = textScore(next);
-    return nextLen >= prevLen ? next : prev;
-};
-
-const findPaneItemByMessageId = (id) => {
+const findPaneItemByMessageId = (id: string | null | undefined): Element | null => {
     if (!id) return null;
     const msgNode = document.querySelector(`[data-mid="${cssEscape(id)}"]`);
     return msgNode?.closest('[data-tid="chat-pane-item"]') || null;
 };
 
-async function hydrateSparseMessages(agg, opts = {}) {
+async function hydrateSparseMessages(agg: Map<string, ContentAggregated>, opts: ScrapeOptions = {}) {
     if (!agg || agg.size === 0) return;
 
-    const needsHydration = (message, item) => {
+    const needsHydration = (message: ExtractedMessage, item: Element) => {
         const textNeeds = isPlaceholderText(message.text);
         let reactionsNeed = false;
         if (opts.includeReactions) {
@@ -465,10 +186,10 @@ async function hydrateSparseMessages(agg, opts = {}) {
         return { textNeeds, reactionsNeed, needs: textNeeds || reactionsNeed };
     };
 
-    let pending = [];
+    let pending: { id: string; item: Element }[] = [];
 
     for (const [id, entry] of agg.entries()) {
-        const msg = entry.message;
+        const msg = entry.message as ExtractedMessage | undefined;
         if (!msg || msg.system) continue;
         const item = findPaneItemByMessageId(id);
         if (!item) continue;
@@ -488,17 +209,20 @@ async function hydrateSparseMessages(agg, opts = {}) {
             const existing = agg.get(id);
             if (!existing) continue;
 
+            if (!existing.message) continue;
             const item = findPaneItemByMessageId(id) || task.item;
             if (!item) continue;
 
             const lastAuthorRef = { value: existing.message.author || '' };
             const ts = existing.message.timestamp ? Date.parse(existing.message.timestamp) : undefined;
-            const tempOrderCtx = {
-                lastTimeMs: Number.isNaN(ts) ? undefined : ts,
-                yearHint: Number.isNaN(ts) ? undefined : new Date(ts).getFullYear(),
+            const tempOrderCtx: OrderContext = {
+                lastTimeMs: Number.isNaN(ts) ? null : ts ?? null,
+                yearHint: Number.isNaN(ts) ? null : (ts ? new Date(ts).getFullYear() : null),
                 seqBase: Date.now(),
                 seq: 0,
-                lastAuthor: existing.message.author || ''
+                lastAuthor: existing.message.author || '',
+                lastId: existing.message.id || null,
+                systemCursor: 0
             };
 
             const reExtracted = await extractOne(item, { includeSystem: opts.includeSystem, includeReactions: opts.includeReactions }, lastAuthorRef, tempOrderCtx);
@@ -507,8 +231,18 @@ async function hydrateSparseMessages(agg, opts = {}) {
                 continue;
             }
 
-            const merged = { ...existing.message };
-            merged.text = preferText(existing.message.text, reExtracted.message.text);
+            const merged: ExtractedMessage = {
+                id: existing.message.id || reExtracted.message.id || id,
+                author: existing.message.author || reExtracted.message.author || '',
+                timestamp: existing.message.timestamp || reExtracted.message.timestamp || '',
+                text: preferText(existing.message.text || '', reExtracted.message.text || ''),
+                edited: existing.message.edited || reExtracted.message.edited,
+                system: existing.message.system || reExtracted.message.system,
+                avatar: existing.message.avatar ?? reExtracted.message.avatar ?? null,
+                reactions: existing.message.reactions,
+                attachments: existing.message.attachments,
+                replyTo: existing.message.replyTo ?? reExtracted.message.replyTo ?? null,
+            };
 
             if (opts.includeReactions) {
                 const newReacts = reExtracted.message.reactions || [];
@@ -526,15 +260,15 @@ async function hydrateSparseMessages(agg, opts = {}) {
 
             if (!merged.replyTo && reExtracted.message.replyTo) merged.replyTo = reExtracted.message.replyTo;
             if (!merged.avatar && reExtracted.message.avatar) merged.avatar = reExtracted.message.avatar;
-            merged.edited = merged.edited || reExtracted.message.edited;
+            merged.edited = merged.edited || Boolean(reExtracted.message.edited);
 
             const newTsMs = reExtracted?.tsMs ?? existing.tsMs ?? (merged.timestamp ? parseTimeStamp(merged.timestamp) : null);
             const kind = existing.kind ?? reExtracted?.kind;
-            agg.set(id, { message: merged, orderKey: existing.orderKey, tsMs: newTsMs, kind });
+            agg.set(id, { message: merged as ExtractedMessage, orderKey: existing.orderKey, tsMs: newTsMs, kind });
 
             const status = needsHydration(merged, item);
-            if (status.needs) nextPending.push({ id, item });
-        }
+        if (status.needs) nextPending.push({ id, item });
+    }
 
         pending = nextPending;
         attempts++;
@@ -548,7 +282,7 @@ async function hydrateSparseMessages(agg, opts = {}) {
     }
 }
 
-function parseDateDividerText(txt, yearHint) {
+function parseDateDividerText(txt: string, yearHint?: number | null) {
     if (!txt) return null;
     const monthMap = {
         january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
@@ -558,11 +292,11 @@ function parseDateDividerText(txt, yearHint) {
     const clean = txt.trim().replace(/\s+/g, ' ');
     const currentYear = typeof yearHint === 'number' ? yearHint : (yearHint ? Number(yearHint) : new Date().getFullYear());
 
-    const tryBuild = (dayStr, monthStr, yearStr) => {
+    const tryBuild = (dayStr: string, monthStr: string, yearStr?: string | null) => {
         if (!dayStr || !monthStr) return null;
         const day = Number(dayStr);
         if (!Number.isFinite(day)) return null;
-        const monthIdx = monthMap[monthStr.toLowerCase()];
+        const monthIdx = monthMap[monthStr.toLowerCase() as keyof typeof monthMap];
         if (!monthIdx) return null;
         const year = yearStr ? Number(yearStr) : currentYear;
         if (!Number.isFinite(year)) return null;
@@ -585,20 +319,17 @@ function parseDateDividerText(txt, yearHint) {
 
     return null;
 }
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
 const controlTimeRe = /(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i;
 
-function parseControlTimestamp(text, yearHint) {
+function parseControlTimestamp(text: string, yearHint?: number | null): number | null {
     if (!text) return null;
     const match = controlTimeRe.exec(text);
     if (!match) return null;
-    let [, month, day, hour, minute, period] = match;
-    month = Number(month);
-    day = Number(day);
-    hour = Number(hour);
-    minute = Number(minute);
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    let hour = Number(match[3]);
+    const minute = Number(match[4]);
+    const period = match[5];
     if (!Number.isFinite(month) || !Number.isFinite(day) || !Number.isFinite(hour) || !Number.isFinite(minute)) return null;
     if (period?.toUpperCase() === 'PM' && hour < 12) hour += 12;
     if (period?.toUpperCase() === 'AM' && hour === 12) hour = 0;
@@ -607,44 +338,18 @@ function parseControlTimestamp(text, yearHint) {
     return Number.isNaN(date.getTime()) ? null : date.getTime();
 }
 
-function startOfLocalDay(ts) {
-    const d = new Date(ts);
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
-}
-
-function formatDayLabelForExport(ts) {
-    const dayStart = startOfLocalDay(ts);
-    const todayStart = startOfLocalDay(Date.now());
-    const diffDays = Math.round((todayStart - dayStart) / MS_PER_DAY);
-
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays === -1) return 'Tomorrow';
-    if (diffDays >= -6 && diffDays <= 6) {
-        return new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(new Date(ts));
-    }
-    return new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date(ts));
-}
-
-function makeDayDivider(dayKey, ts) {
-    const label = formatDayLabelForExport(ts);
-    return {
-        id: `day-${dayKey}`,
-        author: '[system]',
-        timestamp: '',
-        text: label,
-        reactions: [],
-        attachments: [],
-        edited: false,
-        avatar: null,
-        replyTo: null,
-        system: true
-    };
-}
+const makeDayDivider = (dayKey: number, ts: number): ContentAggregated => {
+    const base = buildDayDivider(dayKey, ts);
+    return { ...base, message: base.message as ExtractedMessage };
+};
 
 // Extract one item into a message object + an orderKey
-async function extractOne(item, opts, lastAuthorRef, orderCtx) {
+async function extractOne(
+    item: Element,
+    opts: ScrapeOptions,
+    lastAuthorRef: { value: string },
+    orderCtx: OrderContext & { seq?: number }
+): Promise<ContentAggregated | null> {
     const body = $('[data-tid="chat-pane-message"]', item) || item;
     const isSystem = !$('[data-tid="chat-pane-message"]', item);
 
@@ -655,34 +360,37 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
         const controlRenderer = $('[data-tid="control-message-renderer"]', item);
 
         if (dividerWrapper && !controlRenderer) {
-            const text = (dividerWrapper.innerText || '').trim() || 'system';
+            const text = textFrom(dividerWrapper) || 'system';
             const bodyMid = dividerWrapper.getAttribute?.('data-mid') || $('[data-mid]', dividerWrapper)?.getAttribute('data-mid') || item.getAttribute('data-mid') || dividerWrapper.id;
             const numericMid = bodyMid && Number(bodyMid);
             const parsedTs = parseDateDividerText(text, orderCtx.yearHint);
-            return {
-                kind: 'day-divider',
-                label: text,
-                tsMs: Number.isFinite(parsedTs) ? parsedTs : (Number.isFinite(numericMid) ? numericMid : null)
-            };
+            const tsVal = Number.isFinite(parsedTs)
+                ? (parsedTs as number)
+                : Number.isFinite(numericMid)
+                    ? Number(numericMid)
+                    : Date.now();
+            return makeDayDivider(tsVal, tsVal);
         }
 
         const wrapper = controlRenderer || dividerWrapper || item;
-        const text = (wrapper?.innerText || item.innerText || '').trim() || 'system';
+        const text = textFrom(wrapper) || textFrom(item) || 'system';
         const bodyMid = wrapper?.getAttribute?.('data-mid') || $('[data-mid]', wrapper || item)?.getAttribute('data-mid') || item.getAttribute('data-mid') || wrapper?.id;
         const dividerId = (bodyMid || text || 'system').toLowerCase();
         const numericMid = bodyMid && Number(bodyMid);
         let parsedTs = parseDateDividerText(text, orderCtx.yearHint);
         if (!Number.isFinite(parsedTs)) parsedTs = parseControlTimestamp(text, orderCtx.yearHint);
-        const approxMs = Number.isFinite(parsedTs)
-            ? parsedTs
+        const systemCursor = typeof orderCtx.systemCursor === 'number' ? orderCtx.systemCursor : -9e15;
+        const approxMs: number = Number.isFinite(parsedTs)
+            ? parsedTs!
             : Number.isFinite(numericMid)
-                ? numericMid
+                ? Number(numericMid)
                 : typeof orderCtx.lastTimeMs === 'number'
                     ? orderCtx.lastTimeMs - 1
-                    : orderCtx.systemCursor++;
+                    : systemCursor;
+        orderCtx.systemCursor = systemCursor + 1;
         if (Number.isFinite(parsedTs)) {
-            orderCtx.lastTimeMs = parsedTs;
-            orderCtx.yearHint = new Date(parsedTs).getFullYear();
+            orderCtx.lastTimeMs = parsedTs as number;
+            orderCtx.yearHint = new Date(parsedTs as number).getFullYear();
         }
         return {
             message: { id: dividerId, author: '[system]', timestamp: '', text, reactions: [], attachments: [], edited: false, avatar: null, replyTo: null, system: true },
@@ -695,7 +403,10 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
     // Normal message
     const ts = resolveTimestamp(item);
     const tms = ts ? Date.parse(ts) : NaN;
-    if (!Number.isNaN(tms)) orderCtx.lastTimeMs = tms, orderCtx.yearHint = new Date(tms).getFullYear();
+    if (!Number.isNaN(tms)) {
+        orderCtx.lastTimeMs = tms;
+        orderCtx.yearHint = new Date(tms).getFullYear();
+    }
 
     const author = resolveAuthor(body, lastAuthorRef.value || orderCtx.lastAuthor || '');
     if (author) {
@@ -704,7 +415,7 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
     }
 
     const contentEl = $('[id^="content-"]', body) || $('[data-tid="message-content"]', body) || body;
-    const cleanRoot = stripQuotedPreview(contentEl);
+    const cleanRoot = stripQuotedPreview(contentEl) || contentEl;
     normalizeMentions(cleanRoot);
     const text = extractTextWithEmojis(cleanRoot);
     const edited = resolveEdited(item, body);
@@ -715,15 +426,17 @@ async function extractOne(item, opts, lastAuthorRef, orderCtx) {
     const replyTo = opts.includeReplies === false ? null : extractReplyContext(item, body);
 
     const mid = body.getAttribute('data-mid') || item.id || `${ts}#${author}`;
-    const msg = { id: mid, author, timestamp: ts, text, reactions, attachments, edited, avatar, replyTo, system: false };
+    const msg: ExtractedMessage = { id: mid, author, timestamp: ts, text, reactions, attachments, edited, avatar, replyTo, system: false };
 
-    const orderKey = !Number.isNaN(tms) ? tms : (orderCtx.seqBase + orderCtx.seq++);
+    const seqVal = orderCtx.seq ?? 0;
+    orderCtx.seq = seqVal + 1;
+    const orderKey = !Number.isNaN(tms) ? tms : (orderCtx.seqBase + seqVal);
     const tsMs = !Number.isNaN(tms) ? tms : null;
     return { message: msg, orderKey, tsMs, kind: 'message' };
 }
 
 // Aggregate while scrolling so virtualization can’t drop items
-async function collectCurrentVisible(agg, opts, orderCtx) {
+async function collectCurrentVisible(agg: Map<string, ContentAggregated>, opts: ScrapeOptions, orderCtx: OrderContext) {
     const nodes = $$('[data-tid="chat-pane-item"]'); // preserve DOM order for system dividers, too
     const lastAuthorRef = { value: orderCtx.lastAuthor || '' };
     for (let i = 0; i < nodes.length; i++) {
@@ -734,15 +447,16 @@ async function collectCurrentVisible(agg, opts, orderCtx) {
         const extracted = await extractOne(item, opts, lastAuthorRef, orderCtx);
         if (!extracted) continue;
         if (extracted.kind === 'day-divider') {
-            if (Number.isFinite(extracted.tsMs)) {
+            if (typeof extracted.tsMs === 'number' && Number.isFinite(extracted.tsMs)) {
                 orderCtx.lastTimeMs = extracted.tsMs;
                 orderCtx.yearHint = new Date(extracted.tsMs).getFullYear();
             }
             continue;
         }
         const { message, orderKey, tsMs, kind } = extracted;
+        if (!message) continue;
 
-        agg.set(message.id, { message, orderKey, tsMs, kind });
+        agg.set(message.id || `${orderKey}`, { message, orderKey, tsMs, kind });
         if (!message.system && message.timestamp) {
             const tms = Date.parse(message.timestamp);
             if (!Number.isNaN(tms)) { orderCtx.lastTimeMs = tms; orderCtx.yearHint = new Date(tms).getFullYear(); }
@@ -753,12 +467,20 @@ async function collectCurrentVisible(agg, opts, orderCtx) {
     }
 }
 
-async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includeReactions, includeReplies = true }) {
+async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includeReactions, includeReplies = true }: ScrapeOptions & { includeReplies?: boolean }) {
     const scroller = getScroller();
     if (!scroller) throw new Error('Scroller not found');
 
-    const agg = new Map();         // id -> {message, orderKey}
-    const orderCtx = { lastTimeMs: undefined, yearHint: undefined, seqBase: Date.now(), seq: 0, lastAuthor: '', systemCursor: -9e15 };
+    const agg = new Map<string, ContentAggregated>();         // id -> {message, orderKey}
+    const orderCtx: OrderContext = {
+        lastTimeMs: null,
+        yearHint: null,
+        seqBase: Date.now(),
+        seq: 0,
+        lastAuthor: '',
+        lastId: null,
+        systemCursor: -9e15
+    };
 
     // 0) Pre-capture bottom (newest window)
     scroller.scrollTop = scroller.scrollHeight;
@@ -805,7 +527,7 @@ async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includ
             const oldestId = $('[data-tid="chat-pane-message"]', oldestNode)?.getAttribute('data-mid') || oldestNode?.id || null;
 
             // Expand any collapsed sections that block older history
-            const hiddenButtons = Array.from(document.querySelectorAll('[data-tid="show-hidden-chat-history-btn"]'))
+            const hiddenButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-tid="show-hidden-chat-history-btn"]'))
                 .filter(btn => btn && !btn.disabled && btn.offsetParent !== null);
             if (hiddenButtons.length) {
                 console.debug('[Teams Exporter] expanding hidden history', { count: hiddenButtons.length });
@@ -842,7 +564,10 @@ async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includ
                 filteredSeen++;
             }
 
-            chrome.runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'scroll', passes, newHeight, messagesVisible: newCount, aggregated: seen, seen: filteredSeen, filteredSeen, oldestTime, oldestId, elapsedMs } }).catch(() => { });
+            try {
+                const msgPromise = runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'scroll', passes, newHeight, messagesVisible: newCount, aggregated: seen, seen: filteredSeen, filteredSeen, oldestTime, oldestId, elapsedMs } });
+                if (msgPromise && msgPromise.catch) msgPromise.catch(() => { });
+            } catch (e) { /* ignore */ }
             hud(`scroll pass ${passes} • seen ${filteredSeen}`);
             console.debug('[Teams Exporter] scroll pass', {
                 passes,
@@ -912,12 +637,12 @@ async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includ
         }
 
         if (nextMessageTs != null) {
-            if (entry.tsMs == null || entry.tsMs >= nextMessageTs) {
-                entry.anchorTs = nextMessageTs;
-                entry.tsMs = (entry.tsMs == null ? nextMessageTs : entry.tsMs) - 1;
-                if (entry.tsMs != null) {
-                    entry.orderKey = entry.tsMs - 0.1;
-                }
+        if (entry.tsMs == null || entry.tsMs >= nextMessageTs) {
+            entry.anchorTs = nextMessageTs;
+            entry.tsMs = (entry.tsMs == null ? nextMessageTs : entry.tsMs) - 1;
+            if (entry.tsMs != null) {
+                entry.orderKey = entry.tsMs - 0.1;
+            }
             }
         }
     }
@@ -938,8 +663,8 @@ async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includ
         return true;
     });
 
-    const buckets = new Map();
-    const noDate = [];
+    const buckets = new Map<number, { ts: number; message: ExtractedMessage }[]>();
+    const noDate: { ts: number; message: ExtractedMessage }[] = [];
 
     for (const entry of filtered) {
         const msg = entry.message;
@@ -956,16 +681,18 @@ async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includ
         if (!buckets.has(dayKey)) {
             buckets.set(dayKey, []);
         }
-        buckets.get(dayKey).push({ ts, message: msg });
+        const list = buckets.get(dayKey);
+        if (list) list.push({ ts, message: msg });
     }
 
-    const finalMessages = [];
+    const finalMessages: ExportMessage[] = [];
     const sortedDayKeys = Array.from(buckets.keys()).sort((a, b) => a - b);
     for (const dayKey of sortedDayKeys) {
         const items = buckets.get(dayKey);
         if (!items || !items.length) continue;
         const representativeTs = items[0].ts;
-        finalMessages.push(makeDayDivider(dayKey, representativeTs));
+        const divider = makeDayDivider(dayKey, representativeTs);
+        if (divider.message) finalMessages.push(divider.message);
         items.sort((a, b) => a.ts - b.ts);
         for (const item of items) {
             finalMessages.push(item.message);
@@ -981,9 +708,9 @@ async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includ
 }
 
 // Remove quoted/preview blocks from a cloned content node so root "text" doesn't include them
-function stripQuotedPreview(container) {
+function stripQuotedPreview(container: Element | null): Element | null {
   if (!container) return container;
-  const clone = container.cloneNode(true);
+  const clone = container.cloneNode(true) as Element;
 
   // Known containers for quoted/preview content
   const kill = [
@@ -992,12 +719,12 @@ function stripQuotedPreview(container) {
     '[role="group"][aria-label^="Begin Reference"]'
   ];
   for (const sel of kill) {
-    clone.querySelectorAll(sel).forEach(n => n.remove());
+    clone.querySelectorAll(sel).forEach((n: Element) => n.remove());
   }
 
   // Headings like "Begin Reference, …"
-  clone.querySelectorAll('div[role="heading"]').forEach(h => {
-    const txt = (h.innerText || '').trim();
+  clone.querySelectorAll('div[role="heading"]').forEach((h: Element) => {
+    const txt = textFrom(h);
     if (/^Begin Reference,/i.test(txt)) h.remove();
   });
 
@@ -1005,7 +732,7 @@ function stripQuotedPreview(container) {
 }
 
 // Bridge --------------------------------------------------------
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     (async () => {
         try {
             if (msg.type === 'PING') { sendResponse({ ok: true }); return; }
@@ -1018,19 +745,36 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
                 console.debug('[Teams Exporter] SCRAPE_TEAMS', location.href, msg.options);
                 currentRunStartedAt = Date.now();
                 hud('starting…');
-                const messages = await autoScrollAggregate(scrapeOpts);
-                chrome.runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'extract', messagesExtracted: messages.length } }).catch(() => { });
+                const messages = await autoScrollAggregateHelper(
+                    {
+                        hud,
+                        runtime,
+                        extractOne,
+                        hydrateSparseMessages,
+                        getScroller,
+                        makeDayDivider
+                    },
+                    scrapeOpts,
+                    currentRunStartedAt
+                );
+                try {
+                    const msgPromise = runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'extract', messagesExtracted: messages.length } });
+                    if (msgPromise && msgPromise.catch) msgPromise.catch(() => { });
+                } catch (e) { /* ignore */ }
                 hud(`extracted ${messages.length} messages`);
                 currentRunStartedAt = null;
                 // meta can keep title; add timeRange later if you want
                 sendResponse({ messages, meta: { count: messages.length, title: document.title, startAt: startAt || null, endAt: endAt || null } });
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error('[Teams Exporter] Error:', e);
-            hud(`error: ${e.message}`);
+            hud(`error: ${e?.message || e}`);
             currentRunStartedAt = null;
             sendResponse({ error: e?.message || String(e) });
         }
     })();
     return true;
 });
+
+  } // End of main()
+}); // End of defineContentScript
