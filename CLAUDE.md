@@ -62,9 +62,10 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for:
 - Avoid `any` - use `unknown` if truly dynamic
 
 ### Svelte Conventions
-- **Svelte 5 Runes**: Use `$state`, `$derived`, `$effect` (modern reactive syntax)
-- **Props**: Destructure with defaults: `let { theme = 'light' } = $props()`
+- **Version**: Svelte 5 (using legacy syntax, not runes)
+- **Props**: Export variables with defaults: `export let theme: Theme = 'light'`
 - **Events**: Use `createEventDispatcher<T>()` with typed events
+- **Reactivity**: Use `$:` reactive statements
 - **Styling**: Scoped CSS in `<style>` blocks
 - **I18N**: Use `t(key, params, lang)` function
 
@@ -115,8 +116,8 @@ done
 
 1. Create `src/entrypoints/popup/components/NewSection.svelte`
 2. Import in `App.svelte`
-3. Add props with defaults: `let { data = [] } = $props()`
-4. Use typed event dispatcher if needed
+3. Export props with defaults: `export let data: Item[] = []`
+4. Use typed event dispatcher if needed: `createEventDispatcher<{ change: ItemType }>()`
 5. Add scoped styles in `<style>` block
 
 ### Modifying Scraping Logic
@@ -152,7 +153,7 @@ WXT handles these differences automatically via [wxt.config.ts](wxt.config.ts).
 2. **Data URL Limits**: Large HTML exports (>50 MB) may fail in Chrome. Firefox uses Blob URLs (safer).
 3. **HUD Timer Stalls**: Occasional UI freezes during very long exports (investigating).
 
-See [TODO.md](TODO.md) for roadmap.
+See [docs/TODO.md](docs/TODO.md) for roadmap.
 
 ## Testing
 
@@ -172,11 +173,12 @@ Run through [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) testing checklist before 
 
 - **README.md**: User guide
 - **docs/ARCHITECTURE.md**: Technical design
-- **docs/DEVELOPMENT.md**: Build/test instructions
 - **docs/CONTRIBUTING.md**: Contribution guidelines
+- **docs/DEVELOPMENT.md**: Build/test instructions
 - **docs/DEPLOYMENT.md**: Store publishing
 - **docs/MANUAL_INSTALL.md**: Installation steps
 - **docs/MIGRATION_NOTES.md**: WXT migration history
+- **docs/TODO.md**: Project roadmap
 
 ## When Helping Users
 
@@ -184,7 +186,7 @@ Run through [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) testing checklist before 
 1. Check [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for high-level design
 2. Reference specific files with line numbers (e.g., `App.svelte:42`)
 3. Use TypeScript types from [src/types/](src/types/)
-4. Follow Svelte 5 runes syntax (not legacy stores)
+4. Follow Svelte 5 legacy syntax (`export let`, `$:` reactive statements, `createEventDispatcher`)
 
 ### For Build Issues
 1. Check [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
@@ -192,7 +194,7 @@ Run through [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) testing checklist before 
 3. Firefox needs separate build: `npm run build:firefox`
 
 ### For Feature Requests
-1. Check [TODO.md](TODO.md) for planned features
+1. Check [docs/TODO.md](docs/TODO.md) for planned features
 2. Consider cross-browser compatibility
 3. Verify Teams DOM selectors won't break
 4. Add i18n keys for new UI strings

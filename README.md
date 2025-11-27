@@ -44,7 +44,7 @@ To install from a release ZIP or source code, see the [Manual Installation Guide
 
 This project uses the WXT Framework for cross-browser support.
 
-For development instructions, architecture, and testing guides, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
-
-- **Source Code**: Located in the `src` directory.
-- **Contribution Guide**: See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
+See the [docs/](docs/) directory for:
+- [CONTRIBUTING.md](docs/CONTRIBUTING.md) - Contribution guidelines
+- [DEVELOPMENT.md](docs/DEVELOPMENT.md) - Build and testing instructions
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - Technical design
