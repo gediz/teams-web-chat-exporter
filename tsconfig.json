@@ -1,0 +1,31 @@
+{
+  "extends": "@tsconfig/svelte/tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "baseUrl": ".",
+    "allowJs": false,
+    "checkJs": false,
+    "types": [
+      "svelte",
+      "chrome",
+      "vite/client"
+    ],
+    "paths": {
+      "@/*": [
+        "src/*"
+      ],
+      "~/*": [
+        "src/*"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*",
+    "wxt.config.ts",
+    "svelte.config.js",
+    "svelte.config.ts"
+  ],
+  "files": [
+    "./svelte.d.ts"
+  ]
+}

@@ -1,78 +1,50 @@
-﻿# Teams Chat Exporter
+# Teams Chat Exporter
 
-![Teams Chat Exporter icon](icons/action-128.png)
-
-A Chrome browser extension that exports chat conversations from Microsoft Teams web application.
+A browser extension that exports chat conversations from the Microsoft Teams web application. Supports Chrome, Edge, and Firefox.
 
 ## Features
 
-- **Export Formats**: JSON, CSV, HTML
-- **Comprehensive Data**: Messages, reactions, threaded replies, system messages
-- **Date Filtering**: Set start/end date range to filter messages
-- **Avatar Embedding**: Option to embed avatars as base64 (HTML format)
-- **Auto-scroll**: Automatically loads chat history by scrolling
+- **Export Formats**: JSON, CSV, HTML, Text.
+- **Comprehensive Data**: Messages, reactions, threaded replies, system messages.
+- **Date Filtering**: Filter messages by date range.
+- **Avatar Embedding**: Embed avatars as base64 images in HTML exports.
+- **Auto-scroll**: Automatically scrolls to load chat history.
+- **Cross-Browser**: Compatible with Chrome, Edge, and Firefox.
 
 ## Installation
 
-### Chrome Web Store
+### Chrome / Edge
+1. Open the [Teams Chat Exporter listing](https://chromewebstore.google.com/detail/teams-chat-exporter/jmghclbfbbapimhbgnpffbimphlpolnm) in the Chrome Web Store.
+2. Click "Add to Chrome".
 
-1. Open the [Teams Chat Exporter listing](https://chromewebstore.google.com/detail/teams-chat-exporter/jmghclbfbbapimhbgnpffbimphlpolnm) in Chrome.
-2. Click `Add to Chrome`, then confirm by selecting `Add extension`.
-3. Pin the extension for easy access from the toolbar.
+### Firefox
+1. Open the [Teams Chat Exporter listing](https://addons.mozilla.org/en-US/firefox/addon/teams-chat-exporter/) in Firefox Add-ons.
+2. Click "Add to Firefox".
 
-### Manual (Unpacked) Installation
-
-1. Clone or download this repository.
-2. Open Chrome and navigate to `chrome://extensions/`.
-3. Enable `Developer mode` (toggle in top-right).
-4. Click `Load unpacked` and select the extension directory.
-5. Pin the extension for easy access.
+### Manual Installation
+To install from a release ZIP or source code, see the [Manual Installation Guide](docs/MANUAL_INSTALL.md).
 
 ## Usage
 
-1. Navigate to Microsoft Teams web app (`teams.microsoft.com`).
+1. Navigate to the Microsoft Teams web app.
 2. Open the chat conversation you want to export.
-3. Click the extension icon in Chrome toolbar.
+3. Click the extension icon in the toolbar.
 4. Configure export options:
-   - Set date range (optional): From date (inclusive) and To date (exclusive)
-   - Use quick ranges: Last 24h, 7d, or 30d
-   - Choose export format (JSON, CSV, or HTML)
-   - Select what to include (replies, reactions, system messages)
-   - Enable avatar embedding (HTML only)
-5. Click `Export current chat`.
+   - **Date Range**: Select a preset or custom range.
+   - **Format**: JSON, CSV, HTML, or Text.
+   - **Include**: Toggle replies, reactions, or system messages.
+5. Click "Export current chat".
 6. Wait for the extension to scroll and collect messages.
-7. File will be automatically downloaded.
+7. The file will download automatically when complete.
 
-## Export Options
+> [!IMPORTANT]
+> You are responsible for complying with your organization’s and Microsoft’s terms and policies when exporting conversations.
 
-- **Date Range**: Filter messages by start date (inclusive) and end date (exclusive)
-  - Use quick ranges: Last 24h, 7d, or 30d
-  - Leave blank to export all messages
-- **Include threaded replies**: Exports reply context information
-- **Include reactions**: Exports emoji reactions and participant lists
-- **Include system messages**: Exports date dividers and system notifications
-- **Embed avatars**: Downloads and embeds profile pictures (HTML format only)
+## Development
 
-## Permissions
+This project uses the WXT Framework for cross-browser support.
 
-The extension requires:
-- `activeTab`: Access current Teams tab
-- `downloads`: Save exported files
-- `storage`: Remember user preferences
-- `scripting`: Inject content scripts
-- Host access to Microsoft Teams domains
-
-## File Structure
-
-- `manifest.json` - Extension configuration
-- `popup.html/js` - User interface
-- `content.js` - Teams page scraping logic
-- `service-worker.js` - Background processing and file generation
-
-## Notes
-
-- Works only with Microsoft Teams web application
-- Export time depends on chat history length
-- Large exports may take several minutes to complete
-- Extension preserves message order and timestamps
-
+See the [docs/](docs/) directory for:
+- [CONTRIBUTING.md](docs/CONTRIBUTING.md) - Contribution guidelines
+- [DEVELOPMENT.md](docs/DEVELOPMENT.md) - Build and testing instructions
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - Technical design

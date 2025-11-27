@@ -1,5 +1,29 @@
-etc/
+# WXT Build Output
+.output/
+.wxt/
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
 .DS_Store
+Thumbs.db
+
+# IDE
 .vscode/
-icons/candidate
-icons/solid-blue
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+
+# Legacy
+legacy/etc/
+legacy/icons/candidate
+legacy/icons/solid-blue
