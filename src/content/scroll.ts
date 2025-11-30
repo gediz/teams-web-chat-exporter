@@ -209,6 +209,11 @@ export async function autoScrollAggregate<M extends ExportMessage>(
   for (const entry of filtered) {
     const msg = entry.message;
     if (!msg) continue;
+    // Filter out system messages if includeSystem is false
+    if (msg.system && !includeSystem) {
+      continue;
+    }
+    // Also filter out empty/generic system messages even if includeSystem is true
     if (msg.system && (!msg.text || msg.text.trim().toLowerCase() === 'system')) {
       continue;
     }
@@ -229,8 +234,11 @@ export async function autoScrollAggregate<M extends ExportMessage>(
     const items = buckets.get(dayKey);
     if (!items || !items.length) continue;
     const representativeTs = items[0].ts;
-    const divider = deps.makeDayDivider(dayKey, representativeTs);
-    if (divider?.message) finalMessages.push(divider.message);
+    // Only add day dividers if includeSystem is true
+    if (includeSystem) {
+      const divider = deps.makeDayDivider(dayKey, representativeTs);
+      if (divider?.message) finalMessages.push(divider.message);
+    }
     items.sort((a, b) => a.ts - b.ts);
     for (const item of items) finalMessages.push(item.message);
   }
