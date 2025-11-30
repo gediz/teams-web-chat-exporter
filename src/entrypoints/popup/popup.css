@@ -432,7 +432,35 @@ body[data-theme='dark'] .export-primary:hover:not(:disabled) {
 .date-input-wrapper {
   position: relative;
   width: 100%;
+  transition: all 0.3s ease;
 }
+
+/* Validation error feedback */
+.date-input-wrapper.validation-error {
+  animation: validationError 0.5s ease;
+}
+
+@keyframes validationError {
+
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  25% {
+    transform: translateX(-4px);
+  }
+
+  75% {
+    transform: translateX(4px);
+  }
+}
+
+.date-input-wrapper.validation-error .date-input {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+}
+
 
 .date-input {
   width: 100%;
@@ -457,14 +485,29 @@ body[data-theme='dark'] .export-primary:hover:not(:disabled) {
 }
 
 @keyframes flash {
-  0%, 100% {
+
+  0%,
+  100% {
     background: var(--color-bg);
   }
+
   50% {
     background: var(--color-accent-light);
     border-color: var(--color-accent);
   }
 }
+
+/* Visual indicator for date inputs with values */
+.date-input.has-value {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light);
+  font-weight: 500;
+}
+
+.date-input-wrapper:has(.date-input.has-value) .date-input-icon svg {
+  stroke: var(--color-accent);
+}
+
 
 .date-input-icon {
   position: absolute;
@@ -612,9 +655,12 @@ body[data-theme='dark'] .export-primary:hover:not(:disabled) {
 }
 
 @keyframes pulse {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 1;
   }
+
   50% {
     opacity: 0.4;
   }
