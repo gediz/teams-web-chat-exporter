@@ -136,10 +136,94 @@ function resolveEdited(item: Element, body: Element): boolean {
     return false;
 }
 function resolveAvatar(item: Element): string | null {
-    const perMsg = $('[data-tid="message-avatar"] img', item) as HTMLImageElement | null; // per-message avatar
-    if (perMsg?.src) return perMsg.src;
-    const header = $('[data-tid="chat-title-avatar"] img') as HTMLImageElement | null;   // header fallback
-    return header?.src || null;
+    // Try per-message avatar with various selectors
+    const selectors = [
+        '[data-tid="message-avatar"] img',
+        '[data-tid="avatar"] img',
+        '.fui-Avatar img',
+        '[class*="avatar" i] img',
+        'img[src*="profilepicture"]'
+    ];
+
+    for (const selector of selectors) {
+        const img = $(selector, item) as HTMLImageElement | null;
+        if (img?.src && img.src.startsWith('http')) {
+            // Only accept individual user avatars (profilepicturev2), not group avatars
+            if (img.src.includes('/profilepicturev2/') || img.src.includes('/profilepicture/')) {
+                console.log(`[Avatar] Found user avatar via ${selector}: ${img.src.substring(0, 100)}...`);
+                return img.src;
+            }
+        }
+    }
+
+    // No per-message avatar found - return null (don't use group/header fallback)
+    console.log('[Avatar] No user avatar found for message');
+    return null;
+}
+
+/**
+ * Fetches avatar images and converts them to base64 data URLs.
+ * This runs in the content script context which has access to Teams cookies.
+ */
+async function fetchAvatarAsDataURL(url: string): Promise<string | null> {
+    try {
+        const res = await fetch(url, { credentials: 'include' });
+        if (!res.ok) {
+            console.warn(`[Avatar Fetch] HTTP ${res.status} for ${url.substring(0, 100)}...`);
+            return null;
+        }
+        const buf = await res.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let bin = '';
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        const b64 = btoa(bin);
+        const ct = res.headers.get('content-type') || 'image/png';
+        return `data:${ct};base64,${b64}`;
+    } catch (err) {
+        console.error(`[Avatar Fetch] Failed for ${url.substring(0, 100)}...`, err);
+        return null;
+    }
+}
+
+/**
+ * Embeds avatars by fetching them in the content script context.
+ * Returns messages with base64 data URLs instead of HTTP URLs.
+ */
+async function embedAvatarsInContent(messages: ExtractedMessage[]): Promise<ExtractedMessage[]> {
+    // Build map of unique avatar URLs
+    const uniqueUrls = new Set<string>();
+    for (const m of messages) {
+        if (m.avatar && !m.avatar.startsWith('data:')) {
+            uniqueUrls.add(m.avatar);
+        }
+    }
+
+    if (uniqueUrls.size === 0) {
+        console.log('[Avatar Fetch] No avatars to fetch');
+        return messages;
+    }
+
+    console.log(`[Avatar Fetch] Fetching ${uniqueUrls.size} unique avatar(s)...`);
+
+    // Fetch all unique avatars
+    const urlToDataUrl = new Map<string, string | null>();
+    const urlsArray = Array.from(uniqueUrls);
+    for (let i = 0; i < urlsArray.length; i++) {
+        const url = urlsArray[i];
+        const dataUrl = await fetchAvatarAsDataURL(url);
+        urlToDataUrl.set(url, dataUrl);
+        if (dataUrl) {
+            console.log(`[Avatar Fetch] SUCCESS for ${url.substring(0, 80)}... -> ${dataUrl.substring(0, 50)}...`);
+        }
+    }
+
+    // Replace avatar URLs with data URLs, but keep original URL for ID extraction
+    return messages.map(m => {
+        if (!m.avatar || m.avatar.startsWith('data:')) return m;
+        const originalUrl = m.avatar;
+        const dataUrl = urlToDataUrl.get(originalUrl);
+        return { ...m, avatar: dataUrl || null, avatarUrl: dataUrl ? originalUrl : undefined };
+    });
 }
 
 // Text with emoji (IMG alt) + block breaks
@@ -763,10 +847,15 @@ runtime.onMessage.addListener((msg, _sender, sendResponse) => {
                     if (msgPromise && msgPromise.catch) msgPromise.catch(() => { });
                 } catch (e) { /* ignore */ }
                 hud(`extracted ${messages.length} messages`);
+
+                // Fetch avatars in content script context (has access to Teams cookies)
+                hud('fetching avatars...');
+                const messagesWithAvatars = await embedAvatarsInContent(messages);
+
                 currentRunStartedAt = null;
                 // Extract the actual chat title instead of using document.title
                 const chatTitle = extractChatTitle();
-                sendResponse({ messages, meta: { count: messages.length, title: chatTitle, startAt: startAt || null, endAt: endAt || null } });
+                sendResponse({ messages: messagesWithAvatars, meta: { count: messages.length, title: chatTitle, startAt: startAt || null, endAt: endAt || null } });
             }
         } catch (e: any) {
             console.error('[Teams Exporter] Error:', e);

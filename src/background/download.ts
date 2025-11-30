@@ -1,6 +1,6 @@
-import { embedAvatarsInRows, textToBlobUrl, textToDataUrl, toCSV, toHTML } from './builders';
+import { normalizeAvatars, removeAvatars, textToBlobUrl, textToDataUrl, toCSV, toHTML } from './builders';
 import { formatRangeLabel, sanitizeBase } from '../utils/messages';
-import type { BuildOptions, ExportMessage, ExportMeta } from '../types/shared';
+import type { ExportMessage, ExportMeta } from '../types/shared';
 
 type DownloadsApi = Pick<typeof chrome.downloads, 'download'>;
 
@@ -14,17 +14,59 @@ export async function buildAndDownload(
   { messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false }: { messages?: ExportMessage[]; meta?: ExportMeta; format?: 'json' | 'csv' | 'html' | 'txt'; saveAs?: boolean; embedAvatars?: boolean },
 ) {
   const { downloads, isFirefox } = deps;
-  let rows = messages;
-  if (format === 'html' && embedAvatars) {
-    try {
-      rows = await embedAvatarsInRows(messages);
-    } catch {
-      rows = messages;
+
+  // Process avatars based on format and embedAvatars option
+  let processedMessages = messages;
+  let enrichedMeta = { ...meta };
+
+  if (embedAvatars && (format === 'json' || format === 'html')) {
+    // Avatars are already base64 data URLs from content script
+    // Just need to normalize them for JSON format
+    if (format === 'json') {
+      // Build avatar map using original URLs for ID extraction
+      const avatarMap = new Map<string, string | null>();
+      for (const m of messages) {
+        if (m.avatar && m.avatar.startsWith('data:') && m.avatarUrl) {
+          // Use original HTTP URL as key for proper ID extraction
+          avatarMap.set(m.avatarUrl, m.avatar);
+        }
+      }
+
+      if (avatarMap.size > 0) {
+        // Temporarily restore avatarUrl to avatar field for normalizeAvatars
+        const msgsWithUrls = messages.map(m =>
+          m.avatarUrl ? { ...m, avatar: m.avatarUrl } : m
+        );
+        const { messages: normalized, avatars } = normalizeAvatars(msgsWithUrls, avatarMap);
+        // Remove avatarUrl field from final output
+        processedMessages = normalized.map(m => {
+          const { avatarUrl, ...rest } = m as any;
+          return rest;
+        });
+        enrichedMeta.avatars = avatars;
+      } else {
+        // No avatars found, remove avatarUrl field
+        processedMessages = messages.map(m => {
+          const { avatarUrl, ...rest } = m as any;
+          return rest;
+        });
+      }
+    } else {
+      // For HTML: messages already have base64, just remove avatarUrl field
+      processedMessages = messages.map(m => {
+        const { avatarUrl, ...rest } = m as any;
+        return rest;
+      });
     }
+  } else if (!embedAvatars) {
+    // Remove avatars entirely when option is disabled
+    processedMessages = removeAvatars(messages).map(m => {
+      const { avatarUrl, ...rest } = m as any;
+      return rest;
+    });
   }
 
   const rangeLabel = formatRangeLabel(meta.startAt, meta.endAt);
-  const enrichedMeta = { ...meta };
   if (rangeLabel) enrichedMeta.timeRange = rangeLabel;
 
   const baseTitle = sanitizeBase(enrichedMeta.title || 'UnknownChat');
@@ -37,7 +79,7 @@ export async function buildAndDownload(
   if (format === 'json') {
     filename = `${base}.json`;
     mime = 'application/json';
-    const payload = { meta: { ...enrichedMeta, count: messages.length }, messages };
+    const payload = { meta: { ...enrichedMeta, count: messages.length }, messages: processedMessages };
     content = JSON.stringify(payload, null, 2);
   } else if (format === 'csv') {
     filename = `${base}.csv`;
@@ -46,7 +88,7 @@ export async function buildAndDownload(
   } else if (format === 'html') {
     filename = `${base}.html`;
     mime = 'text/html';
-    content = toHTML(rows, { ...enrichedMeta, count: messages.length });
+    content = toHTML(processedMessages, { ...enrichedMeta, count: messages.length });
   } else if (format === 'txt') {
     filename = `${base}.txt`;
     mime = 'text/plain';

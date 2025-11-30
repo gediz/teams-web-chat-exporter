@@ -23,6 +23,8 @@ export type ExportMessage = {
   edited?: boolean;
   system?: boolean;
   avatar?: string | null;
+  avatarId?: string; // Reference to avatar in meta.avatars when normalized
+  avatarUrl?: string; // Original HTTP URL (for ID extraction), removed before export
   reactions?: Reaction[];
   attachments?: Attachment[];
   replyTo?: ReplyContext | null;
@@ -33,6 +35,7 @@ export type ExportMeta = {
   startAt?: string | null;
   endAt?: string | null;
   timeRange?: string | null;
+  avatars?: Record<string, string>; // Map of avatarId -> base64 data URL
   [key: string]: unknown;
 };
 
