@@ -1,23 +1,102 @@
 import type { ExportMessage, ExportMeta } from '../types/shared';
 
+/**
+ * Converts avatar HTTP URLs to base64 data URLs for offline viewing.
+ * Returns both the converted messages and a map of unique avatars.
+ */
 export async function embedAvatarsInRows(rows: ExportMessage[]) {
-  const map = new Map(); // url -> dataURL|null (if failed)
+  const map = new Map<string, string | null>(); // url -> dataURL|null (if failed)
   for (const m of rows) {
     const u = m.avatar;
     if (!u || u.startsWith('data:')) continue;
     if (!map.has(u)) {
       try {
-        map.set(u, await fetchAsDataURL(u));
-      } catch {
+        console.log(`[Avatar Fetch] Attempting to fetch: ${u.substring(0, 100)}...`);
+        const dataUrl = await fetchAsDataURL(u);
+        console.log(`[Avatar Fetch] SUCCESS: ${dataUrl.substring(0, 50)}...`);
+        map.set(u, dataUrl);
+      } catch (err) {
+        console.error(`[Avatar Fetch] FAILED for ${u.substring(0, 100)}...`, err);
         map.set(u, null);
       }
     }
   }
-  return rows.map(m => {
+  const converted = rows.map(m => {
     const u = m.avatar;
     if (!u || u.startsWith('data:')) return m;
     const inlined = map.get(u);
     return { ...m, avatar: inlined || null };
+  });
+  return { messages: converted, avatarMap: map };
+}
+
+/**
+ * Extracts a stable user ID from a Teams avatar URL.
+ * E.g., "https://.../8:orgid:cf7134d2-b5df-4b93-bbeb-e68d4545bb89/..." -> "8orgid-cf7134d2"
+ */
+export function extractAvatarId(url: string): string {
+  const match = url.match(/\/([^/]+)\/profilepicturev2/);
+  if (match) {
+    const fullId = match[1];
+    // Extract the first part of the UUID for a shorter ID
+    const parts = fullId.split(':');
+    if (parts.length >= 3) {
+      const prefix = parts[1]; // "orgid"
+      const uuid = parts[2].split('-')[0]; // First part of UUID
+      return `${parts[0]}${prefix}-${uuid}`;
+    }
+  }
+  // Fallback: use a hash of the URL
+  let hash = 0;
+  for (let i = 0; i < url.length; i++) {
+    const char = url.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return `avatar-${Math.abs(hash).toString(36)}`;
+}
+
+/**
+ * Normalizes avatars by moving them to a meta.avatars map with IDs.
+ * Returns messages with avatarId instead of avatar URL.
+ */
+export function normalizeAvatars(messages: ExportMessage[], avatarMap: Map<string, string | null>) {
+  const avatars: Record<string, string> = {};
+  const urlToId = new Map<string, string>();
+
+  // Build avatars map with stable IDs
+  avatarMap.forEach((dataUrl, url) => {
+    if (dataUrl) {
+      const id = extractAvatarId(url);
+      avatars[id] = dataUrl;
+      urlToId.set(url, id);
+    }
+  });
+
+  // Replace avatar URLs with avatarId references
+  const normalized = messages.map(m => {
+    if (!m.avatar) return m;
+    const id = urlToId.get(m.avatar);
+    if (id) {
+      const { avatar, ...rest } = m;
+      return { ...rest, avatarId: id };
+    }
+    // If avatar failed to convert, remove it
+    const { avatar, ...rest } = m;
+    return rest;
+  });
+
+  return { messages: normalized, avatars };
+}
+
+/**
+ * Removes avatar data entirely from messages.
+ */
+export function removeAvatars(messages: ExportMessage[]) {
+  return messages.map(m => {
+    if (!m.avatar) return m;
+    const { avatar, ...rest } = m;
+    return rest;
   });
 }
 

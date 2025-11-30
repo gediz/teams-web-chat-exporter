@@ -602,7 +602,7 @@
         lang={options.lang || 'en'}
         disableReplies={options.format === 'txt'}
         disableReactions={options.format === 'txt'}
-        disableAvatars={options.format === 'txt'}
+        disableAvatars={options.format === 'txt' || options.format === 'csv'}
         on:includeRepliesChange={(e) => updateOption('includeReplies', e.detail)}
         on:includeReactionsChange={(e) => updateOption('includeReactions', e.detail)}
         on:includeSystemChange={(e) => updateOption('includeSystem', e.detail)}
