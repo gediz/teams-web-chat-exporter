@@ -9,6 +9,7 @@ import { extractReactions } from '../content/reactions';
 import { extractReplyContext } from '../content/replies';
 import { extractTextWithEmojis, normalizeMentions } from '../content/text';
 import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scroll';
+import { extractChatTitle } from '../content/title';
 import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ReplyContext, ScrapeOptions } from '../types/shared';
 
 // Typed globals for Firefox builds
@@ -763,8 +764,9 @@ runtime.onMessage.addListener((msg, _sender, sendResponse) => {
                 } catch (e) { /* ignore */ }
                 hud(`extracted ${messages.length} messages`);
                 currentRunStartedAt = null;
-                // meta can keep title; add timeRange later if you want
-                sendResponse({ messages, meta: { count: messages.length, title: document.title, startAt: startAt || null, endAt: endAt || null } });
+                // Extract the actual chat title instead of using document.title
+                const chatTitle = extractChatTitle();
+                sendResponse({ messages, meta: { count: messages.length, title: chatTitle, startAt: startAt || null, endAt: endAt || null } });
             }
         } catch (e: any) {
             console.error('[Teams Exporter] Error:', e);
