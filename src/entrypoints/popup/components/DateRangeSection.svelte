@@ -13,7 +13,6 @@
   export let activeRange = "none";
   export let ranges: QuickRange[] = [];
   export let lang = "en";
-  export let theme: "light" | "dark" = "light";
   export let highlightMode: "none" | "quick-range" | "manual" = "none";
 
   const dispatch = createEventDispatcher<{

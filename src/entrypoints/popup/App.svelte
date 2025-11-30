@@ -660,7 +660,6 @@
         activeRange={quickActive}
         ranges={quickRanges}
         lang={options.lang || "en"}
-        theme={options.theme || "light"}
         {highlightMode}
         on:changeStart={(e) => updateOption("startAt", e.detail)}
         on:changeEnd={(e) => updateOption("endAt", e.detail)}
