@@ -21,15 +21,29 @@ src/
 │   │   └── popup.css       # Styles
 │   ├── background.ts       # Service worker
 │   └── content.ts          # Content script (scraper)
+├── background/             # Background script modules
+│   ├── builders.ts         # Export format builders
+│   └── download.ts         # Download handler
+├── content/                # Content script modules
+│   ├── scroll.ts           # Auto-scroll logic
+│   ├── reactions.ts        # Reaction parsing
+│   ├── replies.ts          # Reply parsing
+│   ├── attachments.ts      # Attachment parsing
+│   └── text.ts             # Text extraction
 ├── utils/                  # Shared utilities
 │   ├── time.ts             # Time formatting
 │   ├── text.ts             # Text processing
 │   ├── dom.ts              # DOM helpers
 │   ├── options.ts          # Settings persistence
-│   └── messaging.ts        # Chrome messaging
+│   ├── messaging.ts        # Chrome messaging
+│   ├── badge.ts            # Badge updates
+│   └── messages.ts         # Message utilities
+├── types/                  # TypeScript types
+│   ├── messaging.ts        # Message types
+│   └── shared.ts           # Shared types
 ├── i18n/                   # Internationalization
 │   └── locales/            # Translation files
-└── public/
+└── public/                 # Public assets
     └── icons/              # Extension icons
 ```
 

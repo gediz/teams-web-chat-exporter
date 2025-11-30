@@ -11,10 +11,13 @@ This document contains technical details for the Teams Chat Exporter extension, 
 │   │   ├── popup/          # Svelte UI for the popup
 │   │   ├── background.ts   # Service worker
 │   │   └── content.ts      # Content script (scraper)
-│   ├── utils/              # Shared utilities (time, text, dom)
-│   ├── i18n/               # Internationalization
-│   └── public/             # Static assets (icons)
-├── docs/                   # Detailed documentation
+│   ├── background/         # Background script modules
+│   ├── content/            # Content script modules
+│   ├── utils/              # Shared utilities
+│   ├── types/              # TypeScript types
+│   └── i18n/               # Internationalization
+├── public/                 # Static assets (icons)
+├── docs/                   # Documentation
 ├── wxt.config.ts           # WXT configuration
 └── package.json            # Dependencies & Scripts
 ```
@@ -40,14 +43,21 @@ npm run dev:firefox
 ### 3. Build for Production
 
 ```bash
+# Build for Chrome/Edge
+npm run build
+
+# Build for Firefox
+npm run build:firefox
+
 # Build for all browsers
 npm run build && npm run build:firefox
 
 # Create store-ready ZIPs
-npm run zip && npm run zip:firefox
+npm run zip              # Chrome
+npm run zip:firefox      # Firefox
 ```
 
-See [Deployment Guide](docs/DEPLOYMENT.md) for detailed deployment instructions.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for store publishing instructions.
 
 ## Testing Checklist
 
@@ -74,11 +84,6 @@ Run these tests on both Chrome and Firefox before release:
 - [ ] **Firefox**: Downloads work (uses blob URL fallback).
 - [ ] **Firefox**: Storage persistence works across restarts.
 - [ ] **Performance**: Memory usage is stable during large exports.
-
-## Documentation
-
-- [Deployment Guide](docs/DEPLOYMENT.md): How to build and publish.
-- [Migration Notes](docs/MIGRATION_NOTES.md): History of the WXT port.
 
 ## Troubleshooting
 
