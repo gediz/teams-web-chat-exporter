@@ -1,7 +1,7 @@
 {
-  "name": "teams-chat-exporter-wxt",
+  "name": "teams-web-chat-exporter",
   "version": "1.1.0",
-  "description": "Teams Chat Exporter - WXT Framework Migration",
+  "description": "Export Microsoft Teams web chat conversations to JSON, CSV, HTML, or text formats",
   "type": "module",
   "private": true,
   "scripts": {
