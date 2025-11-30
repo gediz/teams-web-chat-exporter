@@ -68,7 +68,6 @@
   async function initCalendars() {
     const { Calendar } = await import("vanilla-calendar-pro");
     const isDark = document.body.dataset.theme === "dark";
-    const today = new Date().toISOString().split("T")[0];
 
     // Map lang to calendar locale
     const calendarLocale = lang === "zh-CN" ? "zh" : lang.split("-")[0];
@@ -77,7 +76,6 @@
       startCalendar = new Calendar(startInputEl, {
         inputMode: true,
         selectedTheme: isDark ? "dark" : "light",
-        dateMax: today as any,
         locale: calendarLocale,
         onClickDate(self: any) {
           const selectedDate = self.context.selectedDates?.[0];
@@ -100,7 +98,6 @@
       endCalendar = new Calendar(endInputEl, {
         inputMode: true,
         selectedTheme: isDark ? "dark" : "light",
-        dateMax: today as any,
         locale: calendarLocale,
         onClickDate(self: any) {
           const selectedDate = self.context.selectedDates?.[0];
