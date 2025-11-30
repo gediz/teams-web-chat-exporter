@@ -11,9 +11,7 @@ export async function embedAvatarsInRows(rows: ExportMessage[]) {
     if (!u || u.startsWith('data:')) continue;
     if (!map.has(u)) {
       try {
-        console.log(`[Avatar Fetch] Attempting to fetch: ${u.substring(0, 100)}...`);
         const dataUrl = await fetchAsDataURL(u);
-        console.log(`[Avatar Fetch] SUCCESS: ${dataUrl.substring(0, 50)}...`);
         map.set(u, dataUrl);
       } catch (err) {
         console.error(`[Avatar Fetch] FAILED for ${u.substring(0, 100)}...`, err);
