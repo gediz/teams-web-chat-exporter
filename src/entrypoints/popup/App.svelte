@@ -66,19 +66,19 @@
   const DAY_MS = 24 * 60 * 60 * 1000;
   const languageOptions = [
     { value: "en", label: "English" },
-    { value: "zh-CN", label: "简体中文" },
-    { value: "pt-BR", label: "Português (Brasil)" },
-    { value: "nl", label: "Nederlands" },
-    { value: "fr", label: "Français" },
-    { value: "de", label: "Deutsch" },
-    { value: "it", label: "Italiano" },
-    { value: "ja", label: "日本語" },
-    { value: "ko", label: "한국어" },
-    { value: "ru", label: "Русский" },
-    { value: "es", label: "Español" },
-    { value: "tr", label: "Türkçe" },
-    { value: "ar", label: "العربية" },
-    { value: "he", label: "עברית" },
+    { value: "ar", label: "Arabic (العربية)" },
+    { value: "zh-CN", label: "Chinese (Simplified) (简体中文)" },
+    { value: "nl", label: "Dutch (Nederlands)" },
+    { value: "fr", label: "French (Français)" },
+    { value: "de", label: "German (Deutsch)" },
+    { value: "he", label: "Hebrew (עברית)" },
+    { value: "it", label: "Italian (Italiano)" },
+    { value: "ja", label: "Japanese (日本語)" },
+    { value: "ko", label: "Korean (한국어)" },
+    { value: "pt-BR", label: "Portuguese (Brazil) (Português)" },
+    { value: "ru", label: "Russian (Русский)" },
+    { value: "es", label: "Spanish (Español)" },
+    { value: "tr", label: "Turkish (Türkçe)" },
   ];
 
   let options: Options = { ...DEFAULT_OPTIONS };
