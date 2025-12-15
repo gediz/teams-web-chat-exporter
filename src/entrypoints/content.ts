@@ -29,6 +29,7 @@ export default defineContentScript({
     matches: [
         'https://*.teams.microsoft.com/*',
         'https://teams.cloud.microsoft/*',
+        'https://teams.live.com/*',
     ],
     runAt: 'document_idle',
     allFrames: true,

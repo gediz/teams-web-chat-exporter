@@ -56,7 +56,7 @@ tabs.onUpdated.addListener((tabId: number, changeInfo: chrome.tabs.TabChangeInfo
 const activeExports = new Map<number, ActiveExportInfo>(); // tabId -> { startedAt, lastStatus }
 // TERMINAL_PHASES: 'complete' = success, 'error' = failure, 'empty' = no data found (not a failure)
 const TERMINAL_PHASES = new Set(['complete', 'error', 'empty']);
-const TEAMS_URL_PATTERN = /^https:\/\/(.*\.)?(teams\.microsoft\.com|cloud\.microsoft)\//i;
+const TEAMS_URL_PATTERN = /^https:\/\/(.*\.)?(teams\.microsoft\.com|cloud\.microsoft|teams\.live\.com)\//i;
 
 function isTeamsUrl(url: string | null | undefined): boolean {
     return TEAMS_URL_PATTERN.test(url || '');
