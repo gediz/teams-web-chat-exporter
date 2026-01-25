@@ -241,16 +241,31 @@ export default defineContentScript({
                 '[data-tid="quoted-reply-card"]',
                 '[data-tid="referencePreview"]',
                 '[role="group"][aria-label^="Begin Reference"]',
-                '[data-tid="adaptive-card"]',
-                '.ac-adaptiveCard',
-                '[aria-label*="card message"]',
             ];
             const out: string[] = [];
+            const seen = new Set<string>();
+            const pushBlock = (code: string) => {
+                const cleaned = code.replace(/\u00a0/g, ' ').replace(/\n+$/, '');
+                if (!cleaned.trim()) return;
+                const key = cleaned.trim();
+                if (seen.has(key)) return;
+                seen.add(key);
+                out.push(cleaned);
+            };
             root.querySelectorAll('pre').forEach(pre => {
                 if (skip.some(sel => pre.closest(sel))) return;
-                const code = extractCodeBlock(pre);
-                if (code.trim()) out.push(code);
+                pushBlock(extractCodeBlock(pre));
             });
+            const containers = new Set<Element>();
+            root.querySelectorAll<HTMLElement>('.cm-line').forEach(line => {
+                const container = line.closest('pre, code') || line.parentElement;
+                if (container) containers.add(container);
+            });
+            for (const container of containers) {
+                if (container.tagName === 'PRE') continue;
+                if (skip.some(sel => container.closest(sel))) continue;
+                pushBlock(extractCodeBlock(container));
+            }
             return out;
         }
 
@@ -258,6 +273,26 @@ export default defineContentScript({
         function extractTextWithEmojis(root: Element | null): string {
             if (!root) return '';
             let out = '';
+            const collectText = (node: Element | null): string => {
+                if (!node) return '';
+                let buf = '';
+                const walkCollect = (n: ChildNode) => {
+                    if (n.nodeType === Node.TEXT_NODE) { buf += n.nodeValue; return; }
+                    if (n.nodeType !== Node.ELEMENT_NODE) return;
+                    const el = n as Element;
+                    const tag = el.tagName;
+                    if (tag === 'BR') { buf += '\n'; return; }
+                    if (tag === 'IMG') { buf += (el.getAttribute('alt') || el.getAttribute('aria-label') || ''); return; }
+                    if (tag === 'CODE') { buf += '`'; for (const c of el.childNodes) walkCollect(c); buf += '`'; return; }
+                    if (tag === 'PRE') { const code = extractCodeBlock(el); if (code) buf += `\n\`\`\`\n${code}\n\`\`\`\n`; return; }
+                    const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/;
+                    const start = buf.length;
+                    for (const c of el.childNodes) walkCollect(c);
+                    if (blockish.test(tag) && buf.length > start) buf += '\n';
+                };
+                walkCollect(node);
+                return buf.replace(/\n{3,}/g, '\n\n').trim();
+            };
             const walk = (n: ChildNode) => {
                 if (n.nodeType === Node.TEXT_NODE) { out += n.nodeValue; return; }
                 if (n.nodeType !== Node.ELEMENT_NODE) return;
@@ -267,6 +302,16 @@ export default defineContentScript({
                 if (tag === 'IMG') { out += (el.getAttribute('alt') || el.getAttribute('aria-label') || ''); return; }
                 if (tag === 'CODE') { out += '`'; for (const c of el.childNodes) walk(c); out += '`'; return; }
                 if (tag === 'PRE') { const code = extractCodeBlock(el); if (code) out += `\n\`\`\`\n${code}\n\`\`\`\n`; return; }
+                if (tag === 'BLOCKQUOTE') {
+                    const quoted = collectText(el);
+                    if (quoted) {
+                        const lines = quoted.split(/\n/);
+                        if (out && !out.endsWith('\n')) out += '\n';
+                        out += lines.map(line => (line ? `> ${line}` : '>')).join('\n');
+                        out += '\n';
+                    }
+                    return;
+                }
                 const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/;
                 const start = out.length;
                 for (const c of el.childNodes) walk(c);
@@ -283,7 +328,9 @@ export default defineContentScript({
         async function waitForPreviewImages(item: Element, timeoutMs = 350) {
             const imgs = Array.from(
                 item.querySelectorAll<HTMLImageElement>(
-                    '[data-tid="file-preview-root"][amspreviewurl] img[data-tid="rich-file-preview-image"]',
+                    '[data-tid="file-preview-root"][amspreviewurl] img[data-tid="rich-file-preview-image"],' +
+                    'span[itemtype="http://schema.skype.com/AMSImage"] img[data-gallery-src],' +
+                    'img[itemtype="http://schema.skype.com/AMSImage"][data-gallery-src]',
                 ),
             );
             if (!imgs.length) return;
@@ -590,7 +637,7 @@ export default defineContentScript({
               const reactions = opts.includeReactions ? await extractReactions(item) : [];
 
               await waitForPreviewImages(item, 250);
-              const attachments = extractAttachments(item, body);
+              const attachments = await extractAttachments(item, body);
               const replyTo = opts.includeReplies === false ? null : extractReplyContext(item, body);
 
             const mid = body.getAttribute('data-mid') || item.id || `${ts}#${author}`;
@@ -885,14 +932,16 @@ export default defineContentScript({
                   '[data-tid="quoted-reply-card"]',
                   '[data-tid="referencePreview"]',
                   '[role="group"][aria-label^="Begin Reference"]',
-                  '[data-tid="adaptive-card"]',
-                  '.ac-adaptiveCard',
-                  '[aria-label*="card message"]',
                   'table[itemprop="copy-paste-table"]'
               ];
             for (const sel of kill) {
                 clone.querySelectorAll(sel).forEach((n: Element) => n.remove());
             }
+            const cardSelectors = ['[data-tid="adaptive-card"]', '.ac-adaptiveCard', '[aria-label*="card message"]'];
+            clone.querySelectorAll(cardSelectors.join(',')).forEach((n: Element) => {
+                if (n.querySelector('pre, code, .cm-line')) return;
+                n.remove();
+            });
 
             // Headings like "Begin Reference, …"
             clone.querySelectorAll('div[role="heading"]').forEach((h: Element) => {

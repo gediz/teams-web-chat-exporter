@@ -27,6 +27,44 @@ export function extractTextWithEmojis(root: Element | null): string {
     walkCode(el);
     return code.replace(/\u00a0/g, ' ').replace(/\n+$/, '');
   };
+  const collectText = (node: Element | null): string => {
+    if (!node) return '';
+    let buf = '';
+    const walkCollect = (n: ChildNode) => {
+      if (n.nodeType === Node.TEXT_NODE) {
+        buf += n.nodeValue;
+        return;
+      }
+      if (n.nodeType !== Node.ELEMENT_NODE) return;
+      const el = n as Element;
+      const tag = el.tagName;
+      if (tag === 'BR') {
+        buf += '\n';
+        return;
+      }
+      if (tag === 'IMG') {
+        buf += (el.getAttribute('alt') || el.getAttribute('aria-label') || '');
+        return;
+      }
+      if (tag === 'CODE') {
+        buf += '`';
+        for (const c of el.childNodes) walkCollect(c);
+        buf += '`';
+        return;
+      }
+      if (tag === 'PRE') {
+        const code = extractCodeBlock(el);
+        if (code) buf += `\n\`\`\`\n${code}\n\`\`\`\n`;
+        return;
+      }
+      const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/;
+      const start = buf.length;
+      for (const c of el.childNodes) walkCollect(c);
+      if (blockish.test(tag) && buf.length > start) buf += '\n';
+    };
+    walkCollect(node);
+    return buf.replace(/\n{3,}/g, '\n\n').trim();
+  };
   const walk = (n: ChildNode) => {
     if (n.nodeType === Node.TEXT_NODE) {
       out += n.nodeValue;
@@ -52,6 +90,16 @@ export function extractTextWithEmojis(root: Element | null): string {
     if (tag === 'PRE') {
       const code = extractCodeBlock(el);
       if (code) out += `\n\`\`\`\n${code}\n\`\`\`\n`;
+      return;
+    }
+    if (tag === 'BLOCKQUOTE') {
+      const quoted = collectText(el);
+      if (quoted) {
+        const lines = quoted.split(/\n/);
+        if (out && !out.endsWith('\n')) out += '\n';
+        out += lines.map(line => (line ? `> ${line}` : '>')).join('\n');
+        out += '\n';
+      }
       return;
     }
     const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/;
