@@ -4,6 +4,29 @@ import { textFrom } from '../utils/text';
 export function extractTextWithEmojis(root: Element | null): string {
   if (!root) return '';
   let out = '';
+  const extractCodeBlock = (el: Element) => {
+    let code = '';
+    const walkCode = (n: ChildNode) => {
+      if (n.nodeType === Node.TEXT_NODE) {
+        code += n.nodeValue;
+        return;
+      }
+      if (n.nodeType !== Node.ELEMENT_NODE) return;
+      const child = n as Element;
+      const tagName = child.tagName;
+      if (tagName === 'BR') {
+        code += '\n';
+        return;
+      }
+      if (tagName === 'IMG') {
+        code += (child.getAttribute('alt') || child.getAttribute('aria-label') || '');
+        return;
+      }
+      for (const c of child.childNodes) walkCode(c);
+    };
+    walkCode(el);
+    return code.replace(/\u00a0/g, ' ').replace(/\n+$/, '');
+  };
   const walk = (n: ChildNode) => {
     if (n.nodeType === Node.TEXT_NODE) {
       out += n.nodeValue;
@@ -20,6 +43,17 @@ export function extractTextWithEmojis(root: Element | null): string {
       out += (el.getAttribute('alt') || el.getAttribute('aria-label') || '');
       return;
     }
+    if (tag === 'CODE') {
+      out += '`';
+      for (const c of el.childNodes) walk(c);
+      out += '`';
+      return;
+    }
+    if (tag === 'PRE') {
+      const code = extractCodeBlock(el);
+      if (code) out += `\n\`\`\`\n${code}\n\`\`\`\n`;
+      return;
+    }
     const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/;
     const start = out.length;
     for (const c of el.childNodes) walk(c);
@@ -27,6 +61,34 @@ export function extractTextWithEmojis(root: Element | null): string {
   };
   walk(root);
   return out.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+export function extractTables(root: Element | null): string[][][] {
+  if (!root) return [];
+  const skip = [
+    '[data-tid="quoted-reply-card"]',
+    '[data-tid="referencePreview"]',
+    '[role="group"][aria-label^="Begin Reference"]',
+    '[data-tid="adaptive-card"]',
+    '.ac-adaptiveCard',
+    '[aria-label*="card message"]',
+  ];
+  const tables = Array.from(root.querySelectorAll<HTMLTableElement>('table[itemprop="copy-paste-table"]'));
+  const out: string[][][] = [];
+  for (const table of tables) {
+    if (skip.some(sel => table.closest(sel))) continue;
+    const rows: string[][] = [];
+    table.querySelectorAll('tr').forEach(tr => {
+      const cells = Array.from(tr.querySelectorAll<HTMLElement>('th, td'));
+      if (!cells.length) return;
+      const row = cells
+        .map(cell => extractTextWithEmojis(cell).trim())
+        .map(cell => cell.replace(/\s+\n/g, '\n').replace(/[ \t]{2,}/g, ' '));
+      rows.push(row);
+    });
+    if (rows.length) out.push(rows);
+  }
+  return out;
 }
 
 // Normalize Teams mentions into plain text (@name).

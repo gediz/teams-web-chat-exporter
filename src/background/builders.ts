@@ -164,13 +164,41 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
   const urlRe = /https?:\/\/[^\s<>"']+/g;
   const autolinkEscaped = (escaped: string) =>
     escaped.replace(urlRe, u => `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">${escapeHtml(u)}</a>`);
-  const formatText = (plain: string) => {
-    const escaped = escapeHtml(plain || '');
-    const linked = autolinkEscaped(escaped);
-    return linked
+  const formatInline = (segment: string) => {
+    const parts = segment.split('`');
+    let html = '';
+    if (parts.length >= 3 && parts.length % 2 === 1) {
+      html = parts
+        .map((part, idx) => {
+          const escaped = escapeHtml(part);
+          if (idx % 2 === 1) return `<code>${escaped}</code>`;
+          return autolinkEscaped(escaped);
+        })
+        .join('');
+    } else {
+      const escaped = escapeHtml(segment);
+      html = autolinkEscaped(escaped);
+    }
+    return html
       .replace(/\r\n/g, '\n')
       .replace(/\n{2,}/g, '<br>&nbsp;<br>')
       .replace(/\n/g, '<br>');
+  };
+  const formatText = (plain: string) => {
+    const raw = plain || '';
+    const fenceParts = raw.split('```');
+    if (fenceParts.length >= 3 && fenceParts.length % 2 === 1) {
+      return fenceParts
+        .map((part, idx) => {
+          if (idx % 2 === 1) {
+            const code = part.replace(/^\n/, '').replace(/\n$/, '');
+            return `<pre class="code-block"><code>${escapeHtml(code)}</code></pre>`;
+          }
+          return formatInline(part);
+        })
+        .join('');
+    }
+    return formatInline(raw);
   };
   const initials = (name = '') => (name.trim().split(/\s+/).map(p => p[0]).join('').slice(0, 2) || '•');
 
@@ -186,6 +214,9 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     .avt{flex:0 0 36px; width:36px; height:36px; border-radius:50%; background:#eef2f7; overflow:hidden; display:flex; align-items:center; justify-content:center; font-weight:600; color:#334155}
     .avt img{width:36px; height:36px; border-radius:50%; display:block}
     .main{flex:1}
+    code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;background:#f3f4f6;border:1px solid #e5e7eb;padding:1px 4px;border-radius:4px}
+    pre.code-block{background:#0b1020;color:#e5e7eb;border-radius:10px;padding:10px 12px;overflow:auto;margin:8px 0;border:1px solid #111827}
+    pre.code-block code{background:none;border:none;padding:0;color:inherit;white-space:pre}
     .hdr{color:var(--muted); font-size:12px; margin-bottom:6px}
     .hdr .rel{margin-left:6px; font-style:italic}
     .hdr .edited{font-style:italic}
@@ -197,9 +228,26 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     .att a{word-break:break-word; overflow-wrap:anywhere; text-decoration:none}
     .att-meta{margin-top:6px; font-size:12px; color:#6b7280}
     .att-img{padding:0; overflow:hidden}
-    .att-img img{display:block; width:100%; height:auto; max-height:340px; object-fit:contain; background:#fff}
+    .att-img img{display:block; width:100%; height:auto; max-height:340px; object-fit:contain; background:#fff; cursor:zoom-in}
     .att-img .att-meta{padding:8px}
+    .att-preview{border:1px solid var(--border); border-radius:12px; overflow:hidden; background:#fff; display:flex; flex-direction:column}
+    .att-preview img{display:block; width:100%; height:auto; background:#111}
+    .att-preview-body{padding:8px 10px}
+    .att-preview-source{font-size:12px; color:var(--muted); margin-bottom:4px}
+    .att-preview-title{font-weight:600; margin-bottom:4px}
+    .att-preview-lines{font-size:13px; color:#374151}
+    .tbl-wrap{margin:8px 0; border:1px solid var(--border); border-radius:10px; overflow-x:auto; background:#fff}
+    .tbl{width:100%; border-collapse:collapse; font-size:13px}
+    .tbl td,.tbl th{padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:top}
+    .tbl tr:last-child td{border-bottom:none}
+    .tbl tr:nth-child(even) td{background:#f8fafc}
+    .img-modal{position:fixed; inset:0; background:rgba(0,0,0,0.8); display:flex; align-items:center; justify-content:center; z-index:9999}
+    .img-modal[hidden]{display:none}
+    .img-modal img{max-width:96vw; max-height:92vh; object-fit:contain; box-shadow:0 12px 40px rgba(0,0,0,0.4); background:#111}
+    .img-modal .close{position:fixed; top:16px; right:16px; width:36px; height:36px; border-radius:18px; border:0; background:#111; color:#fff; font-size:20px; line-height:36px; cursor:pointer}
     .reactions{margin-top:6px; font-size:12px; color:#374151}
+    .chip{display:inline-flex; gap:6px; align-items:center; padding:2px 8px; border-radius:999px; background:#f3f4f6; border:1px solid transparent}
+    .chip.self{border-color:#2563eb; box-shadow:0 0 0 1px rgba(37,99,235,0.2) inset}
     .divider{position:relative; text-align:center; margin:18px 0}
     .divider:before, .divider:after{content:""; position:absolute; top:50%; width:42%; height:1px; background:var(--border)}
     .divider:before{left:0} .divider:after{right:0}
@@ -209,6 +257,8 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     .compact .reply{display:none}
     .compact .att{max-height:0; opacity:0; pointer-events:none; padding:0; border:none; margin:0}
     .compact .att-img{max-height:0; opacity:0; pointer-events:none; padding:0; border:none; margin:0}
+    .compact .att-preview{max-height:0; opacity:0; pointer-events:none; padding:0; border:none; margin:0}
+    .compact .tbl-wrap{max-height:0; opacity:0; pointer-events:none; padding:0; border:none; margin:0}
     .compact .atts{gap:0; margin-top:0}
     .compact .avt{display:none}
     .compact .msg{margin:8px 0; border-color:rgba(0,0,0,0.08)}
@@ -235,6 +285,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
       const tsLabel = fmtTs(ts);
       const reactions = Array.isArray(m.reactions) ? m.reactions : [];
       const atts = Array.isArray(m.attachments) ? m.attachments : [];
+      const tables = Array.isArray(m.tables) ? m.tables : [];
       const replyTo = m.replyTo;
       const text = formatText(m.text || '');
       const avatar = m.avatar
@@ -242,7 +293,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
         : escapeHtml((m.author || '').split(' ').map(p => p[0]).join('').slice(0, 2) || '•');
 
       const reactHtml = reactions
-        .map(r => `<span class="chip">${escapeHtml(r.emoji || '')} ${r.count}${r.reactors ? ` · ${escapeHtml(r.reactors.join(', '))}` : ''}</span>`)
+        .map(r => `<span class="chip${r.self ? ' self' : ''}">${escapeHtml(r.emoji || '')} ${r.count}${r.reactors ? ` · ${escapeHtml(r.reactors.join(', '))}` : ''}</span>`)
         .join(' ');
 
       const attsHtml = atts
@@ -253,12 +304,50 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
           const type = att.type ? ` [${escapeHtml(att.type)}]` : '';
           const size = att.size ? ` (${escapeHtml(att.size)})` : '';
           const owner = att.owner ? ` — ${escapeHtml(att.owner)}` : '';
-          const isImage = att.href && /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.href);
-          if (isImage) {
-            return `<div class="att-img"><img src="${href}" alt="${label}" />${metaText}</div>`;
+          if (att.kind === 'preview') {
+            const lines = (att.metaText || '')
+              .split(/\n+/)
+              .map(s => s.trim())
+              .filter(Boolean);
+            const title = escapeHtml(lines[0] || att.label || 'Preview');
+            const rest = lines.slice(1);
+            const restHtml = rest.length
+              ? `<div class="att-preview-lines">${rest.map(l => `<div>${escapeHtml(l)}</div>`).join('')}</div>`
+              : '';
+            const img = href ? `<img src="${href}" alt="${label}" />` : '';
+            const source = att.label ? `<div class="att-preview-source">${label}</div>` : '';
+            return `<div class="att-preview">${img}<div class="att-preview-body">${source}<div class="att-preview-title">${title}</div>${restHtml}</div></div>`;
+          }
+          const isImage =
+            !!att.href &&
+            (
+              /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.href) ||
+              /asyncgw\.teams\.microsoft\.com/i.test(att.href) ||
+              /asm\.skype\.com/i.test(att.href) ||
+              /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.label || '') ||
+              /^(png|jpe?g|gif|webp)$/i.test(att.type || '')
+            );
+
+          if (isImage && href) {
+            return `<div class="att-img"><img src="${href}" alt="${label}" data-full="${href}" />${metaText}</div>`;
           }
           const link = href ? `<a href="${href}" target="_blank" rel="noopener">${label}</a>` : label;
           return `<div class="att">${link}${type}${size}${owner}${metaText}</div>`;
+        })
+        .join('');
+
+      const tablesHtml = tables
+        .map(table => {
+          if (!Array.isArray(table) || !table.length) return '';
+          const rowsHtml = table
+            .map(row => {
+              if (!Array.isArray(row) || !row.length) return '';
+              const cells = row.map(cell => `<td>${formatText(cell || '')}</td>`).join('');
+              return `<tr>${cells}</tr>`;
+            })
+            .join('');
+          if (!rowsHtml) return '';
+          return `<div class="tbl-wrap"><table class="tbl"><tbody>${rowsHtml}</tbody></table></div>`;
         })
         .join('');
 
@@ -272,6 +361,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
         <div class="hdr">${escapeHtml(m.author || '')} — <span title="${escapeHtml(ts)}">${tsLabel}</span>${rel ? `<span class="rel">(${rel})</span>` : ''}${m.edited ? ' <span class="edited">• edited</span>' : ''}</div>
         ${replyHtml}
         <div>${text || '<span class="meta">(no text)</span>'}</div>
+        ${tablesHtml || ''}
         ${reactHtml ? `<div class="reactions">${reactHtml}</div>` : ''}
         ${attsHtml ? `<div class="atts">${attsHtml}</div>` : ''}
       </div>
@@ -279,9 +369,14 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     })
     .join('');
 
-  const script = `<script>(()=>{const btn=document.querySelector('[data-toggle-compact]');if(!btn)return;const key='teamsExporterCompact';const apply=(c)=>{document.body.classList.toggle('compact',c);btn.textContent=c?'Switch to expanded view':'Switch to compact view';};const stored=localStorage.getItem(key);let compact=stored==='1';apply(compact);btn.addEventListener('click',()=>{compact=!compact;apply(compact);try{localStorage.setItem(key,compact?'1':'0');}catch(_){}});})();</script>`;
+  const modal = `<div class="img-modal" id="img-modal" hidden>
+    <button class="close" type="button" aria-label="Close">X</button>
+    <img alt="full size image" />
+  </div>`;
 
-  return `<!doctype html><meta charset="utf-8">${style}${head}${body}${script}`;
+  const script = `<script>(()=>{const btn=document.querySelector('[data-toggle-compact]');const key='teamsExporterCompact';const apply=(c)=>{document.body.classList.toggle('compact',c);if(btn)btn.textContent=c?'Switch to expanded view':'Switch to compact view';};const stored=localStorage.getItem(key);let compact=stored==='1';apply(compact);if(btn){btn.addEventListener('click',()=>{compact=!compact;apply(compact);try{localStorage.setItem(key,compact?'1':'0');}catch(_){}});}const modal=document.getElementById('img-modal');const modalImg=modal?modal.querySelector('img'):null;const closeBtn=modal?modal.querySelector('.close'):null;const close=()=>{if(modal){modal.hidden=true;}};const open=(src,alt)=>{if(!modal||!modalImg)return;modalImg.src=src;modalImg.alt=alt||'image';modal.hidden=false;};if(closeBtn){closeBtn.addEventListener('click',close);}if(modal){modal.addEventListener('click',(e)=>{if(e.target===modal)close();});}document.addEventListener('keydown',(e)=>{if(e.key==='Escape')close();});document.body.addEventListener('click',(e)=>{const t=e.target;if(!(t instanceof Element))return;const img=t.closest('.att-img img');if(!img)return;const src=img.getAttribute('data-full')||img.getAttribute('src');if(!src)return;open(src,img.getAttribute('alt')||'image');});})();</script>`;
+
+  return `<!doctype html><meta charset="utf-8">${style}${head}${body}${modal}${script}`;
 }
 
 // Encode text to a data URL to download from SW (works reliably in MV3)
