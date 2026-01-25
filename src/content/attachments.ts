@@ -7,7 +7,7 @@ export function extractAttachments(item: Element, body: Element): Attachment[] {
     const merged: Attachment = { ...prev };
     if (!merged.href && next.href) merged.href = next.href;
     if (!merged.label && next.label) merged.label = next.label;
-    for (const field of ['type', 'size', 'owner', 'metaText'] as const) {
+    for (const field of ['type', 'size', 'owner', 'metaText', 'dataUrl'] as const) {
       const val = next[field];
       if (!merged[field] && val) merged[field] = val;
     }
@@ -78,6 +78,74 @@ export function extractAttachments(item: Element, body: Element): Attachment[] {
     const prev = map.get(key);
     map.set(key, prev ? merge(prev, att) : att);
   };
+  const imageToDataUrl = (img: HTMLImageElement | null) => {
+    if (!img) return null;
+    const src = img.getAttribute('src') || '';
+    if (!src.startsWith('blob:') && !src.startsWith('data:')) return null;
+    if (!img.complete || !img.naturalWidth || !img.naturalHeight) return null;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(img, 0, 0);
+      return canvas.toDataURL('image/png');
+    } catch {
+      return null;
+    }
+  };
+  const pickLargestImage = (images: HTMLImageElement[]) => {
+    let best: HTMLImageElement | null = null;
+    let bestArea = 0;
+    for (const img of images) {
+      const area = (img.naturalWidth || 0) * (img.naturalHeight || 0);
+      if (area > bestArea) {
+        bestArea = area;
+        best = img;
+      }
+    }
+    return best;
+  };
+  const extractAdaptiveCardPreview = (root: Element) => {
+    const cards = root.querySelectorAll<HTMLElement>('[data-tid="adaptive-card"], .ac-adaptiveCard');
+    if (!cards.length) return;
+
+    cards.forEach(card => {
+      const container = card.closest('[aria-label*="card message"]') || root;
+      const linkEl =
+        container.querySelector<HTMLAnchorElement>('a[data-testid="atp-safelink"][href^="http"]') ||
+        container.querySelector<HTMLAnchorElement>('a[href^="http"]') ||
+        root.querySelector<HTMLAnchorElement>('a[data-testid="atp-safelink"][href^="http"]') ||
+        root.querySelector<HTMLAnchorElement>('a[href^="http"]');
+      const linkHref = linkEl?.href || '';
+      if (!linkHref) return;
+      let host = '';
+      try {
+        host = new URL(linkHref).hostname;
+      } catch {
+        host = '';
+      }
+
+      const blocks = Array.from(card.querySelectorAll<HTMLElement>('.ac-textBlock'));
+      const lines = blocks
+        .map(b => textFrom(b))
+        .map(s => s.replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+
+      const imgCandidates = Array.from(card.querySelectorAll<HTMLImageElement>('img'));
+      const bestImg = pickLargestImage(imgCandidates);
+      const dataUrl = imageToDataUrl(bestImg);
+      let imgSrc = dataUrl || bestImg?.getAttribute('src') || '';
+      if (imgSrc.startsWith('blob:') && !dataUrl) imgSrc = '';
+
+      if (!lines.length && !imgSrc) return;
+
+      const label = host ? `${host} preview` : 'link preview';
+      const metaText = lines.join('\n');
+      push(card, { href: imgSrc || undefined, label, metaText, kind: 'preview' });
+    });
+  };
   const parseTitle = (t: string | null) => {
     if (!t) return null;
     const parts = t.split(/\n+/).map(s => s.trim()).filter(Boolean);
@@ -106,6 +174,17 @@ export function extractAttachments(item: Element, body: Element): Attachment[] {
   });
 
   for (const root of roots) {
+    root.querySelectorAll<HTMLElement>('[data-tid="file-preview-root"][amspreviewurl]').forEach(node => {
+      const href = node.getAttribute('amspreviewurl') || '';
+      if (!href) return;
+      const previewImg = node.querySelector<HTMLImageElement>('img[data-tid="rich-file-preview-image"]');
+      const dataUrl = imageToDataUrl(previewImg);
+      const label =
+        node.getAttribute('aria-label') ||
+        node.getAttribute('title') ||
+        'image';
+      push(node, { href, label, dataUrl: dataUrl || undefined });
+    });
     root.querySelectorAll('[data-testid="file-attachment"], [data-tid^="file-chiclet-"]').forEach(el => {
       const t = el.getAttribute('title') || el.getAttribute('aria-label') || '';
       const parsed = parseTitle(t);
@@ -130,13 +209,37 @@ export function extractAttachments(item: Element, body: Element): Attachment[] {
     contentRoot.querySelectorAll<HTMLAnchorElement>('a[data-testid="atp-safelink"], a[href^="http"]').forEach(a => {
       push(a, { href: a.href, label: textFrom(a) || a.getAttribute('aria-label') || a.title || a.href });
     });
-    contentRoot.querySelectorAll<HTMLImageElement>('[data-testid="lazy-image-wrapper"] img').forEach(img => {
-      const src = img.getAttribute('src') || '';
-      if (/^https?:\/\//i.test(src)) {
-        push(img, { href: src, label: img.getAttribute('alt') || 'image' });
-      }
-    });
+
+    // OLD:
+    // contentRoot.querySelectorAll<HTMLImageElement>('[data-testid="lazy-image-wrapper"] img').forEach(img => {
+    //   const src = img.getAttribute('src') || '';
+    //   if (/^https?:\/\//i.test(src)) {
+    //     push(img, { href: src, label: img.getAttribute('alt') || 'image' });
+    //   }
+    // });
+
+    // NEW: inline AMS images + file preview AMS URLs (full-size)
+    contentRoot
+      .querySelectorAll<HTMLImageElement>('span[itemtype="http://schema.skype.com/AMSImage"] img[data-gallery-src], img[itemtype="http://schema.skype.com/AMSImage"][data-gallery-src]')
+      .forEach(img => {
+        const gallery = img.getAttribute('data-gallery-src') || '';
+        const orig = img.getAttribute('data-orig-src') || '';
+        const href = gallery || orig;
+        if (!href) return;
+
+        const label =
+          img.getAttribute('alt') ||
+          img.getAttribute('aria-label') ||
+          img.getAttribute('title') ||
+          'image';
+
+        // This will build an Attachment { href, label, type/size/owner/metaText inferred }
+        push(img, { href, label });
+      });
+
+    extractAdaptiveCardPreview(contentRoot);
   }
+
 
   return Array.from(map.values());
 }

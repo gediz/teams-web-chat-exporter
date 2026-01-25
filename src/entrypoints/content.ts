@@ -7,7 +7,7 @@ import { formatElapsed, parseTimeStamp, startOfLocalDay } from '../utils/time';
 import { extractAttachments } from '../content/attachments';
 import { extractReactions } from '../content/reactions';
 import { extractReplyContext } from '../content/replies';
-import { extractTextWithEmojis, normalizeMentions } from '../content/text';
+  import { extractTables, extractTextWithEmojis, normalizeMentions } from '../content/text';
 import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scroll';
 import { extractChatTitle } from '../content/title';
 import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ReplyContext, ScrapeOptions } from '../types/shared';
@@ -220,6 +220,40 @@ export default defineContentScript({
             });
         }
 
+        const extractCodeBlock = (el: Element) => {
+            let code = '';
+            const walkCode = (n: ChildNode) => {
+                if (n.nodeType === Node.TEXT_NODE) { code += n.nodeValue; return; }
+                if (n.nodeType !== Node.ELEMENT_NODE) return;
+                const child = n as Element;
+                const tagName = child.tagName;
+                if (tagName === 'BR') { code += '\n'; return; }
+                if (tagName === 'IMG') { code += (child.getAttribute('alt') || child.getAttribute('aria-label') || ''); return; }
+                for (const c of child.childNodes) walkCode(c);
+            };
+            walkCode(el);
+            return code.replace(/\u00a0/g, ' ').replace(/\n+$/, '');
+        };
+
+        function extractCodeBlocks(root: Element | null): string[] {
+            if (!root) return [];
+            const skip = [
+                '[data-tid="quoted-reply-card"]',
+                '[data-tid="referencePreview"]',
+                '[role="group"][aria-label^="Begin Reference"]',
+                '[data-tid="adaptive-card"]',
+                '.ac-adaptiveCard',
+                '[aria-label*="card message"]',
+            ];
+            const out: string[] = [];
+            root.querySelectorAll('pre').forEach(pre => {
+                if (skip.some(sel => pre.closest(sel))) return;
+                const code = extractCodeBlock(pre);
+                if (code.trim()) out.push(code);
+            });
+            return out;
+        }
+
         // Text with emoji (IMG alt) + block breaks
         function extractTextWithEmojis(root: Element | null): string {
             if (!root) return '';
@@ -231,6 +265,8 @@ export default defineContentScript({
                 const tag = el.tagName;
                 if (tag === 'BR') { out += '\n'; return; }
                 if (tag === 'IMG') { out += (el.getAttribute('alt') || el.getAttribute('aria-label') || ''); return; }
+                if (tag === 'CODE') { out += '`'; for (const c of el.childNodes) walk(c); out += '`'; return; }
+                if (tag === 'PRE') { const code = extractCodeBlock(el); if (code) out += `\n\`\`\`\n${code}\n\`\`\`\n`; return; }
                 const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/;
                 const start = out.length;
                 for (const c of el.childNodes) walk(c);
@@ -244,6 +280,27 @@ export default defineContentScript({
         // Helpers -------------------------------------------------------
         const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+        async function waitForPreviewImages(item: Element, timeoutMs = 350) {
+            const imgs = Array.from(
+                item.querySelectorAll<HTMLImageElement>(
+                    '[data-tid="file-preview-root"][amspreviewurl] img[data-tid="rich-file-preview-image"]',
+                ),
+            );
+            if (!imgs.length) return;
+
+            const waits = imgs.map(img => {
+                if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) return Promise.resolve();
+                if (typeof img.decode === 'function') return img.decode().catch(() => {});
+                return new Promise<void>(resolve => {
+                    const done = () => resolve();
+                    img.addEventListener('load', done, { once: true });
+                    img.addEventListener('error', done, { once: true });
+                });
+            });
+
+            await Promise.race([Promise.all(waits), sleep(timeoutMs)]);
+        }
+
         const findPaneItemByMessageId = (id: string | null | undefined): Element | null => {
             if (!id) return null;
             const msgNode = document.querySelector(`[data-mid="${cssEscape(id)}"]`);
@@ -253,17 +310,31 @@ export default defineContentScript({
         async function hydrateSparseMessages(agg: Map<string, ContentAggregated>, opts: ScrapeOptions = {}) {
             if (!agg || agg.size === 0) return;
 
-            const needsHydration = (message: ExtractedMessage, item: Element) => {
-                const textNeeds = isPlaceholderText(message.text);
-                let reactionsNeed = false;
-                if (opts.includeReactions) {
-                    const hadReactions = Array.isArray(message.reactions) && message.reactions.length > 0;
-                    if (!hadReactions && item?.querySelector('[data-tid="diverse-reaction-pill-button"]')) {
-                        reactionsNeed = true;
-                    }
-                }
-                return { textNeeds, reactionsNeed, needs: textNeeds || reactionsNeed };
-            };
+              const needsHydration = (message: ExtractedMessage, item: Element) => {
+                  const textNeeds = isPlaceholderText(message.text);
+                  let reactionsNeed = false;
+                  if (opts.includeReactions) {
+                      const hadReactions = Array.isArray(message.reactions) && message.reactions.length > 0;
+                      const missingEmoji =
+                        hadReactions &&
+                        (message.reactions || []).some(r => !r.emoji || !r.emoji.trim());
+                      if ((!hadReactions || missingEmoji) && item?.querySelector('[data-tid="diverse-reaction-pill-button"]')) {
+                          reactionsNeed = true;
+                      }
+                  }
+                  let imagesNeed = false;
+                  if (item?.querySelector('[data-tid="file-preview-root"][amspreviewurl]')) {
+                      const atts = Array.isArray(message.attachments) ? message.attachments : [];
+                      const missingPreview = !atts.length || atts.some(att => {
+                          const href = att.href || '';
+                          if (!href) return false;
+                          if (!/asm\.skype\.com|asyncgw\.teams\.microsoft\.com/i.test(href)) return false;
+                          return !att.dataUrl;
+                      });
+                      if (missingPreview) imagesNeed = true;
+                  }
+                  return { textNeeds, reactionsNeed, imagesNeed, needs: textNeeds || reactionsNeed || imagesNeed };
+              };
 
             let pending: { id: string; item: Element }[] = [];
 
@@ -292,6 +363,11 @@ export default defineContentScript({
                     const item = findPaneItemByMessageId(id) || task.item;
                     if (!item) continue;
 
+                    const statusBefore = needsHydration(existing.message, item);
+                    if (statusBefore.imagesNeed) {
+                        await waitForPreviewImages(item, attempts === 0 ? 350 : 700);
+                    }
+
                     const lastAuthorRef = { value: existing.message.author || '' };
                     const ts = existing.message.timestamp ? Date.parse(existing.message.timestamp) : undefined;
                     const tempOrderCtx: OrderContext = {
@@ -310,18 +386,19 @@ export default defineContentScript({
                         continue;
                     }
 
-                    const merged: ExtractedMessage = {
-                        id: existing.message.id || reExtracted.message.id || id,
-                        author: existing.message.author || reExtracted.message.author || '',
-                        timestamp: existing.message.timestamp || reExtracted.message.timestamp || '',
-                        text: preferText(existing.message.text || '', reExtracted.message.text || ''),
-                        edited: existing.message.edited || reExtracted.message.edited,
-                        system: existing.message.system || reExtracted.message.system,
-                        avatar: existing.message.avatar ?? reExtracted.message.avatar ?? null,
-                        reactions: existing.message.reactions,
-                        attachments: existing.message.attachments,
-                        replyTo: existing.message.replyTo ?? reExtracted.message.replyTo ?? null,
-                    };
+                      const merged: ExtractedMessage = {
+                          id: existing.message.id || reExtracted.message.id || id,
+                          author: existing.message.author || reExtracted.message.author || '',
+                          timestamp: existing.message.timestamp || reExtracted.message.timestamp || '',
+                          text: preferText(existing.message.text || '', reExtracted.message.text || ''),
+                          edited: existing.message.edited || reExtracted.message.edited,
+                          system: existing.message.system || reExtracted.message.system,
+                          avatar: existing.message.avatar ?? reExtracted.message.avatar ?? null,
+                          reactions: existing.message.reactions,
+                          attachments: existing.message.attachments,
+                          tables: existing.message.tables,
+                          replyTo: existing.message.replyTo ?? reExtracted.message.replyTo ?? null,
+                      };
 
                     if (opts.includeReactions) {
                         const newReacts = reExtracted.message.reactions || [];
@@ -331,11 +408,16 @@ export default defineContentScript({
                         }
                     }
 
-                    const newAttachments = reExtracted.message.attachments || [];
-                    const prevAttCount = Array.isArray(merged.attachments) ? merged.attachments.length : 0;
-                    if (newAttachments.length && newAttachments.length >= prevAttCount) {
-                        merged.attachments = newAttachments;
-                    }
+                      const newAttachments = reExtracted.message.attachments || [];
+                      const prevAttCount = Array.isArray(merged.attachments) ? merged.attachments.length : 0;
+                      if (newAttachments.length && newAttachments.length >= prevAttCount) {
+                          merged.attachments = newAttachments;
+                      }
+                      const newTables = reExtracted.message.tables || [];
+                      const prevTableCount = Array.isArray(merged.tables) ? merged.tables.length : 0;
+                      if (newTables.length && newTables.length >= prevTableCount) {
+                          merged.tables = newTables;
+                      }
 
                     if (!merged.replyTo && reExtracted.message.replyTo) merged.replyTo = reExtracted.message.replyTo;
                     if (!merged.avatar && reExtracted.message.avatar) merged.avatar = reExtracted.message.avatar;
@@ -494,18 +576,25 @@ export default defineContentScript({
             }
 
             const contentEl = $('[id^="content-"]', body) || $('[data-tid="message-content"]', body) || body;
-            const cleanRoot = stripQuotedPreview(contentEl) || contentEl;
-            normalizeMentions(cleanRoot);
-            const text = extractTextWithEmojis(cleanRoot);
-            const edited = resolveEdited(item, body);
-            const avatar = resolveAvatar(item);
-            const reactions = opts.includeReactions ? await extractReactions(item) : [];
+              const tables = extractTables(contentEl);
+              const codeBlocks = extractCodeBlocks(contentEl);
+              const cleanRoot = stripQuotedPreview(contentEl) || contentEl;
+              normalizeMentions(cleanRoot);
+              let text = extractTextWithEmojis(cleanRoot);
+              if (codeBlocks.length && !/```/.test(text)) {
+                  const fenced = codeBlocks.map(block => `\n\`\`\`\n${block}\n\`\`\`\n`).join('\n');
+                  text = text ? `${text}\n${fenced}` : fenced.replace(/^\n/, '');
+              }
+              const edited = resolveEdited(item, body);
+              const avatar = resolveAvatar(item);
+              const reactions = opts.includeReactions ? await extractReactions(item) : [];
 
-            const attachments = extractAttachments(item, body);
-            const replyTo = opts.includeReplies === false ? null : extractReplyContext(item, body);
+              await waitForPreviewImages(item, 250);
+              const attachments = extractAttachments(item, body);
+              const replyTo = opts.includeReplies === false ? null : extractReplyContext(item, body);
 
             const mid = body.getAttribute('data-mid') || item.id || `${ts}#${author}`;
-            const msg: ExtractedMessage = { id: mid, author, timestamp: ts, text, reactions, attachments, edited, avatar, replyTo, system: false };
+              const msg: ExtractedMessage = { id: mid, author, timestamp: ts, text, reactions, attachments, edited, avatar, replyTo, tables, system: false };
 
             const seqVal = orderCtx.seq ?? 0;
             orderCtx.seq = seqVal + 1;
@@ -792,11 +881,15 @@ export default defineContentScript({
             const clone = container.cloneNode(true) as Element;
 
             // Known containers for quoted/preview content
-            const kill = [
-                '[data-tid="quoted-reply-card"]',
-                '[data-tid="referencePreview"]',
-                '[role="group"][aria-label^="Begin Reference"]'
-            ];
+              const kill = [
+                  '[data-tid="quoted-reply-card"]',
+                  '[data-tid="referencePreview"]',
+                  '[role="group"][aria-label^="Begin Reference"]',
+                  '[data-tid="adaptive-card"]',
+                  '.ac-adaptiveCard',
+                  '[aria-label*="card message"]',
+                  'table[itemprop="copy-paste-table"]'
+              ];
             for (const sel of kill) {
                 clone.querySelectorAll(sel).forEach((n: Element) => n.remove());
             }
