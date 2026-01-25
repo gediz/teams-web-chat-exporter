@@ -31,6 +31,8 @@
     PingSWRequest,
     StartExportRequest,
     StartExportResponse,
+    StartExportZipRequest,
+    StartExportZipResponse,
   } from "../../types/messaging";
   import ExportButton from "./components/ExportButton.svelte";
   import FormatSection from "./components/FormatSection.svelte";
@@ -218,6 +220,8 @@
         includes.push(t("summary.reactions", {}, lang));
       if (options.includeSystem) includes.push(t("summary.system", {}, lang));
       if (options.embedAvatars) includes.push(t("summary.avatars", {}, lang));
+      if (options.format === "html" && options.downloadImages)
+        includes.push(t("summary.images", {}, lang));
       if (includes.length > 0) parts.push(includes.join(", "));
     }
 
@@ -231,6 +235,7 @@
     options.includeReactions;
     options.includeSystem;
     options.embedAvatars;
+    options.downloadImages;
     quickActive;
     exportSummary = computeSummary();
   }
@@ -503,24 +508,34 @@
         includeReactions,
         includeSystem,
         embedAvatars,
+        downloadImages,
         showHud,
       } = options;
       setStatus(t("status.running", {}, currentLang()));
-      const response = await runtimeSend<StartExportRequest>(runtime, {
-        type: "START_EXPORT",
-        data: {
-          tabId: tab.id,
-          scrapeOptions: {
-            startAt: range.startISO,
-            endAt: range.endISO,
-            includeReplies,
-            includeReactions,
-            includeSystem,
-            showHud,
-          },
-          buildOptions: { format, saveAs: true, embedAvatars },
+      const requestData = {
+        tabId: tab.id,
+        scrapeOptions: {
+          startAt: range.startISO,
+          endAt: range.endISO,
+          includeReplies,
+          includeReactions,
+          includeSystem,
+          showHud,
         },
-      });
+        buildOptions: { format, saveAs: true, embedAvatars, downloadImages },
+      };
+      let response: StartExportResponse | StartExportZipResponse;
+      if (format === "html") {
+        response = await runtimeSend<StartExportZipRequest>(runtime, {
+          type: "START_EXPORT_ZIP",
+          data: requestData,
+        });
+      } else {
+        response = await runtimeSend<StartExportRequest>(runtime, {
+          type: "START_EXPORT",
+          data: requestData,
+        });
+      }
       if (response?.code === "EMPTY_RESULTS") {
         const message = response.error || emptyLabel();
         setStatus(message, { stopElapsed: true });
@@ -671,16 +686,20 @@
         includeReactions={options.includeReactions}
         includeSystem={options.includeSystem}
         embedAvatars={options.embedAvatars}
+        downloadImages={options.downloadImages}
         lang={options.lang || "en"}
         disableReplies={options.format === "txt"}
         disableReactions={options.format === "txt"}
         disableAvatars={options.format === "txt" || options.format === "csv"}
+        disableImages={options.format !== "html"}
         on:includeRepliesChange={(e) =>
           updateOption("includeReplies", e.detail)}
         on:includeReactionsChange={(e) =>
           updateOption("includeReactions", e.detail)}
         on:includeSystemChange={(e) => updateOption("includeSystem", e.detail)}
         on:embedAvatarsChange={(e) => updateOption("embedAvatars", e.detail)}
+        on:includeImagesChange={(e) =>
+          updateOption("downloadImages", e.detail)}
       />
     </div>
   </div>

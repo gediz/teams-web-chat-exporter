@@ -1,8 +1,10 @@
 import type { Attachment } from '../types/shared';
 import { textFrom } from '../utils/text';
 
-export function extractAttachments(item: Element, body: Element): Attachment[] {
+export async function extractAttachments(item: Element, body: Element): Promise<Attachment[]> {
   const map = new Map<string, Attachment>();
+  const pending: Promise<void>[] = [];
+  const fetchCache = new Map<string, Promise<string | null>>();
   const merge = (prev: Attachment, next: Attachment): Attachment => {
     const merged: Attachment = { ...prev };
     if (!merged.href && next.href) merged.href = next.href;
@@ -63,7 +65,7 @@ export function extractAttachments(item: Element, body: Element): Attachment[] {
       const text = sourceNode.textContent.trim();
       if (text) att.label = text.split(/\n+/)[0].trim();
     }
-    if (!att.href && !att.label) return;
+    if (!att.href && !att.label) return null;
 
     const metaText = collectMetaText(sourceNode, att.label || undefined);
     if (metaText) att.metaText = metaText;
@@ -76,7 +78,9 @@ export function extractAttachments(item: Element, body: Element): Attachment[] {
 
     const key = `${att.href || ''}@@${att.label || ''}`;
     const prev = map.get(key);
-    map.set(key, prev ? merge(prev, att) : att);
+    const stored = prev ? merge(prev, att) : att;
+    map.set(key, stored);
+    return stored;
   };
   const imageToDataUrl = (img: HTMLImageElement | null) => {
     if (!img) return null;
@@ -95,6 +99,35 @@ export function extractAttachments(item: Element, body: Element): Attachment[] {
       return null;
     }
   };
+  const isSmallDataUrl = (dataUrl: string | null) => {
+    if (!dataUrl) return true;
+    const idx = dataUrl.indexOf(',');
+    const b64 = idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
+    return b64.length < 4096;
+  };
+  const fetchImageAsDataUrl = async (url: string) => {
+    if (!/^https?:\/\//i.test(url)) return null;
+    let cached = fetchCache.get(url);
+    if (!cached) {
+      cached = (async () => {
+        try {
+          const res = await fetch(url, { credentials: 'include' });
+          if (!res.ok) return null;
+          const buf = await res.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          let bin = '';
+          for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+          const b64 = btoa(bin);
+          const ct = res.headers.get('content-type') || 'image/png';
+          return `data:${ct};base64,${b64}`;
+        } catch {
+          return null;
+        }
+      })();
+      fetchCache.set(url, cached);
+    }
+    return cached;
+  };
   const pickLargestImage = (images: HTMLImageElement[]) => {
     let best: HTMLImageElement | null = null;
     let bestArea = 0;
@@ -108,23 +141,30 @@ export function extractAttachments(item: Element, body: Element): Attachment[] {
     return best;
   };
   const extractAdaptiveCardPreview = (root: Element) => {
+    const findLinkIn = (node: Element | null) => {
+      if (!node) return '';
+      const linkEl =
+        node.querySelector<HTMLAnchorElement>('a[data-testid="atp-safelink"][href^="http"]') ||
+        node.querySelector<HTMLAnchorElement>('a[href^="http"]');
+      if (linkEl?.href) return linkEl.href;
+      const ariaLabel = node.getAttribute('aria-label') || '';
+      const match = ariaLabel.match(/https?:\/\/\S+/i);
+      return match ? match[0] : '';
+    };
+
     const cards = root.querySelectorAll<HTMLElement>('[data-tid="adaptive-card"], .ac-adaptiveCard');
     if (!cards.length) return;
 
     cards.forEach(card => {
       const container = card.closest('[aria-label*="card message"]') || root;
-      const linkEl =
-        container.querySelector<HTMLAnchorElement>('a[data-testid="atp-safelink"][href^="http"]') ||
-        container.querySelector<HTMLAnchorElement>('a[href^="http"]') ||
-        root.querySelector<HTMLAnchorElement>('a[data-testid="atp-safelink"][href^="http"]') ||
-        root.querySelector<HTMLAnchorElement>('a[href^="http"]');
-      const linkHref = linkEl?.href || '';
-      if (!linkHref) return;
+      const linkHref = findLinkIn(container) || findLinkIn(root);
       let host = '';
-      try {
-        host = new URL(linkHref).hostname;
-      } catch {
-        host = '';
+      if (linkHref) {
+        try {
+          host = new URL(linkHref).hostname;
+        } catch {
+          host = '';
+        }
       }
 
       const blocks = Array.from(card.querySelectorAll<HTMLElement>('.ac-textBlock'));
@@ -233,13 +273,26 @@ export function extractAttachments(item: Element, body: Element): Attachment[] {
           img.getAttribute('title') ||
           'image';
 
+        const dataUrl = imageToDataUrl(img);
         // This will build an Attachment { href, label, type/size/owner/metaText inferred }
-        push(img, { href, label });
+        const stored = push(img, { href, label, dataUrl: dataUrl || undefined });
+        if (stored && isSmallDataUrl(dataUrl)) {
+          pending.push(
+            fetchImageAsDataUrl(href).then(fetched => {
+              if (!fetched) return;
+              if (!stored.dataUrl || isSmallDataUrl(stored.dataUrl)) {
+                stored.dataUrl = fetched;
+              }
+            }),
+          );
+        }
       });
 
     extractAdaptiveCardPreview(contentRoot);
   }
 
-
+  if (pending.length) {
+    await Promise.all(pending);
+  }
   return Array.from(map.values());
 }

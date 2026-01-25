@@ -184,21 +184,40 @@ function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
                 return;
             }
 
-            const buildRes = await buildAndDownload(
-                {
-                    downloads,
-                    isFirefox,
-                    onStatus: (payload) => broadcastStatus({ ...payload, tabId }),
-                },
-                {
-                    messages: scrapeRes.messages || [],
-                    meta: scrapeRes.meta || {},
-                    format: buildOptions.format || 'json',
-                    saveAs: buildOptions.saveAs !== false,
-                    embedAvatars: Boolean(buildOptions.embedAvatars),
-                    downloadImages: buildOptions.downloadImages !== false,
-                }
-            );
+            const format = buildOptions.format || 'json';
+            const downloadImages = buildOptions.downloadImages !== false;
+            let buildRes: { filename?: string; id?: number };
+            if (format === 'html') {
+                buildRes = await buildAndDownloadZip(
+                    {
+                        downloads,
+                        isFirefox,
+                        onStatus: (payload) => broadcastStatus({ ...payload, tabId }),
+                    },
+                    {
+                        messages: scrapeRes.messages || [],
+                        meta: scrapeRes.meta || {},
+                        embedAvatars: Boolean(buildOptions.embedAvatars),
+                        downloadImages,
+                    }
+                );
+            } else {
+                buildRes = await buildAndDownload(
+                    {
+                        downloads,
+                        isFirefox,
+                        onStatus: (payload) => broadcastStatus({ ...payload, tabId }),
+                    },
+                    {
+                        messages: scrapeRes.messages || [],
+                        meta: scrapeRes.meta || {},
+                        format,
+                        saveAs: buildOptions.saveAs !== false,
+                        embedAvatars: Boolean(buildOptions.embedAvatars),
+                        downloadImages,
+                    }
+                );
+            }
 
             broadcastStatus({ tabId, phase: 'complete', filename: buildRes.filename });
             sendResponse({ ok: true, filename: buildRes.filename, downloadId: buildRes.id });
