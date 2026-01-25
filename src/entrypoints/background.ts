@@ -1,6 +1,6 @@
 import { defineBackground } from 'wxt/sandbox';
 import { createBadgeManager } from '../utils/badge';
-import { buildAndDownload } from '../background/download';
+import { buildAndDownload, buildAndDownloadZip, buildExport } from '../background/download';
 import { formatDayLabelForExport, parseTimeStamp } from '../utils/time';
 import type { BackgroundIncomingMessage } from '../types/messaging';
 import type {
@@ -185,13 +185,158 @@ function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
             }
 
             const buildRes = await buildAndDownload(
-                { downloads, isFirefox },
+                {
+                    downloads,
+                    isFirefox,
+                    onStatus: (payload) => broadcastStatus({ ...payload, tabId }),
+                },
                 {
                     messages: scrapeRes.messages || [],
                     meta: scrapeRes.meta || {},
                     format: buildOptions.format || 'json',
                     saveAs: buildOptions.saveAs !== false,
-                    embedAvatars: Boolean(buildOptions.embedAvatars)
+                    embedAvatars: Boolean(buildOptions.embedAvatars),
+                    downloadImages: buildOptions.downloadImages !== false,
+                }
+            );
+
+            broadcastStatus({ tabId, phase: 'complete', filename: buildRes.filename });
+            sendResponse({ ok: true, filename: buildRes.filename, downloadId: buildRes.id });
+        } catch (err: any) {
+            const message = err?.message || String(err);
+            broadcastStatus({ tabId, phase: 'error', error: message });
+            sendResponse({ error: message });
+        } finally {
+            if (startedAt) {
+                activeExports.delete(tabId);
+            }
+        }
+    })();
+}
+
+function handleStartExportFolderMessage(msg: any, sendResponse: (res: any) => void) {
+    const data = msg.data || {};
+    const tabId = data.tabId;
+    if (typeof tabId !== 'number') {
+        sendResponse({ error: 'Missing tabId for export request' });
+        return;
+    }
+    if (activeExports.has(tabId)) {
+        sendResponse({ error: 'An export is already running for this tab' });
+        return;
+    }
+
+    const scrapeOptions = data.scrapeOptions || {};
+    const buildOptions = data.buildOptions || {};
+
+    (async () => {
+        let startedAt;
+        try {
+            await ensureContentScript(tabId);
+            const ctx = await sendMessageToTab(tabId, { type: 'CHECK_CHAT_CONTEXT' });
+            if (!ctx?.ok) {
+                const message = ctx?.reason || 'Open a chat conversation before exporting.';
+                sendResponse({ error: message });
+                return;
+            }
+
+            startedAt = Date.now();
+            updateActiveExport(tabId, { startedAt, phase: 'starting', lastStatus: undefined });
+            broadcastStatus({ tabId, phase: 'starting', startedAt });
+
+            broadcastStatus({ tabId, phase: 'scrape:start' });
+            const scrapeRes = await requestScrape(tabId, scrapeOptions);
+            const totalMessages = Array.isArray(scrapeRes.messages) ? scrapeRes.messages.length : 0;
+            broadcastStatus({ tabId, phase: 'scrape:complete', messages: totalMessages });
+
+            if (totalMessages === 0) {
+                const message = 'No messages found for the selected range.';
+                broadcastStatus({ tabId, phase: 'empty', message });
+                sendResponse({ error: message, code: 'EMPTY_RESULTS' });
+                return;
+            }
+
+            const built = buildExport({
+                messages: scrapeRes.messages || [],
+                meta: scrapeRes.meta || {},
+                format: buildOptions.format || 'json',
+                embedAvatars: Boolean(buildOptions.embedAvatars),
+                downloadImages: buildOptions.downloadImages !== false,
+            });
+
+            sendResponse({
+                folderName: built.baseFolder,
+                filename: built.filename,
+                content: built.content,
+                mime: built.mime,
+                inlineImages: built.inlineImages || [],
+                startedAt,
+            });
+        } catch (err: any) {
+            const message = err?.message || String(err);
+            broadcastStatus({ tabId, phase: 'error', error: message });
+            sendResponse({ error: message });
+        } finally {
+            if (startedAt) {
+                activeExports.delete(tabId);
+            }
+        }
+    })();
+}
+
+function handleStartExportZipMessage(msg: any, sendResponse: (res: any) => void) {
+    const data = msg.data || {};
+    const tabId = data.tabId;
+    if (typeof tabId !== 'number') {
+        sendResponse({ error: 'Missing tabId for export request' });
+        return;
+    }
+    if (activeExports.has(tabId)) {
+        sendResponse({ error: 'An export is already running for this tab' });
+        return;
+    }
+
+    const scrapeOptions = data.scrapeOptions || {};
+    const buildOptions = data.buildOptions || {};
+
+    (async () => {
+        let startedAt;
+        try {
+            await ensureContentScript(tabId);
+            const ctx = await sendMessageToTab(tabId, { type: 'CHECK_CHAT_CONTEXT' });
+            if (!ctx?.ok) {
+                const message = ctx?.reason || 'Open a chat conversation before exporting.';
+                sendResponse({ error: message });
+                return;
+            }
+
+            startedAt = Date.now();
+            updateActiveExport(tabId, { startedAt, phase: 'starting', lastStatus: undefined });
+            broadcastStatus({ tabId, phase: 'starting', startedAt });
+
+            broadcastStatus({ tabId, phase: 'scrape:start' });
+            const scrapeRes = await requestScrape(tabId, scrapeOptions);
+            const totalMessages = Array.isArray(scrapeRes.messages) ? scrapeRes.messages.length : 0;
+            broadcastStatus({ tabId, phase: 'scrape:complete', messages: totalMessages });
+
+            if (totalMessages === 0) {
+                const message = 'No messages found for the selected range.';
+                broadcastStatus({ tabId, phase: 'empty', message });
+                sendResponse({ error: message, code: 'EMPTY_RESULTS' });
+                return;
+            }
+
+            const buildRes = await buildAndDownloadZip(
+                {
+                    downloads,
+                    isFirefox,
+                    onStatus: (payload) => broadcastStatus({ ...payload, tabId }),
+                },
+                {
+                    messages: scrapeRes.messages || [],
+                    meta: scrapeRes.meta || {},
+                    embedAvatars: Boolean(buildOptions.embedAvatars),
+                    downloadImages: buildOptions.downloadImages !== false,
                 }
             );
 
@@ -226,6 +371,26 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
 
     if (msg.type === 'START_EXPORT') {
         handleStartExportMessage(msg, sendResponse);
+        return true;
+    }
+
+    if (msg.type === 'START_EXPORT_FOLDER') {
+        handleStartExportFolderMessage(msg, sendResponse);
+        return true;
+    }
+
+    if (msg.type === 'START_EXPORT_ZIP') {
+        handleStartExportZipMessage(msg, sendResponse);
+        return true;
+    }
+
+    if (msg.type === 'EXPORT_STATUS_UPDATE') {
+        const payload = msg.payload || {};
+        broadcastStatus(payload);
+        if (payload?.tabId != null && TERMINAL_PHASES.has(payload.phase || '')) {
+            activeExports.delete(payload.tabId);
+        }
+        sendResponse({ ok: true });
         return true;
     }
 
