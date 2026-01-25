@@ -1,22 +1,25 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { MessageSquareQuote, Smile, Bell, CircleUserRound, ListChecks } from 'lucide-svelte';
+  import { MessageSquareQuote, Smile, Bell, CircleUserRound, ListChecks, Image } from 'lucide-svelte';
   import { t } from '../../../i18n/i18n';
 
   export let includeReplies = true;
   export let includeReactions = true;
   export let includeSystem = false;
   export let embedAvatars = false;
+  export let downloadImages = false;
   export let lang = 'en';
   export let disableReplies = false;
   export let disableReactions = false;
   export let disableAvatars = false;
+  export let disableImages = false;
 
   const dispatch = createEventDispatcher<{
     includeRepliesChange: boolean;
     includeReactionsChange: boolean;
     includeSystemChange: boolean;
     embedAvatarsChange: boolean;
+    includeImagesChange: boolean;
   }>();
 </script>
 
@@ -85,6 +88,21 @@
         checked={embedAvatars}
         disabled={disableAvatars}
         on:change={(e) => dispatch('embedAvatarsChange', e.currentTarget.checked)}
+      />
+    </label>
+
+    <label class="checkbox-item">
+      <div class="checkbox-content">
+        <div class="checkbox-icon">
+          <Image size={18} />
+        </div>
+        <span class="checkbox-label">{t('include.images', {}, lang)}</span>
+      </div>
+      <input
+        type="checkbox"
+        checked={downloadImages}
+        disabled={disableImages}
+        on:change={(e) => dispatch('includeImagesChange', e.currentTarget.checked)}
       />
     </label>
   </div>

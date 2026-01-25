@@ -14,6 +14,7 @@ export type Options = {
   includeReactions: boolean;
   includeSystem: boolean;
   embedAvatars: boolean;
+  downloadImages: boolean;
   showHud: boolean;
   theme: Theme;
 };
@@ -34,6 +35,7 @@ export const DEFAULT_OPTIONS: Options = {
   includeReactions: true,
   includeSystem: false,
   embedAvatars: false,
+  downloadImages: false,
   showHud: false,
   theme: 'light',
 };

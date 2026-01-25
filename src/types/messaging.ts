@@ -16,14 +16,44 @@ export type StartExportRequest = {
 };
 export type StartExportResponse = { filename?: string; messages?: number; error?: string; code?: string };
 
+export type StartExportFolderRequest = {
+  type: 'START_EXPORT_FOLDER';
+  data: {
+    tabId?: number | null;
+    scrapeOptions: ScrapeOptions;
+    buildOptions: BuildOptions;
+  };
+};
+export type StartExportFolderResponse = {
+  folderName?: string;
+  filename?: string;
+  content?: string;
+  mime?: string;
+  inlineImages?: { filename: string; dataUrl: string }[];
+  startedAt?: number;
+  error?: string;
+  code?: string;
+};
+
+export type StartExportZipRequest = {
+  type: 'START_EXPORT_ZIP';
+  data: {
+    tabId?: number | null;
+    scrapeOptions: ScrapeOptions;
+    buildOptions: BuildOptions;
+  };
+};
+export type StartExportZipResponse = { ok?: boolean; filename?: string; downloadId?: number; error?: string; code?: string };
+
 export type BuildAndDownloadRequest = {
   type: 'BUILD_AND_DOWNLOAD';
   data: {
     messages?: ExportMessage[];
     meta?: Record<string, unknown>;
-    format?: 'json' | 'csv' | 'html';
+    format?: 'json' | 'csv' | 'html' | 'txt';
     saveAs?: boolean;
     embedAvatars?: boolean;
+    downloadImages?: boolean;
   };
 };
 
@@ -40,14 +70,31 @@ export type ScrapeProgressMessage = {
   };
 };
 export type ExportStatusMessage = { type: 'EXPORT_STATUS' } & ExportStatusPayload;
+export type ExportStatusUpdateMessage = { type: 'EXPORT_STATUS_UPDATE'; payload: ExportStatusPayload };
 
-export type RuntimeRequest = PingSWRequest | GetExportStatusRequest | StartExportRequest | BuildAndDownloadRequest;
+export type RuntimeRequest =
+  | PingSWRequest
+  | GetExportStatusRequest
+  | StartExportRequest
+  | StartExportFolderRequest
+  | StartExportZipRequest
+  | BuildAndDownloadRequest;
 
-export type BackgroundIncomingMessage = PingSWRequest | GetExportStatusRequest | StartExportRequest | BuildAndDownloadRequest | ScrapeProgressMessage;
+export type BackgroundIncomingMessage =
+  | PingSWRequest
+  | GetExportStatusRequest
+  | StartExportRequest
+  | StartExportFolderRequest
+  | StartExportZipRequest
+  | BuildAndDownloadRequest
+  | ExportStatusUpdateMessage
+  | ScrapeProgressMessage;
 export type PopupIncomingMessage = ExportStatusMessage | ScrapeProgressMessage;
 
 export type RuntimeResponse<T extends RuntimeRequest> =
   T extends PingSWRequest ? PingSWResponse :
   T extends GetExportStatusRequest ? GetExportStatusResponse :
   T extends StartExportRequest ? StartExportResponse :
+  T extends StartExportFolderRequest ? StartExportFolderResponse :
+  T extends StartExportZipRequest ? StartExportZipResponse :
   unknown;

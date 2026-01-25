@@ -184,6 +184,36 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
       .replace(/\n{2,}/g, '<br>&nbsp;<br>')
       .replace(/\n/g, '<br>');
   };
+  const formatWithQuotes = (segment: string) => {
+    const lines = segment.split(/\r?\n/);
+    let out = '';
+    let mode: 'normal' | 'quote' = 'normal';
+    let buf: string[] = [];
+    const flush = () => {
+      if (!buf.length) return;
+      const text = buf.join('\n');
+      if (mode === 'quote') {
+        out += `<blockquote>${formatInline(text)}</blockquote>`;
+      } else {
+        out += formatInline(text);
+      }
+      buf = [];
+    };
+    for (const line of lines) {
+      const isQuote = /^>\s?/.test(line);
+      const cleaned = isQuote ? line.replace(/^>\s?/, '') : line;
+      if (isQuote && mode !== 'quote') {
+        flush();
+        mode = 'quote';
+      } else if (!isQuote && mode === 'quote') {
+        flush();
+        mode = 'normal';
+      }
+      buf.push(cleaned);
+    }
+    flush();
+    return out;
+  };
   const formatText = (plain: string) => {
     const raw = plain || '';
     const fenceParts = raw.split('```');
@@ -194,11 +224,11 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
             const code = part.replace(/^\n/, '').replace(/\n$/, '');
             return `<pre class="code-block"><code>${escapeHtml(code)}</code></pre>`;
           }
-          return formatInline(part);
+          return formatWithQuotes(part);
         })
         .join('');
     }
-    return formatInline(raw);
+    return formatWithQuotes(raw);
   };
   const initials = (name = '') => (name.trim().split(/\s+/).map(p => p[0]).join('').slice(0, 2) || '•');
 
@@ -223,6 +253,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     .reply{background:#f8fafc; border-left:3px solid #d1d5db; padding:8px 10px; border-radius:8px; margin:8px 0; font-size:13px; color:#374151}
     .reply .reply-meta{display:flex; flex-wrap:wrap; gap:6px; font-size:12px; color:#6b7280; margin-bottom:4px}
     .reply blockquote{margin:0; padding:0; border:none; color:#1f2937; word-wrap:break-word; overflow-wrap:anywhere}
+    blockquote{margin:8px 0; padding:8px 10px; border-left:3px solid #d1d5db; background:#f8fafc; color:#374151}
     .atts{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; margin-top:8px}
     .att, .att-img{border:1px solid var(--border); border-radius:10px; padding:8px; background:#fff; transition:max-height .2s ease, opacity .2s ease}
     .att a{word-break:break-word; overflow-wrap:anywhere; text-decoration:none}

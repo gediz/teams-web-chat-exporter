@@ -1,4 +1,4 @@
-export type Reaction = { emoji: string; count: number; reactors?: string[] };
+export type Reaction = { emoji: string; count: number; reactors?: string[]; self?: boolean };
 
 export type Attachment = {
   href?: string;
@@ -7,6 +7,8 @@ export type Attachment = {
   size?: string | null;
   owner?: string | null;
   metaText?: string | null;
+  dataUrl?: string;
+  kind?: 'preview';
 };
 
 export type ReplyContext = {
@@ -27,6 +29,7 @@ export type ExportMessage = {
   avatarUrl?: string; // Original HTTP URL (for ID extraction), removed before export
   reactions?: Reaction[];
   attachments?: Attachment[];
+  tables?: string[][][];
   replyTo?: ReplyContext | null;
 };
 
@@ -54,6 +57,7 @@ export type BuildOptions = {
   format?: 'json' | 'csv' | 'html' | 'txt';
   saveAs?: boolean;
   embedAvatars?: boolean;
+  downloadImages?: boolean;
 };
 
 export type ScrapeResult = {
