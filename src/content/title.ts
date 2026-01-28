@@ -57,3 +57,71 @@ export function extractChatTitle(): string {
 
     return title || 'Teams Chat Export';
 }
+
+function cleanDocTitle(raw: string): string {
+    let title = raw || '';
+    title = title.replace(/^\(\d+\)\s*/, '');
+    title = title.replace(/\s*\|\s*Microsoft Teams\s*$/, '');
+    return title.trim();
+}
+
+function textFromSelector(selectors: string[]): string | null {
+    for (const selector of selectors) {
+        const el = document.querySelector(selector);
+        const text = el?.textContent?.trim();
+        if (text) return text;
+    }
+    return null;
+}
+
+export function extractChannelTitle(): string {
+    const channelName =
+        textFromSelector([
+            '[data-tid="channelTitle-text"]',
+            '[data-tid="channel-name"]',
+            '[data-tid="channel-title"]',
+            '[data-tid="channel-header-title"]',
+            '[data-tid="channel-header-name"]',
+            '[data-tid="channelHeaderTitle"]',
+            '[data-tid="channel-header"] h1',
+            '[data-tid="channel-header"] h2',
+        ]) || '';
+
+    const teamName =
+        textFromSelector([
+            '[data-tid="team-name"]',
+            '[data-tid="team-title"]',
+            '[data-tid="channel-header-team-name"]',
+            '[data-tid="teamName"]',
+        ]) || '';
+
+    let fallbackTeam = '';
+    if (!teamName) {
+        const img = document.querySelector<HTMLImageElement>('[data-tid="channel-title-avatar"] img[src*="displayName="]');
+        const src = img?.getAttribute('src') || '';
+        if (src.includes('displayName=')) {
+            try {
+                const url = new URL(src);
+                const name = url.searchParams.get('displayName');
+                if (name) fallbackTeam = decodeURIComponent(name);
+            } catch {
+                const match = src.match(/displayName=([^&]+)/i);
+                if (match?.[1]) {
+                    try { fallbackTeam = decodeURIComponent(match[1]); } catch { fallbackTeam = match[1]; }
+                }
+            }
+        }
+    }
+
+    const resolvedTeam = teamName || fallbackTeam;
+    if (resolvedTeam && channelName) return `${resolvedTeam} / ${channelName}`;
+    if (channelName) return channelName;
+    if (resolvedTeam) return resolvedTeam;
+
+    const cleaned = cleanDocTitle(document.title || '');
+    const parts = cleaned.split('|').map(p => p.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+        return `${parts[1]} / ${parts[0]}`;
+    }
+    return parts[0] || cleaned || 'Teams Channel Export';
+}
