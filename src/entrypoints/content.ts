@@ -2,14 +2,14 @@
 import { defineContentScript } from 'wxt/sandbox';
 import { $, $$ } from '../utils/dom';
 import { makeDayDivider as buildDayDivider } from '../utils/messages';
-import { cssEscape, isPlaceholderText, preferText, textFrom } from '../utils/text';
-import { formatElapsed, parseTimeStamp, startOfLocalDay } from '../utils/time';
+import { cssEscape, isPlaceholderText, textFrom } from '../utils/text';
+import { formatElapsed, parseTimeStamp } from '../utils/time';
 import { extractAttachments } from '../content/attachments';
 import { extractReactions } from '../content/reactions';
 import { extractReplyContext } from '../content/replies';
-  import { extractTables, extractTextWithEmojis, normalizeMentions } from '../content/text';
+import { extractTables, normalizeMentions } from '../content/text';
 import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scroll';
-import { extractChatTitle } from '../content/title';
+import { extractChatTitle, extractChannelTitle } from '../content/title';
 import { extractAvatarId } from '../utils/avatars';
 import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ReplyContext, ScrapeOptions } from '../types/shared';
 
@@ -18,6 +18,7 @@ declare const browser: typeof chrome | undefined;
 
 type ExtractedMessage = ExportMessage & {
     id: string;
+    threadId?: string | null;
     author: string;
     timestamp: string;
     text: string;
@@ -37,6 +38,8 @@ export default defineContentScript({
     allFrames: true,
 
     main() {
+        const isTop = window.top === window;
+
         // Browser API compatibility for Firefox
         const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
 
@@ -47,13 +50,38 @@ export default defineContentScript({
             return Boolean(document.querySelector('[data-tid="app-bar-wrapper"] button[aria-pressed="true"][aria-label^="Chat" i]'));
         }
 
+        function isTeamsNavSelected() {
+            return Boolean(document.querySelector('[data-tid="app-bar-wrapper"] button[aria-pressed="true"][aria-label*="Teams" i]'));
+        }
+
         function hasChatMessageSurface() {
             return Boolean(
                 document.querySelector('[data-tid="message-pane-list-viewport"], [data-tid="chat-message-list"], [data-tid="chat-pane"]')
             );
         }
 
-        function checkChatContext() {
+        function hasChannelMessageSurface() {
+            return Boolean(
+                document.querySelector('[data-tid="channel-pane-runway"], [data-tid="channel-pane-message"], [data-tid="channel-pane"]')
+            );
+        }
+
+        function checkChatContext(target: 'chat' | 'team' = 'chat') {
+            if (target === 'team') {
+                const navSelected = isTeamsNavSelected();
+                const hasSurface = hasChannelMessageSurface();
+
+                if (hasSurface) {
+                    return { ok: true };
+                }
+
+                if (!navSelected) {
+                    return { ok: false, reason: 'Switch to the Teams app in Teams before exporting.' };
+                }
+
+                return { ok: false, reason: 'Open a team channel before exporting.' };
+            }
+
             const navSelected = isChatNavSelected();
             const hasSurface = hasChatMessageSurface();
 
@@ -103,13 +131,148 @@ export default defineContentScript({
         }
 
         // Core DOM hooks ------------------------------------------------
-        function getScroller() {
+        function findScrollableAncestor(node: Element | null): Element | null {
+            let current: Element | null = node;
+            while (current) {
+                const el = current as HTMLElement;
+                const style = window.getComputedStyle(el);
+                const overflowY = style.overflowY;
+                if ((overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') && el.scrollHeight > el.clientHeight) {
+                    return el;
+                }
+                current = current.parentElement;
+            }
+            return null;
+        }
+
+        function isElementVisible(el: Element | null): el is HTMLElement {
+            if (!el) return false;
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden') return false;
+            const rect = (el as HTMLElement).getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+        }
+
+        function getScroller(target: 'chat' | 'team' = 'chat') {
+            if (target === 'team') {
+                const viewport = document.querySelector<HTMLElement>('[data-tid="channel-pane-viewport"]');
+                if (viewport && isElementVisible(viewport) && viewport.scrollHeight > viewport.clientHeight) {
+                    return viewport;
+                }
+                const runway = findChannelRunway();
+                if (runway) {
+                    return findScrollableAncestor(runway) || document.scrollingElement;
+                }
+                const anchors = [
+                    $('[data-tid="channel-pane-runway"]'),
+                    $('[data-testid="virtual-list-loader"]'),
+                    $('[data-testid="vl-placeholders"]'),
+                    document.querySelector('[id^="channel-pane-"]'),
+                ];
+                const anchor = anchors.find(isElementVisible) || anchors.find(Boolean) || null;
+                return findScrollableAncestor(anchor) || document.scrollingElement;
+            }
             return $('[data-tid="message-pane-list-viewport"]') || $('[data-tid="chat-message-list"]') || document.scrollingElement;
+        }
+
+
+        function getAllDocs(): Document[] {
+            const docs: Document[] = [document];
+            // Try same-origin frames
+            for (let i = 0; i < window.frames.length; i++) {
+              try {
+                const d = window.frames[i].document;
+                if (d) docs.push(d);
+              } catch {
+                // cross-origin or inaccessible frame
+              }
+            }
+            return docs;
+          }
+          
+          function qAny<T extends Element = Element>(selector: string): T | null {
+            for (const d of getAllDocs()) {
+              const el = d.querySelector(selector) as T | null;
+              if (el) return el;
+            }
+            return null;
+          }
+          
+
+        function findChannelRunway(): Element | null {
+            const explicit = Array.from(document.querySelectorAll<HTMLElement>('[data-tid="channel-pane-runway"]'));
+            const visibleExplicit = explicit.find(isElementVisible);
+            if (visibleExplicit) return visibleExplicit;
+            if (explicit.length) return explicit[0];
+            const candidates = Array.from(document.querySelectorAll<HTMLElement>('[id^="channel-pane-"]'));
+            if (!candidates.length) return null;
+            const filtered = candidates.filter(el => {
+                if (el.getAttribute('data-tid') === 'channel-replies-runway') return false;
+                if (el.id === 'channel-pane-l2') return false;
+                return Boolean(el.querySelector('[data-tid="channel-pane-message"]'));
+            });
+            const visibleFiltered = filtered.filter(isElementVisible);
+            if (visibleFiltered.length) return visibleFiltered[0];
+            if (filtered.length) return filtered[0];
+            const visibleCandidate = candidates.find(isElementVisible);
+            return visibleCandidate || candidates[0] || null;
+        }
+
+        function getChannelItems(): Element[] {
+            const runway = findChannelRunway();
+            const listItems = runway ? Array.from(runway.querySelectorAll('li[role="none"]')) : [];
+        
+            let items: Element[] = [];
+        
+            if (runway) {
+                const selectors = [
+                    '[id^="message-body-"][aria-labelledby]',
+                    '[data-tid="control-message-renderer"]',
+                    '.fui-Divider__wrapper',
+                ];
+                const direct = Array.from(runway.querySelectorAll<HTMLElement>(selectors.join(', ')));
+                if (direct.length) {
+                    items = direct;
+                }
+            }
+        
+            if (!items.length) {
+                const filtered = listItems.filter(item =>
+                    item.querySelector('[data-tid="channel-pane-message"], [data-tid="control-message-renderer"], .fui-Divider__wrapper'),
+                );
+                if (filtered.length) {
+                    items = filtered;
+                } else {
+                    items = Array.from(document.querySelectorAll('[data-tid="channel-pane-message"]'));
+                }
+            }
+        
+            // 🔽 NEW: process from bottom → top
+            // DOM order is top → bottom, so we reverse the array.
+            return items.slice().reverse();
+        }
+        
+
+        function isVirtualListLoading(): boolean {
+            const runway = findChannelRunway();
+            const loader =
+                runway?.parentElement?.querySelector<HTMLElement>('[data-testid="virtual-list-loader"]') ||
+                runway?.querySelector<HTMLElement>('[data-testid="virtual-list-loader"]') ||
+                document.querySelector<HTMLElement>('[data-testid="virtual-list-loader"]');
+            if (loader && loader.offsetParent !== null) {
+                const rect = loader.getBoundingClientRect();
+                if (rect.height >= 1 || rect.width >= 1) return true;
+            }
+            return false;
         }
 
         // Author/timestamp/edited/avatar helpers ------------------------
         function resolveAuthor(body: Element, lastAuthor = ""): string {
             let author = textFrom($('[data-tid="message-author-name"]', body));
+            if (!author) {
+                const embedded = body.querySelector<HTMLElement>('[id^="author-"]');
+                if (embedded) author = textFrom(embedded);
+            }
             if (!author) {
                 const aria = body.getAttribute('aria-labelledby') || '';
                 const aId = aria.split(/\s+/).find(s => s.startsWith('author-'));
@@ -119,7 +282,7 @@ export default defineContentScript({
         }
         function resolveTimestamp(item: Element): string {
             const t = $('time[datetime]', item) || $('time', item) || $('[data-tid="message-status"] time', item);
-            return t?.getAttribute?.('datetime') || t?.getAttribute?.('title') || textFrom(t) || '';
+            return t?.getAttribute?.('datetime') || t?.getAttribute?.('title') || t?.getAttribute?.('aria-label') || textFrom(t) || '';
         }
         function resolveEdited(item: Element, body: Element): boolean {
             const aria = body?.getAttribute('aria-labelledby') || '';
@@ -278,8 +441,170 @@ export default defineContentScript({
             return out;
         }
 
+        function extractRichTextAsMarkdown(root: Element | null): string {
+            if (!root) return "";
+          
+            let out = "";
+          
+            const walk = (n: ChildNode) => {
+              if (n.nodeType === Node.TEXT_NODE) {
+                out += n.nodeValue ?? "";
+                return;
+              }
+              if (n.nodeType !== Node.ELEMENT_NODE) return;
+          
+              const el = n as HTMLElement;
+              const tag = el.tagName;
+          
+              // hard breaks
+              if (tag === "BR") { out += "\n"; return; }
+          
+              // emojis / inline images
+              if (tag === "IMG") {
+                out += (el.getAttribute("alt") || el.getAttribute("aria-label") || "");
+                return;
+              }
+          
+              // inline code
+              if (tag === "CODE") {
+                out += "`";
+                el.childNodes.forEach(walk);
+                out += "`";
+                return;
+              }
+          
+              // code blocks
+              if (tag === "PRE") {
+                const code = extractCodeBlock(el);
+                if (code) out += `\n\`\`\`\n${code}\n\`\`\`\n`;
+                return;
+              }
+          
+              // links
+              if (tag === "A") {
+                const href = el.getAttribute("href") || "";
+                const before = out.length;
+                el.childNodes.forEach(walk);
+                const text = out.slice(before);
+                out = out.slice(0, before);
+                out += href ? `[${text}](${href})` : text;
+                return;
+              }
+          
+              // bold/italic/strike
+              const wrap = (marker: string) => {
+                out += marker;
+                el.childNodes.forEach(walk);
+                out += marker;
+              };
+          
+              if (tag === "STRONG" || tag === "B") { wrap("**"); return; }
+              if (tag === "EM" || tag === "I") { wrap("*"); return; }
+              if (tag === "DEL" || tag === "S") { wrap("~~"); return; }
+          
+              // blockquotes
+              if (tag === "BLOCKQUOTE") {
+                const before = out.length;
+                el.childNodes.forEach(walk);
+                const chunk = out.slice(before).trim();
+                out = out.slice(0, before);
+                if (chunk) {
+                  const lines = chunk.split(/\n/);
+                  out += lines.map(l => (l ? `> ${l}` : `>`)).join("\n") + "\n";
+                }
+                return;
+              }
+          
+              // default recursion
+              const isBlock = /^(DIV|P|LI|BLOCKQUOTE|H[1-6])$/.test(tag);
+              const start = out.length;
+          
+              el.childNodes.forEach(walk);
+          
+              // add paragraph-ish spacing
+              if (isBlock && out.length > start) out += "\n";
+            };
+          
+            root.childNodes.forEach(walk);
+          
+            return out.replace(/\n{3,}/g, "\n\n").trim();
+          }
+          
+
+        // Text with emoji (IMG alt) + block breaks
+        function extractTextWithEmojis(root: Element | null): string {
+            if (!root) return '';
+            let out = '';
+            const collectText = (node: Element | null): string => {
+                if (!node) return '';
+                let buf = '';
+                const walkCollect = (n: ChildNode) => {
+                    if (n.nodeType === Node.TEXT_NODE) { buf += n.nodeValue; return; }
+                    if (n.nodeType !== Node.ELEMENT_NODE) return;
+                    const el = n as Element;
+                    const tag = el.tagName;
+                    if (tag === 'BR') { buf += '\n'; return; }
+                    if (tag === 'IMG') { buf += (el.getAttribute('alt') || el.getAttribute('aria-label') || ''); return; }
+                    if (tag === 'CODE') { buf += '`'; for (const c of el.childNodes) walkCollect(c); buf += '`'; return; }
+                    if (tag === 'PRE') { const code = extractCodeBlock(el); if (code) buf += `\n\`\`\`\n${code}\n\`\`\`\n`; return; }
+                    const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/;
+                    const start = buf.length;
+                    for (const c of el.childNodes) walkCollect(c);
+                    if (blockish.test(tag) && buf.length > start) buf += '\n';
+                };
+                walkCollect(node);
+                return buf.replace(/\n{3,}/g, '\n\n').trim();
+            };
+            const walk = (n: ChildNode) => {
+                if (n.nodeType === Node.TEXT_NODE) { out += n.nodeValue; return; }
+                if (n.nodeType !== Node.ELEMENT_NODE) return;
+                const el = n as Element;
+                const tag = el.tagName;
+                if (tag === 'BR') { out += '\n'; return; }
+                if (tag === 'IMG') { out += (el.getAttribute('alt') || el.getAttribute('aria-label') || ''); return; }
+                if (tag === 'CODE') { out += '`'; for (const c of el.childNodes) walk(c); out += '`'; return; }
+                if (tag === 'PRE') { const code = extractCodeBlock(el); if (code) out += `\n\`\`\`\n${code}\n\`\`\`\n`; return; }
+                if (tag === 'BLOCKQUOTE') {
+                    const quoted = collectText(el);
+                    if (quoted) {
+                        const lines = quoted.split(/\n/);
+                        if (out && !out.endsWith('\n')) out += '\n';
+                        out += lines.map(line => (line ? `> ${line}` : '>')).join('\n');
+                        out += '\n';
+                    }
+                    return;
+                }
+                const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/;
+                const start = out.length;
+                for (const c of el.childNodes) walk(c);
+                if (blockish.test(tag) && out.length > start) out += '\n';
+            };
+            walk(root);
+            return out.replace(/\n{3,}/g, '\n\n').trim();
+        }
+
         // Helpers -------------------------------------------------------
         const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+        const DEBUG_THREAD_PHRASE = "Anyone having issues when linking the against the library";
+        const DEBUG = true;
+
+        function dbg(label: string, obj?: any) {
+        if (!DEBUG) return;
+        try {
+            console.log(`[teams-export][debug] ${label}`, obj ?? "");
+        } catch {}
+        }
+
+        function textPreview(s: string, n = 140) {
+        const t = (s || "").replace(/\s+/g, " ").trim();
+        return t.length > n ? t.slice(0, n) + "…" : t;
+        }
+
+        function includesDebugPhrase(s: string) {
+        return (s || "").toLowerCase().includes(DEBUG_THREAD_PHRASE.toLowerCase());
+        }
+
 
         async function waitForPreviewImages(item: Element, timeoutMs = 350) {
             const imgs = Array.from(
@@ -304,11 +629,350 @@ export default defineContentScript({
             await Promise.race([Promise.all(waits), sleep(timeoutMs)]);
         }
 
+        async function expandMessageContent(wrapper: Element | null) {
+            if (!wrapper) return;
+            const btn = wrapper.querySelector<HTMLButtonElement>(
+                '[data-track-module-name="seeMoreButton"], [aria-controls^="see-more-content-"]',
+            );
+            if (!btn) return;
+            if (btn.getAttribute('aria-expanded') === 'true') return;
+            try { btn.click(); } catch {}
+            await sleep(160);
+        }
+
+        function findMainWrapper(item: Element) {
+            const wrappers = Array.from(item.querySelectorAll<HTMLElement>('[data-testid="message-body-flex-wrapper"]'));
+            const primary = wrappers.find(wrapper => {
+                const mid = wrapper.getAttribute('data-mid');
+                const chain = wrapper.getAttribute('data-reply-chain-id');
+                if (mid && chain && mid === chain) return true;
+                return Boolean(wrapper.querySelector('[data-tid="subject-line"]'));
+            });
+            return primary || wrappers[0] || null;
+        }
+
+        function findResponseSummaryButtonByParentId(parentId: string): HTMLButtonElement | null {
+            // Find the post renderer by id if possible
+            const post = qAny(`#post-message-renderer-${cssEscape(parentId)}`) ||
+                         qAny(`#message-body-${cssEscape(parentId)}`) ||
+                         qAny(`[data-mid="${cssEscape(parentId)}"]`)?.closest('[id^="post-message-renderer-"], [id^="message-body-"]');
+          
+            if (!post) return null;
+          
+            const surface = post.parentElement?.querySelector<HTMLElement>('[data-tid="response-surface"]') ||
+                            post.querySelector<HTMLElement>('[data-tid="response-surface"]');
+          
+            return surface?.querySelector<HTMLButtonElement>('button[data-tid="response-summary-button"]') || null;
+          }
+          
+          async function scrollPostIntoView(parentId: string) {
+            const post =
+              qAny(`#post-message-renderer-${cssEscape(parentId)}`) ||
+              qAny(`#message-body-${cssEscape(parentId)}`) ||
+              qAny(`[data-mid="${cssEscape(parentId)}"]`)?.closest('[id^="post-message-renderer-"], [id^="message-body-"]');
+          
+            if (!post) return false;
+          
+            // scroll the *correct scroller* (channel)
+            const scroller = getScroller('team') as HTMLElement | null;
+            if (!scroller) return false;
+          
+            post.scrollIntoView({ block: "center" });
+            await sleep(120);
+            return true;
+          }
+          
+
+        function findReplyWrapper(item: Element) {
+            const mid = $('[data-tid="reply-message-body"]', item)?.getAttribute('data-mid') || $('[data-tid="channel-pane-message"]', item)?.getAttribute('data-mid');
+            if (!mid) return null;
+            return item.querySelector<HTMLElement>(`[data-testid="message-body-flex-wrapper"][data-mid="${cssEscape(mid)}"]`) ||
+                item.querySelector<HTMLElement>(`[data-testid="message-body-flex-wrapper"][data-reply-chain-id="${cssEscape(mid)}"]`);
+        }
+
+        async function expandSeeMore(item: Element) {
+            const mainWrapper = findMainWrapper(item);
+            await expandMessageContent(mainWrapper);
+            const replyWrapper = findReplyWrapper(item);
+            if (replyWrapper && replyWrapper !== mainWrapper) {
+                await expandMessageContent(replyWrapper);
+            }
+        }
+
+        async function waitForSelector(selector: string, timeoutMs = 2000) {
+            const start = Date.now();
+            while (Date.now() - start < timeoutMs) {
+              const el = qAny(selector);
+              if (el) return el;
+              await sleep(100);
+            }
+            return null;
+          }
+          
+
+        function deriveParentIdFromItem(item: Element): string | null {
+            const itemRoot =
+              item.closest<HTMLElement>('[data-tid="channel-pane-message"]') ||
+              item.closest<HTMLElement>('li[role="none"]') ||
+              (item as HTMLElement);
+          
+            // Prefer the main post wrapper mid
+            const mid =
+              itemRoot.querySelector<HTMLElement>('[data-testid="message-body-flex-wrapper"][data-mid]')?.getAttribute('data-mid') ||
+              itemRoot.querySelector<HTMLElement>('[data-mid]')?.getAttribute('data-mid') ||
+              itemRoot.getAttribute('data-mid');
+          
+            if (mid) return mid;
+          
+            // If no mid, sometimes the response-summary button id includes it: response-summary-<mid>
+            const surface =
+              itemRoot.parentElement?.querySelector<HTMLElement>('[data-tid="response-surface"]') ||
+              itemRoot.querySelector<HTMLElement>('[data-tid="response-surface"]');
+          
+            const btn = surface?.querySelector<HTMLButtonElement>('[data-tid="response-summary-button"][id^="response-summary-"]');
+            if (btn?.id) {
+              const m = btn.id.match(/^response-summary-(.+)$/);
+              if (m?.[1]) return m[1];
+            }
+          
+            return null;
+          }
+          
+          function getRepliesRunway(): Element | null {
+            return (
+              qAny('[data-tid="channel-replies-runway"]') ||
+              qAny('#channel-pane-l2') ||
+              null
+            );
+          }
+          
+
+        function getRepliesItems(): Element[] {
+            const runway = getRepliesRunway();
+            if (!runway) return [];
+            const listItems = Array.from(runway.querySelectorAll('li'));
+            const items: Element[] = [];
+            for (const li of listItems) {
+                const message = li.querySelector<HTMLElement>('[data-tid="channel-replies-pane-message"]');
+                if (message) {
+                    items.push(message);
+                    continue;
+                }
+                const divider = li.querySelector<HTMLElement>('[data-testid="timestamp-divider"]');
+                if (divider) {
+                    items.push(divider);
+                }
+            }
+            return items.length ? items : listItems;
+        }
+
+        function getReplyItemId(item: Element, index: number): string {
+            const mid =
+                item.querySelector('[data-testid="message-body-flex-wrapper"][data-mid]')?.getAttribute('data-mid') ||
+                item.querySelector('[data-mid]')?.getAttribute('data-mid') ||
+                item.getAttribute('data-mid');
+            if (mid) return mid;
+            return item.id || `reply-${index}`;
+        }
+
+        function getRepliesScroller(): Element | null {
+            const runway = getRepliesRunway();
+            if (!runway) return null;
+            const primary = findScrollableAncestor(runway);
+            if (primary) return primary;
+            const items = getRepliesItems();
+            for (const item of items) {
+                const candidate = findScrollableAncestor(item);
+                if (candidate) return candidate;
+            }
+            const replyPane =
+                document.querySelector<HTMLElement>('[data-tid*="channel-replies"]') ||
+                document.querySelector<HTMLElement>('[id^="channel-replies-"]');
+            return findScrollableAncestor(replyPane) || document.scrollingElement;
+        }
+
+        function isRepliesLoading(): boolean {
+            const runway = getRepliesRunway();
+            if (!runway) return false;
+            const loader = runway.parentElement?.querySelector<HTMLElement>('[data-testid="virtual-list-loader"]') ||
+                runway.closest('[data-testid]')?.querySelector<HTMLElement>('[data-testid="virtual-list-loader"]') ||
+                document.querySelector<HTMLElement>('[data-testid="virtual-list-loader"]');
+            if (loader && loader.offsetParent !== null) {
+                const rect = loader.getBoundingClientRect();
+                if (rect.height >= 1 || rect.width >= 1) return true;
+            }
+            return false;
+        }
+
+        async function waitForRepliesPaneForParent(parentId: string, timeoutMs = 6000): Promise<boolean> {
+            const start = Date.now();
+            while (Date.now() - start < timeoutMs) {
+              const runway = getRepliesRunway();
+              if (!runway) { await sleep(120); continue; }
+          
+              // Strong signal: something in the replies pane references this chain id
+              const match =
+                runway.querySelector(`[data-reply-chain-id="${cssEscape(parentId)}"]`) ||
+                runway.querySelector(`[data-tid="channel-replies-pane-message"] [data-reply-chain-id="${cssEscape(parentId)}"]`);
+          
+              // Backup signal: the pane actually has messages loaded (not empty / still transitioning)
+              const items = getRepliesItems();
+              const hasAnyMessages = items.some(el =>
+                (el as HTMLElement).getAttribute?.('data-tid') === 'channel-replies-pane-message' ||
+                el.querySelector?.('[data-tid="channel-replies-pane-message"]')
+              );
+          
+              if (match || hasAnyMessages) {
+                // If we have an explicit match, great.
+                // If only "hasAnyMessages", still wait a bit more for correct match.
+                if (match) return true;
+              }
+          
+              await sleep(150);
+            }
+            return false;
+          }
+
+          
+    
+    
+          async function openRepliesForItem(btn: HTMLButtonElement, parentId: string): Promise<OpenMode> {
+            const maxTries = 3;
+          
+            for (let attempt = 1; attempt <= maxTries; attempt++) {
+                await scrollPostIntoView(parentId);
+
+                const liveBtn = findResponseSummaryButtonByParentId(parentId) || btn;
+                await realClick(liveBtn);
+          
+              // Give layout a moment (Teams often needs this)
+              await sleep(120);
+          
+              // 1) Pane path
+              const runway = await waitForSelector(
+                '[data-tid="channel-replies-runway"], #channel-pane-l2',
+                3000
+              );
+          
+              if (runway) {
+                const ok = await waitForRepliesPaneForParent(parentId, 6500);
+                if (ok) return "pane";
+          
+                dbg("openRepliesForItem: wrong/unstable pane, retrying", { parentId, attempt });
+                await closeRepliesPane();
+                await sleep(250);
+                continue;
+              }
+          
+          
+              // Optional: quick second click inside the attempt
+              dbg("openRepliesForItem: no runway and no inline detected, retry click", { parentId, attempt });
+              await sleep(200);
+              await realClick(btn);
+              await sleep(200);
+          
+              const runway2 = await waitForSelector(
+                '[data-tid="channel-replies-runway"], #channel-pane-l2',
+                1500
+              );
+              if (runway2) {
+                const ok2 = await waitForRepliesPaneForParent(parentId, 6500);
+                if (ok2) return "pane";
+                await closeRepliesPane();
+                await sleep(250);
+                continue;
+              }
+          
+              dbg("openRepliesForItem: still nothing, next attempt", { parentId, attempt });
+              await sleep(300);
+            }
+          
+            dbg("openRepliesForItem: failed after retries", { parentId });
+            return "fail";
+          }
+          
+          
+        async function closeRepliesPane() {
+            const selectors = [
+                '[data-tid="close-l2-view-button"]',
+                '[data-tid="channel-replies-header"] button[aria-label*="Back"]',
+                '[data-tid="channel-replies-header"] button[aria-label*="Close"]',
+                'button[aria-label^="Back"]',
+                'button[aria-label*="Back to channel"]',
+                '[data-tid="close-replies-button"]',
+            ];
+            for (const selector of selectors) {
+                const btn = document.querySelector<HTMLButtonElement>(selector);
+                if (btn && btn.offsetParent !== null) {
+                    try { btn.click(); } catch {}
+                    await sleep(200);
+                    break;
+                }
+            }
+            try {
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+            } catch {}
+            const start = Date.now();
+            while (getRepliesRunway() && Date.now() - start < 2000) {
+                await sleep(100);
+            }
+            // NEW: let Teams finish layout so next "Open replies" click works reliably
+            await sleep(250);
+        }
+
+        function buildReplyContext(msg: ExtractedMessage): ReplyContext {
+            return {
+                author: msg.author || '',
+                timestamp: msg.timestamp || '',
+                text: msg.text || '',
+            };
+        }
+
         const findPaneItemByMessageId = (id: string | null | undefined): Element | null => {
             if (!id) return null;
-            const msgNode = document.querySelector(`[data-mid="${cssEscape(id)}"]`);
-            return msgNode?.closest('[data-tid="chat-pane-item"]') || null;
+            const msgNode = qAny(`[data-mid="${cssEscape(id)}"]`);
+            return (
+                msgNode?.closest('[data-tid="chat-pane-item"]') ||
+                msgNode?.closest('[data-tid="channel-pane-message"]') ||
+                msgNode?.closest('[data-tid="channel-replies-pane-message"]') ||
+                msgNode?.closest('li[role="none"]') ||
+                null
+            );
         };
+
+        type OpenMode = "pane" | "inline" | "fail";
+
+        function getResponseSurfaceForButton(btn: HTMLButtonElement): HTMLElement | null {
+            return btn.closest<HTMLElement>('[data-tid="response-surface"]');
+          }
+          
+
+        async function realClick(el: HTMLElement) {
+        try { el.scrollIntoView({ block: "center" }); } catch {}
+        await sleep(80);
+
+        const opts: MouseEventInit = { bubbles: true, cancelable: true, composed: true, view: window };
+        el.dispatchEvent(new MouseEvent("pointerdown", opts));
+        el.dispatchEvent(new MouseEvent("mousedown", opts));
+        el.dispatchEvent(new MouseEvent("pointerup", opts));
+        el.dispatchEvent(new MouseEvent("mouseup", opts));
+        el.dispatchEvent(new MouseEvent("click", opts));
+        }
+
+        // Inline reply nodes tend to carry the parent chain id somewhere in the subtree.
+        // We use the chain id to find “reply message-ish” containers.
+        function findInlineReplyNodes(surface: Element, parentId: string): HTMLElement[] {
+            const sel = `[data-testid="message-body-flex-wrapper"][data-reply-chain-id="${cssEscape(parentId)}"]`;
+            const wrappers = Array.from(surface.querySelectorAll<HTMLElement>(sel));
+          
+            // Promote wrapper -> stable message-body group if possible
+            const items = wrappers.map(w => w.closest<HTMLElement>('[id^="message-body-"][role="group"]') || w);
+          
+            // Dedup
+            return Array.from(new Set(items));
+          }
+          
+          
 
         async function hydrateSparseMessages(agg: Map<string, ContentAggregated>, opts: ScrapeOptions = {}) {
             if (!agg || agg.size === 0) return;
@@ -355,14 +1019,13 @@ export default defineContentScript({
             let attempts = 0;
             while (pending.length && attempts < 3) {
                 await sleep(attempts === 0 ? 450 : 650);
-                const nextPending = [];
+                const nextPending: { id: string; item: Element }[] = [];
 
                 for (const task of pending) {
                     const { id } = task;
                     const existing = agg.get(id);
-                    if (!existing) continue;
+                    if (!existing || !existing.message) continue;
 
-                    if (!existing.message) continue;
                     const item = findPaneItemByMessageId(id) || task.item;
                     if (!item) continue;
 
@@ -380,58 +1043,70 @@ export default defineContentScript({
                         seq: 0,
                         lastAuthor: existing.message.author || '',
                         lastId: existing.message.id || null,
-                        systemCursor: 0
+                        systemCursor: 0,
                     };
 
-                    const reExtracted = await extractOne(item, { includeSystem: opts.includeSystem, includeReactions: opts.includeReactions }, lastAuthorRef, tempOrderCtx);
+                    const reExtracted = await extractOne(
+                        item,
+                        {
+                            includeSystem: opts.includeSystem,
+                            includeReactions: opts.includeReactions,
+                            includeReplies: opts.includeReplies,
+                            startAtISO: null,
+                            endAtISO: null,
+                        },
+                        lastAuthorRef,
+                        tempOrderCtx
+                    );
+
                     if (!reExtracted?.message) {
                         nextPending.push(task);
                         continue;
                     }
 
+                    // --- HARD OVERRIDE STRATEGY ---
                     const merged: ExtractedMessage = {
+                        // Keep a stable id if we already had one
                         id: existing.message.id || reExtracted.message.id || id,
-                        author: existing.message.author || reExtracted.message.author || '',
-                        timestamp: existing.message.timestamp || reExtracted.message.timestamp || '',
-                        text: preferText(existing.message.text || '', reExtracted.message.text || ''),
-                        edited: existing.message.edited || reExtracted.message.edited,
-                        system: existing.message.system || reExtracted.message.system,
-                        avatar: existing.message.avatar ?? reExtracted.message.avatar ?? null,
-                        reactions: existing.message.reactions,
-                        attachments: existing.message.attachments,
-                        tables: existing.message.tables,
-                        replyTo: existing.message.replyTo ?? reExtracted.message.replyTo ?? null,
+
+                        // Prefer fresh extraction for content fields
+                        author: reExtracted.message.author || existing.message.author || '',
+                        timestamp: reExtracted.message.timestamp || existing.message.timestamp || '',
+                        text: reExtracted.message.text || existing.message.text || '',
+
+                        edited: Boolean(existing.message.edited || reExtracted.message.edited),
+                        system: Boolean(existing.message.system || reExtracted.message.system),
+
+                        // Avatar: new one wins, otherwise fall back
+                        avatar: reExtracted.message.avatar ?? existing.message.avatar ?? null,
+
+                        // Reactions / attachments / tables: trust the new extraction
+                        reactions: reExtracted.message.reactions || existing.message.reactions || [],
+                        attachments: reExtracted.message.attachments || existing.message.attachments || [],
+                        tables: reExtracted.message.tables || existing.message.tables || [],
+
+                        // Reply context: new replyTo wins if present
+                        replyTo: reExtracted.message.replyTo ?? existing.message.replyTo ?? null,
                     };
 
-                    if (opts.includeReactions) {
-                        const newReacts = reExtracted.message.reactions || [];
-                        const prevCount = Array.isArray(merged.reactions) ? merged.reactions.length : 0;
-                        if (newReacts.length && newReacts.length >= prevCount) {
-                            merged.reactions = newReacts;
-                        }
-                    }
+                    const newTsMs =
+                        reExtracted.tsMs ??
+                        existing.tsMs ??
+                        (merged.timestamp ? parseTimeStamp(merged.timestamp) : null);
 
-                    const newAttachments = reExtracted.message.attachments || [];
-                    const prevAttCount = Array.isArray(merged.attachments) ? merged.attachments.length : 0;
-                    if (newAttachments.length && newAttachments.length >= prevAttCount) {
-                        merged.attachments = newAttachments;
-                    }
-                    const newTables = reExtracted.message.tables || [];
-                    const prevTableCount = Array.isArray(merged.tables) ? merged.tables.length : 0;
-                    if (newTables.length && newTables.length >= prevTableCount) {
-                        merged.tables = newTables;
-                    }
+                    const kind = existing.kind ?? reExtracted.kind;
 
-                    if (!merged.replyTo && reExtracted.message.replyTo) merged.replyTo = reExtracted.message.replyTo;
-                    if (!merged.avatar && reExtracted.message.avatar) merged.avatar = reExtracted.message.avatar;
-                    merged.edited = merged.edited || Boolean(reExtracted.message.edited);
-
-                    const newTsMs = reExtracted?.tsMs ?? existing.tsMs ?? (merged.timestamp ? parseTimeStamp(merged.timestamp) : null);
-                    const kind = existing.kind ?? reExtracted?.kind;
-                    agg.set(id, { message: merged as ExtractedMessage, orderKey: existing.orderKey, tsMs: newTsMs, kind });
+                    agg.set(id, {
+                        message: merged as ExtractedMessage,
+                        orderKey: existing.orderKey,
+                        tsMs: newTsMs,
+                        kind,
+                    });
 
                     const status = needsHydration(merged, item);
-                    if (status.needs) nextPending.push({ id, item });
+                    if (status.needs) {
+                        nextPending.push({ id, item });
+                    }
                 }
 
                 pending = nextPending;
@@ -440,10 +1115,15 @@ export default defineContentScript({
 
             if (pending.length) {
                 try {
-                    console.debug('[Teams Exporter] hydration pending after retries', pending.map(p => p.id));
+                    console.debug(
+                        '[Teams Exporter] hydration pending after retries',
+                        pending.map(p => p.id)
+                    );
                 } catch (_) {
+                    // ignore
                 }
             }
+
         }
 
         function parseDateDividerText(txt: string, yearHint?: number | null) {
@@ -507,6 +1187,31 @@ export default defineContentScript({
             return { ...base, message: base.message as ExtractedMessage };
         };
 
+        function buildReplyContextFromChainId(chainId: string): ReplyContext | null {
+            if (!chainId) return null;
+            const anchor = qAny(`[data-mid="${cssEscape(chainId)}"]`);
+            if (!anchor) return null;
+            const parentItem =
+                anchor.closest('[data-tid="channel-pane-message"]') ||
+                anchor.closest('[data-tid="chat-pane-message"]') ||
+                anchor.closest('[data-tid="channel-replies-pane-message"]') ||
+                anchor.closest('li[role="none"]') ||
+                anchor;
+            const parentBody =
+                parentItem.querySelector<HTMLElement>('[id^="message-body-"][aria-labelledby]') ||
+                parentItem.querySelector<HTMLElement>('[data-tid="channel-pane-message"]') ||
+                parentItem.querySelector<HTMLElement>('[data-tid="chat-pane-message"]') ||
+                parentItem.querySelector<HTMLElement>('[data-tid="channel-replies-pane-message"]') ||
+                (parentItem as HTMLElement);
+            const author = resolveAuthor(parentBody, '');
+            const timestamp = resolveTimestamp(parentItem);
+            const contentEl = $('[id^="content-"]', parentBody) || $('[data-tid="message-body"]', parentBody) || parentBody;
+            const text = extractTextWithEmojis(contentEl).trim();
+            if (!author && !timestamp && !text) return null;
+            return { author, timestamp, text, id: chainId };
+        }
+
+  
         // Extract one item into a message object + an orderKey
         async function extractOne(
             item: Element,
@@ -514,18 +1219,112 @@ export default defineContentScript({
             lastAuthorRef: { value: string },
             orderCtx: OrderContext & { seq?: number }
         ): Promise<ContentAggregated | null> {
-            const body = $('[data-tid="chat-pane-message"]', item) || item;
-            const isSystem = !$('[data-tid="chat-pane-message"]', item);
+            // --- Special handling for thread replies --------------------------
+            const isReplyItem =
+                item instanceof HTMLElement &&
+                item.getAttribute('data-tid') === 'channel-replies-pane-message';
 
-            // Date/system divider
+            let wrapperWithMid: HTMLElement | null = null;
+            let wrapperItem: HTMLElement | null = null;
+            let body: HTMLElement | null = null;
+            let itemScope: Element = item;
+            let hasMessage = false;
+
+            if (isReplyItem) {
+                // In the replies runway, `item` is already the message container.
+                // Do NOT climb up with `closest`, or you risk grabbing the parent post.
+                wrapperWithMid = item.querySelector<HTMLElement>('[data-mid]') || null;
+                wrapperItem = item;
+                body = item;
+                itemScope = item;
+                hasMessage = true;
+            } else {
+                // --- Original non-reply initialization path -------------------
+                wrapperWithMid =
+                    item.querySelector<HTMLElement>('[data-testid="message-body-flex-wrapper"][data-mid]') ||
+                    item.querySelector<HTMLElement>('[data-tid="channel-replies-pane-message"] [data-mid]') ||
+                    item.querySelector<HTMLElement>('[data-mid]');
+
+                wrapperItem = wrapperWithMid
+                    ? wrapperWithMid.closest<HTMLElement>(
+                        '[data-tid="channel-replies-pane-message"], [data-tid="channel-pane-message"], [data-tid="chat-pane-message"], [id^="message-body-"][aria-labelledby]'
+                    )
+                    : null;
+
+                body =
+                    wrapperItem ||
+                    item.querySelector<HTMLElement>('[data-tid="chat-pane-message"]') ||
+                    item.querySelector<HTMLElement>('[data-tid="channel-pane-message"]') ||
+                    (item instanceof HTMLElement && item.matches('[id^="message-body-"][aria-labelledby]') ? item : null) ||
+                    item.querySelector<HTMLElement>('[id^="message-body-"][aria-labelledby]') ||
+                    item.querySelector<HTMLElement>('[data-tid="channel-replies-pane-message"]') ||
+                    (item as HTMLElement);
+
+                itemScope =
+                    wrapperItem ||
+                    item.closest('[data-tid="channel-pane-message"], [data-tid="chat-pane-message"], [data-tid="channel-replies-pane-message"]') ||
+                    item;
+
+                hasMessage =
+                    Boolean($('[data-tid="chat-pane-message"]', item)) ||
+                    Boolean($('[data-tid="channel-pane-message"]', item)) ||
+                    Boolean($('[data-tid="channel-replies-pane-message"]', item)) ||
+                    (item instanceof HTMLElement && item.matches('[id^="message-body-"][aria-labelledby]')) ||
+                    Boolean($('[id^="message-body-"][aria-labelledby]', item));
+            }
+
+            const isSystem = !hasMessage;
+
+            // --- Skip inline thread preview replies when "Open X replies" exists ---
+            //
+            // In a Teams channel:
+            //   - The main post is *outside* the response-surface.
+            //   - Inline preview replies live *inside* a `data-tid="response-surface"` block
+            //     which also hosts the "Open X replies" button.
+            //
+            // We don't want to export those preview replies, because we will scrape the
+            // *full* thread from the right-hand replies pane instead. If there is NO
+            // summary button, then we keep the inline replies (short threads).
+            if (!isSystem && body) {
+                const surface =
+                  body.closest<HTMLElement>('[data-tid="response-surface"]') ||
+                  (itemScope as HTMLElement).closest<HTMLElement>('[data-tid="response-surface"]');
+              
+                if (surface) {
+                  const hasOpenButton = surface.querySelector<HTMLButtonElement>('[data-tid="response-summary-button"]');
+              
+                  // ✅ Only skip inline preview replies during the MAIN channel pass.
+                  // Allow them when we're explicitly scraping inline thread replies.
+                  if (hasOpenButton && !opts.__allowInlineThreadReplies) {
+                    return null;
+                  }
+                }
+              }
+              
+    
+            // --- System / divider handling -----------------------------------
             if (isSystem) {
                 if (!opts.includeSystem) return null;
-                const dividerWrapper = $('.fui-Divider__wrapper', item);
-                const controlRenderer = $('[data-tid="control-message-renderer"]', item);
 
+                const dividerWrapper =
+                    (item instanceof HTMLElement && item.matches('.fui-Divider__wrapper'))
+                        ? item
+                        : $('.fui-Divider__wrapper', item);
+
+                const controlRenderer =
+                    (item instanceof HTMLElement && item.matches('[data-tid="control-message-renderer"]'))
+                        ? item
+                        : $('[data-tid="control-message-renderer"]', item);
+
+                // Pure date divider (no control renderer)
                 if (dividerWrapper && !controlRenderer) {
                     const text = textFrom(dividerWrapper) || 'system';
-                    const bodyMid = dividerWrapper.getAttribute?.('data-mid') || $('[data-mid]', dividerWrapper)?.getAttribute('data-mid') || item.getAttribute('data-mid') || dividerWrapper.id;
+                    const bodyMid =
+                        dividerWrapper.getAttribute?.('data-mid') ||
+                        $('[data-mid]', dividerWrapper)?.getAttribute('data-mid') ||
+                        item.getAttribute('data-mid') ||
+                        dividerWrapper.id;
+
                     const numericMid = bodyMid && Number(bodyMid);
                     const parsedTs = parseDateDividerText(text, orderCtx.yearHint);
                     const tsVal = Number.isFinite(parsedTs)
@@ -533,44 +1332,82 @@ export default defineContentScript({
                         : Number.isFinite(numericMid)
                             ? Number(numericMid)
                             : Date.now();
+
                     return makeDayDivider(tsVal, tsVal);
                 }
 
                 const wrapper = controlRenderer || dividerWrapper || item;
                 const text = textFrom(wrapper) || textFrom(item) || 'system';
-                const bodyMid = wrapper?.getAttribute?.('data-mid') || $('[data-mid]', wrapper || item)?.getAttribute('data-mid') || item.getAttribute('data-mid') || wrapper?.id;
+                const bodyMid =
+                    wrapper?.getAttribute?.('data-mid') ||
+                    $('[data-mid]', wrapper || item)?.getAttribute('data-mid') ||
+                    item.getAttribute('data-mid') ||
+                    wrapper?.id;
+
                 const dividerId = (bodyMid || text || 'system').toLowerCase();
                 const numericMid = bodyMid && Number(bodyMid);
+
                 let parsedTs = parseDateDividerText(text, orderCtx.yearHint);
                 if (!Number.isFinite(parsedTs)) parsedTs = parseControlTimestamp(text, orderCtx.yearHint);
+
                 const systemCursor = typeof orderCtx.systemCursor === 'number' ? orderCtx.systemCursor : -9e15;
                 const approxMs: number = Number.isFinite(parsedTs)
-                    ? parsedTs!
+                    ? (parsedTs as number)
                     : Number.isFinite(numericMid)
                         ? Number(numericMid)
                         : typeof orderCtx.lastTimeMs === 'number'
                             ? orderCtx.lastTimeMs - 1
                             : systemCursor;
+
                 orderCtx.systemCursor = systemCursor + 1;
+
                 if (Number.isFinite(parsedTs)) {
                     orderCtx.lastTimeMs = parsedTs as number;
                     orderCtx.yearHint = new Date(parsedTs as number).getFullYear();
                 }
+
                 return {
-                    message: { id: dividerId, author: '[system]', timestamp: '', text, reactions: [], attachments: [], edited: false, avatar: null, replyTo: null, system: true },
+                    message: {
+                        id: dividerId,
+                        author: '[system]',
+                        timestamp: '',
+                        text,
+                        reactions: [],
+                        attachments: [],
+                        edited: false,
+                        avatar: null,
+                        replyTo: null,
+                        system: true,
+                    },
                     orderKey: approxMs,
                     tsMs: approxMs,
-                    kind: 'system-control'
+                    kind: 'system-control',
                 };
             }
 
-            // Normal message
-            const ts = resolveTimestamp(item);
-            const tms = ts ? Date.parse(ts) : NaN;
-            if (!Number.isNaN(tms)) {
-                orderCtx.lastTimeMs = tms;
-                orderCtx.yearHint = new Date(tms).getFullYear();
+            // --- Normal message (chat, channel, or reply) --------------------
+            if (!body) body = itemScope as HTMLElement;
+
+            // Compute mid once, for logging + ID + timestamp fallback.
+            const mid =
+                wrapperWithMid?.getAttribute('data-mid') ||
+                body.getAttribute('data-mid') ||
+                body.querySelector('[data-mid]')?.getAttribute('data-mid') ||
+                item.getAttribute('data-mid') ||
+                item.querySelector('[data-mid]')?.getAttribute('data-mid') ||
+                item.id ||
+                '';
+
+            if (!mid) {
+                try {
+                    console.warn('[Teams Exporter] message with no data-mid:', (item as HTMLElement).outerHTML.slice(0, 200));
+                } catch {
+                    // ignore logging failure
+                }
             }
+
+            let ts = resolveTimestamp(item);
+            let tms = ts ? Date.parse(ts) : NaN;
 
             const author = resolveAuthor(body, lastAuthorRef.value || orderCtx.lastAuthor || '');
             if (author) {
@@ -578,305 +1415,503 @@ export default defineContentScript({
                 orderCtx.lastAuthor = author;
             }
 
-            const contentEl = $('[id^="content-"]', body) || $('[data-tid="message-content"]', body) || body;
+            await expandSeeMore(item);
+
+            // Prefer the content-block that corresponds to this mid when possible.
+            let contentEl: Element =
+                (mid
+                    ? body.querySelector<HTMLElement>(`[data-tid="message-body"][data-mid="${cssEscape(mid)}"]`) ||
+                    body
+                        .querySelector<HTMLElement>(`[data-tid="message-body"] [data-mid="${cssEscape(mid)}"]`)
+                        ?.closest<HTMLElement>('[data-tid="message-body"]') ||
+                    null
+                    : null) ||
+                $('[id^="content-"]', body) ||
+                $('[data-tid="message-content"]', body) ||
+                body;
+
+            // For replies, `body === itemScope` (the reply message) so this should
+            // no longer “see” the parent post’s body.
             const tables = extractTables(contentEl);
             const codeBlocks = extractCodeBlocks(contentEl);
+
             const cleanRoot = stripQuotedPreview(contentEl) || contentEl;
             normalizeMentions(cleanRoot);
-            let text = extractTextWithEmojis(cleanRoot);
+
+            let text = extractRichTextAsMarkdown(cleanRoot);
+
+
+            // Subject line only really applies to top-level channel posts;
+            // replies typically won't have it.
+            const subjectEl = $('[data-tid="subject-line"]', item) || $('h2[data-tid="subject-line"]', item);
+            const subject = textFrom(subjectEl).trim();
+            if (subject) {
+                const normalizedSubject = subject.replace(/\s+/g, ' ').trim();
+                const normalizedText = (text || '').replace(/\s+/g, ' ').trim();
+                if (!normalizedText.startsWith(normalizedSubject)) {
+                    text = text ? `${subject}\n\n${text}` : subject;
+                }
+            }
+
             if (codeBlocks.length && !/```/.test(text)) {
                 const fenced = codeBlocks.map(block => `\n\`\`\`\n${block}\n\`\`\`\n`).join('\n');
                 text = text ? `${text}\n${fenced}` : fenced.replace(/^\n/, '');
             }
-            const edited = resolveEdited(item, body);
-            const avatar = resolveAvatar(item);
-            const reactions = opts.includeReactions ? await extractReactions(item) : [];
 
-            await waitForPreviewImages(item, 250);
-            const attachments = await extractAttachments(item, body);
-            const replyTo = opts.includeReplies === false ? null : extractReplyContext(item, body);
+            const edited = resolveEdited(itemScope, body);
+            const avatar = resolveAvatar(itemScope);
+            const reactions = opts.includeReactions ? await extractReactions(itemScope) : [];
 
-            const mid = body.getAttribute('data-mid') || item.id || `${ts}#${author}`;
-            const msg: ExtractedMessage = { id: mid, author, timestamp: ts, text, reactions, attachments, edited, avatar, replyTo, tables, system: false };
+            await waitForPreviewImages(itemScope, 250);
+            const attachments = await extractAttachments(itemScope, body);
+
+            const chainId =
+                body.getAttribute('data-reply-chain-id') ||
+                body.querySelector('[data-reply-chain-id]')?.getAttribute('data-reply-chain-id') ||
+                (itemScope as HTMLElement).getAttribute('data-reply-chain-id') ||
+                itemScope.querySelector('[data-reply-chain-id]')?.getAttribute('data-reply-chain-id') ||
+                item.getAttribute('data-reply-chain-id') ||
+                item.querySelector('[data-reply-chain-id]')?.getAttribute('data-reply-chain-id');
+
+            const threadId =
+                chainId ||
+                mid ||
+                null;
+              
+
+            let replyTo = opts.includeReplies === false ? null : extractReplyContext(item, body);
+
+            // Timestamp fallback from mid (some mids are ms since epoch)
+            if ((!ts || Number.isNaN(tms)) && mid) {
+                const midMs = Number(mid);
+                if (Number.isFinite(midMs) && midMs > 100000000000) {
+                    tms = midMs;
+                    ts = new Date(midMs).toISOString();
+                }
+            }
+
+            if (!Number.isNaN(tms)) {
+                orderCtx.lastTimeMs = tms;
+                orderCtx.yearHint = new Date(tms).getFullYear();
+            }
+
+            if (!replyTo && opts.includeReplies !== false && chainId && chainId !== mid) {
+                replyTo = buildReplyContextFromChainId(chainId) || { author: '', timestamp: '', text: '', id: chainId };
+            }
+
+            const finalMid = mid || `${ts}#${author}`;
+            const msg: ExtractedMessage = {
+                id: finalMid,
+                threadId,
+                author,
+                timestamp: ts,
+                text,
+                reactions,
+                attachments,
+                edited,
+                avatar,
+                replyTo,
+                tables,
+                system: false,
+            };
 
             const seqVal = orderCtx.seq ?? 0;
             orderCtx.seq = seqVal + 1;
-            const orderKey = !Number.isNaN(tms) ? tms : (orderCtx.seqBase + seqVal);
+
+            const orderKey = !Number.isNaN(tms) ? tms : orderCtx.seqBase + seqVal;
             const tsMs = !Number.isNaN(tms) ? tms : null;
+
             return { message: msg, orderKey, tsMs, kind: 'message' };
         }
 
-        // Aggregate while scrolling so virtualization can’t drop items
-        async function collectCurrentVisible(agg: Map<string, ContentAggregated>, opts: ScrapeOptions, orderCtx: OrderContext) {
-            const nodes = $$('[data-tid="chat-pane-item"]'); // preserve DOM order for system dividers, too
-            const lastAuthorRef = { value: orderCtx.lastAuthor || '' };
-            for (let i = 0; i < nodes.length; i++) {
-                const item = nodes[i];
-                const idCandidate = $('[data-tid="chat-pane-message"]', item)?.getAttribute('data-mid') || $('[data-tid="control-message-renderer"]', item)?.getAttribute('data-mid') || $('.fui-Divider__wrapper', item)?.id || item.id || `node-${i}`;
-                if (agg.has(idCandidate)) continue;
+          
 
-                const extracted = await extractOne(item, opts, lastAuthorRef, orderCtx);
-                if (!extracted) continue;
-                if (extracted.kind === 'day-divider') {
-                    if (typeof extracted.tsMs === 'number' && Number.isFinite(extracted.tsMs)) {
-                        orderCtx.lastTimeMs = extracted.tsMs;
-                        orderCtx.yearHint = new Date(extracted.tsMs).getFullYear();
-                    }
-                    continue;
-                }
-                const { message, orderKey, tsMs, kind } = extracted;
-                if (!message) continue;
-
-                agg.set(message.id || `${orderKey}`, { message, orderKey, tsMs, kind });
-                if (!message.system && message.timestamp) {
-                    const tms = Date.parse(message.timestamp);
-                    if (!Number.isNaN(tms)) { orderCtx.lastTimeMs = tms; orderCtx.yearHint = new Date(tms).getFullYear(); }
-                }
-                if (!message.system && message.author) {
-                    orderCtx.lastAuthor = message.author;
-                }
-            }
-        }
-
-        async function autoScrollAggregate({ startAtISO, endAtISO, includeSystem, includeReactions, includeReplies = true }: ScrapeOptions & { includeReplies?: boolean }) {
-            const scroller = getScroller();
-            if (!scroller) throw new Error('Scroller not found');
-
-            const agg = new Map<string, ContentAggregated>();         // id -> {message, orderKey}
-            const orderCtx: OrderContext = {
+          async function collectRepliesForThread(
+            parentId: string,
+            parentContext: ReplyContext,
+            btn: HTMLButtonElement,
+            includeReactions: boolean,
+          ): Promise<ExtractedMessage[]> {
+            const mode = await openRepliesForItem(btn, parentId);
+            if (mode === "fail") return [];
+          
+            // INLINE MODE: scrape inline-expanded replies under the post
+            if (mode === "inline") {
+              const surface = getResponseSurfaceForButton(btn);
+              if (!surface) return [];
+          
+              const nodes = findInlineReplyNodes(surface, parentId);
+          
+              const replies: ExtractedMessage[] = [];
+              const seenIds = new Set<string>();
+          
+              const lastAuthorRef = { value: "" };
+              const tempOrderCtx: OrderContext = {
                 lastTimeMs: null,
                 yearHint: null,
                 seqBase: Date.now(),
                 seq: 0,
-                lastAuthor: '',
+                lastAuthor: "",
                 lastId: null,
-                systemCursor: -9e15
+                systemCursor: -9e15,
+              };
+          
+              for (let i = 0; i < nodes.length; i++) {
+                const node = nodes[i];
+          
+                const extracted = await extractOne(
+                    node,
+                    {
+                      includeSystem: false,
+                      includeReactions,
+                      includeReplies: false,
+                      startAtISO: null,
+                      endAtISO: null,
+                      __allowInlineThreadReplies: true, // ✅
+                    },
+                    lastAuthorRef,
+                    tempOrderCtx,
+                  );
+                  
+          
+                if (extracted?.message && extracted.kind === "message") {
+                  const msg = extracted.message as ExtractedMessage;
+          
+                  const replyId = msg.id || "";
+                  if (!replyId || replyId === parentId) continue;
+                  if (seenIds.has(replyId)) continue;
+          
+                  if (!msg.replyTo) msg.replyTo = parentContext;
+          
+                  seenIds.add(replyId);
+                  replies.push(msg);
+                }
+              }
+          
+              // In inline mode there is no replies pane to close.
+              return replies;
+            }
+          
+            // PANE MODE: scrape the right-hand replies pane
+            let replies: ExtractedMessage[] = [];
+            try {
+              const scroller = getRepliesScroller();
+              if (!scroller) {
+                await closeRepliesPane();
+                return [];
+              }
+          
+              replies = await autoScrollAggregateHelper(
+                {
+                  hud,
+                  runtime,
+                  extractOne,
+                  hydrateSparseMessages: async () => {},
+                  getScroller: () => scroller,
+                  getItems: getRepliesItems,
+                  getItemId: getReplyItemId,
+                  isLoading: isRepliesLoading,
+                  makeDayDivider,
+                  tuning: {
+                    dwellMs: 350,
+                    maxStagnant: 6,
+                    maxStagnantAtTop: 3,
+                    loadingStallPasses: 3,
+                    loadingExtraDelayMs: 150,
+                  },
+                },
+                {
+                  includeSystem: false,
+                  includeReactions,
+                  includeReplies: false,
+                  startAtISO: null,
+                  endAtISO: null,
+                },
+                currentRunStartedAt,
+              ) as ExtractedMessage[];
+          
+              dbg("collectRepliesForThread raw replies sample", {
+                parentId,
+                total: replies.length,
+                sample: replies.slice(0, 3).map(r => ({
+                  id: r.id,
+                  author: r.author,
+                  ts: r.timestamp,
+                  text: textPreview(r.text),
+                  replyTo: r.replyTo ? textPreview(r.replyTo.text) : null,
+                })),
+              });
+          
+              // Defensive pass: grab any visible replies that the scroll loop missed.
+              const seenIds = new Set<string>();
+              for (const reply of replies) {
+                if (reply?.id) seenIds.add(reply.id);
+              }
+          
+              const visible = getRepliesItems();
+              if (visible.length) {
+                const lastAuthorRef = { value: "" };
+                const tempOrderCtx: OrderContext = {
+                  lastTimeMs: null,
+                  yearHint: null,
+                  seqBase: Date.now(),
+                  seq: 0,
+                  lastAuthor: "",
+                  lastId: null,
+                  systemCursor: -9e15,
+                };
+          
+                for (let i = 0; i < visible.length; i++) {
+                  const node = visible[i];
+                  const idCandidate = getReplyItemId(node, i);
+                  if (idCandidate && seenIds.has(idCandidate)) continue;
+          
+                  const extracted = await extractOne(
+                    node,
+                    {
+                      includeSystem: false,
+                      includeReactions,
+                      includeReplies: false,
+                      startAtISO: null,
+                      endAtISO: null,
+                      __allowInlineThreadReplies: true, // ✅
+                    },
+                    lastAuthorRef,
+                    tempOrderCtx,
+                  );
+                  
+          
+                  if (extracted?.message && extracted.kind === "message") {
+                    const msg = extracted.message as ExtractedMessage;
+          
+                    replies.push(msg);
+                    if (msg.id) seenIds.add(msg.id);
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn("[Teams Exporter] failed to scrape replies", err);
+            }
+          
+            const filtered: ExtractedMessage[] = [];
+            for (const reply of replies) {
+              const replyId = reply.id || "";
+              if (!replyId || replyId === parentId) continue;
+              if (!reply.replyTo) reply.replyTo = parentContext;
+              filtered.push(reply);
+            }
+          
+            await closeRepliesPane();
+            return filtered;
+          }
+          
+
+        function findOpenRepliesButton(itemRoot: Element): HTMLButtonElement | null {
+            // Lock to the current message container / list item only
+            const li =
+              itemRoot.closest('li[role="none"]') ||
+              itemRoot.closest('[data-tid="channel-pane-message"]') ||
+              itemRoot;
+          
+            // Search ONLY inside this item
+            return li.querySelector<HTMLButtonElement>(
+              '[data-tid="response-surface"] button[data-tid="response-summary-button"]'
+            );
+          }
+          
+
+          function createReplyCollector() {
+            const processed = new Set<string>();
+            const repliesByParent = new Map<string, ExtractedMessage[]>();
+          
+            // NEW: serialize all reply scraping
+            let queue: Promise<void> = Promise.resolve();
+            const enqueue = (fn: () => Promise<void>) => {
+              queue = queue.then(fn).catch(err => {
+                console.warn("[teams-export] reply queue error", err);
+              });
+              return queue;
+            };
+          
+            const maybeCollect = async (item: Element, message: ExtractedMessage | undefined, includeReactions: boolean) => {
+              return enqueue(async () => {
+                // EVERYTHING in here now runs one-at-a-time
+          
+                const itemRoot =
+                item.closest('[data-tid="channel-pane-message"]') ||
+                item.closest('li[role="none"]') ||
+                item;
+              
+                const btn = findOpenRepliesButton(itemRoot);
+                if (!btn) return;
+          
+                const chainId =
+                  (itemRoot as HTMLElement).getAttribute('data-reply-chain-id') ||
+                  itemRoot.querySelector('[data-reply-chain-id]')?.getAttribute('data-reply-chain-id') ||
+                  '';
+          
+                const parentId =
+                  chainId ||
+                  deriveParentIdFromItem(itemRoot) ||
+                  (message?.id || null);
+          
+                if (!parentId) {
+                  console.warn("[teams-export] Found replies button but could not derive parentId");
+                  return;
+                }
+                if (processed.has(parentId)) return;
+                processed.add(parentId);
+          
+                const parentContext =
+                  buildReplyContextFromChainId(parentId) ||
+                  (message ? buildReplyContext(message) : { author: "", timestamp: "", text: "", id: parentId });
+          
+                dbg("opening replies", {
+                  parentId,
+                  hasMessage: Boolean(message),
+                  messageId: message?.id,
+                  parentPreview: message ? (message.text || "").slice(0, 120) : null,
+                  btnText: btn.innerText?.trim(),
+                });
+          
+                const replies = await collectRepliesForThread(parentId, parentContext, btn, includeReactions);
+          
+                dbg("collectRepliesForThread done", {
+                  parentId,
+                  repliesCount: replies.length,
+                  sample: replies.slice(0, 2).map(r => ({ id: r.id, author: r.author, text: (r.text || "").slice(0, 80) })),
+                });
+          
+                if (replies.length) repliesByParent.set(parentId, replies);
+          
+                // NEW: tiny settle delay so Teams finishes animations/layout
+                await sleep(250);
+              });
+            };
+          
+            return { maybeCollect, repliesByParent };
+          }
+          
+        function mergeRepliesIntoMessages(
+            messages: ExtractedMessage[],
+            repliesByParent: Map<string, ExtractedMessage[]>,
+            ) {
+            dbg("merge start", {
+                baseMessages: messages.length,
+                parentsWithReplies: repliesByParent.size,
+                repliesTotal: Array.from(repliesByParent.values()).reduce((a, v) => a + v.length, 0),
+                });
+                  
+            if (!repliesByParent.size) return messages;
+
+            // --- Helpers to build a "logical" identity for a message -------------
+            const normalize = (s?: string | null) => (s || '').trim().toLowerCase();
+
+            const logicalKey = (m: ExtractedMessage) => {
+                const author = normalize(m.author);
+                const text = normalize((m.text || '').slice(0, 280)); // short prefix is fine
+                const ts = normalize(m.timestamp);
+                return `${author}|${ts}|${text}`;
             };
 
-            // 0) Pre-capture bottom (newest window)
-            scroller.scrollTop = scroller.scrollHeight;
-            await new Promise(r => requestAnimationFrame(r));
-            await sleep(300);
-            await collectCurrentVisible(agg, { includeSystem, includeReactions, includeReplies }, orderCtx);
-
-            // 1) Scroll to top repeatedly to load older history, collecting each pass
-            let prevHeight = -1;
-            let lastCount = -1;
-            let passes = 0;
-            let stagnantPasses = 0;
-            let lastOldestId = null;
-            const dwellMs = 700;
-
-            const headerSentinel = document.querySelector('[data-tid="message-pane-header"]');
-            let topReached = false;
-            const observer = headerSentinel ? new IntersectionObserver((entries) => {
-                const entry = entries[0];
-                if (entry?.isIntersecting) topReached = true;
-            }, { root: scroller, threshold: 0.01 }) : null;
-            if (observer && headerSentinel) observer.observe(headerSentinel);
-
-            const startLimit = typeof startAtISO === 'string' ? parseTimeStamp(startAtISO) : null;
-            const endLimit = typeof endAtISO === 'string' ? parseTimeStamp(endAtISO) : null;
-
-            try {
-                while (true) {
-                    passes++;
-                    scroller.scrollTop = 0;
-                    await new Promise(r => requestAnimationFrame(r));
-                    await sleep(dwellMs);
-
-                    await collectCurrentVisible(agg, { includeSystem, includeReactions, includeReplies }, orderCtx);
-
-                    const nodes = $$('[data-tid="chat-pane-item"]');
-                    if (!nodes.length) break;
-                    const newCount = nodes.length;
-                    const newHeight = scroller.scrollHeight;
-                    const oldestNode = nodes[0];
-                    const oldestTimeAttr = $('time[datetime]', oldestNode)?.getAttribute('datetime') || null;
-                    const oldestTime = oldestTimeAttr;
-                    const oldestTs = parseTimeStamp(oldestTimeAttr);
-                    const oldestId = $('[data-tid="chat-pane-message"]', oldestNode)?.getAttribute('data-mid') || oldestNode?.id || null;
-
-                    // Expand any collapsed sections that block older history
-                    const hiddenButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-tid="show-hidden-chat-history-btn"]'))
-                        .filter(btn => btn && !btn.disabled && btn.offsetParent !== null);
-                    if (hiddenButtons.length) {
-                        console.debug('[Teams Exporter] expanding hidden history', { count: hiddenButtons.length });
-                        for (const btn of hiddenButtons) {
-                            try { btn.click(); }
-                            catch (err) { console.warn('[Teams Exporter] failed to click hidden-history button', err); }
-                            await sleep(400);
-                        }
-                        // Reassert scroll position after Teams expands hidden blocks (it may jump to bottom)
-                        scroller.scrollTop = 0;
-                        await new Promise(r => requestAnimationFrame(r));
-                        scroller.scrollTop = 0;
-                        await sleep(300);
-                        // reset stagnation tracking and continue so new content can render next loop
-                        stagnantPasses = 0;
-                        prevHeight = -1;
-                        lastCount = -1;
-                        lastOldestId = null;
-                        await sleep(600);
-                        continue;
-                    }
-
-                    const elapsedMs = currentRunStartedAt ? Date.now() - currentRunStartedAt : null;
-                    const seen = agg.size;
-                    let filteredSeen = 0;
-                    for (const entry of agg.values()) {
-                        const candidate = entry?.tsMs ?? (entry?.message?.timestamp ? parseTimeStamp(entry.message.timestamp) : null);
-                        if (candidate == null) {
-                            filteredSeen++;
-                            continue;
-                        }
-                        if (startLimit != null && candidate < startLimit) continue;
-                        if (endLimit != null && candidate >= endLimit) continue;
-                        filteredSeen++;
-                    }
-
-                    try {
-                        const msgPromise = runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'scroll', passes, newHeight, messagesVisible: newCount, aggregated: seen, seen: filteredSeen, filteredSeen, oldestTime, oldestId, elapsedMs } });
-                        if (msgPromise && msgPromise.catch) msgPromise.catch(() => { });
-                    } catch (e) { /* ignore */ }
-                    hud(`scroll pass ${passes} • seen ${filteredSeen}`);
-                    console.debug('[Teams Exporter] scroll pass', {
-                        passes,
-                        newHeight,
-                        newCount,
-                        aggregated: seen,
-                        oldestTime,
-                        oldestTs,
-                        oldestId,
-                        elapsedMs,
-                        reason: 'progress report'
-                    });
-
-                    if (startLimit != null && oldestTs != null && oldestTs <= startLimit) {
-                        console.debug('[Teams Exporter] breaking scroll: startAt reached', { oldestVisible: oldestTimeAttr, startAtISO });
-                        break;
-                    }
-
-                    const heightUnchanged = newHeight === prevHeight;
-                    const countUnchanged = newCount === lastCount;
-                    const oldestUnchanged = oldestId && lastOldestId === oldestId;
-
-                    if (heightUnchanged && countUnchanged) {
-                        stagnantPasses++;
-                        console.debug('[Teams Exporter] scroll metrics unchanged', { passes, stagnantPasses, newHeight, newCount });
-                    } else if (oldestUnchanged) {
-                        stagnantPasses++;
-                        console.debug('[Teams Exporter] oldest id unchanged', { passes, stagnantPasses, oldestId });
-                    } else {
-                        stagnantPasses = 0;
-                    }
-
-                    if (oldestId && lastOldestId !== oldestId) {
-                        lastOldestId = oldestId;
-                    }
-
-                    prevHeight = newHeight;
-                    lastCount = newCount;
-
-                    if (topReached && stagnantPasses >= 3) {
-                        console.debug('[Teams Exporter] breaking scroll: header sentinel reached & stagnant', { passes, oldestId, stagnantPasses });
-                        break;
-                    }
-
-                    if (!topReached && stagnantPasses >= 12) {
-                        console.debug('[Teams Exporter] breaking scroll: stagnation threshold', { passes, oldestId, stagnantPasses });
-                        break;
-                    }
-                }
-            } finally {
-                if (observer && headerSentinel) observer.disconnect();
-            }
-
-            await hydrateSparseMessages(agg, { includeSystem, includeReactions });
-
-            // 2) Build sorted list:
-            const entries = Array.from(agg.values());
-            entries.sort((a, b) => a.orderKey - b.orderKey); // timestamps first; dividers placed near their discovery/parsed time
-
-            // Align system dividers just before the next message when their timestamp is ambiguous
-            let nextMessageTs = null;
-            for (let i = entries.length - 1; i >= 0; i--) {
-                const entry = entries[i];
-                if (entry.kind === 'message') {
-                    if (entry.tsMs != null) nextMessageTs = entry.tsMs;
-                    continue;
-                }
-
-                if (nextMessageTs != null) {
-                    if (entry.tsMs == null || entry.tsMs >= nextMessageTs) {
-                        entry.anchorTs = nextMessageTs;
-                        entry.tsMs = (entry.tsMs == null ? nextMessageTs : entry.tsMs) - 1;
-                        if (entry.tsMs != null) {
-                            entry.orderKey = entry.tsMs - 0.1;
-                        }
-                    }
-                }
-            }
-
-            let filtered = entries.filter(entry => entry.kind !== 'day-divider');
-            filtered.sort((a, b) => {
-                const aTs = (a.tsMs ?? a.anchorTs ?? a.orderKey ?? 0);
-                const bTs = (b.tsMs ?? b.anchorTs ?? b.orderKey ?? 0);
-                if (aTs !== bTs) return aTs - bTs;
-                return a.orderKey - b.orderKey;
+            // Map from logical key -> indices of messages that came from the main channel view
+            const baseKeyToIndices = new Map<string, number[]>();
+            messages.forEach((m, idx) => {
+                const key = logicalKey(m);
+                if (!key.trim()) return;
+                const list = baseKeyToIndices.get(key) || [];
+                list.push(idx);
+                baseKeyToIndices.set(key, list);
             });
 
-            filtered = filtered.filter(entry => {
-                const ts = entry.anchorTs ?? entry.tsMs ?? (entry.message?.timestamp ? parseTimeStamp(entry.message.timestamp) : null);
-                if (ts == null) return true;
-                if (startLimit != null && ts < startLimit) return false;
-                if (endLimit != null && ts >= endLimit) return false;
-                return true;
-            });
+            // Any base (channel) message that also appears in the thread pane
+            // should be hidden at top level and only shown inside the thread.
+            const suppressedBaseIndices = new Set<number>();
 
-            const buckets = new Map<number, { ts: number; message: ExtractedMessage }[]>();
-            const noDate: { ts: number; message: ExtractedMessage }[] = [];
-
-            for (const entry of filtered) {
-                const msg = entry.message;
-                if (!msg) continue;
-                if (msg.system && (!msg.text || msg.text.trim().toLowerCase() === 'system')) {
-                    continue;
+            for (const replies of repliesByParent.values()) {
+                for (const reply of replies) {
+                const key = logicalKey(reply);
+                if (!key.trim()) continue;
+                const indices = baseKeyToIndices.get(key);
+                if (!indices) continue;
+                for (const idx of indices) {
+                    suppressedBaseIndices.add(idx);
                 }
-                const ts = entry.anchorTs ?? entry.tsMs ?? (msg.timestamp ? parseTimeStamp(msg.timestamp) : null);
-                if (ts == null) {
-                    noDate.push({ ts: Number.MIN_SAFE_INTEGER, message: msg });
-                    continue;
-                }
-                const dayKey = startOfLocalDay(ts);
-                if (!buckets.has(dayKey)) {
-                    buckets.set(dayKey, []);
-                }
-                const list = buckets.get(dayKey);
-                if (list) list.push({ ts, message: msg });
-            }
-
-            const finalMessages: ExportMessage[] = [];
-            const sortedDayKeys = Array.from(buckets.keys()).sort((a, b) => a - b);
-            for (const dayKey of sortedDayKeys) {
-                const items = buckets.get(dayKey);
-                if (!items || !items.length) continue;
-                const representativeTs = items[0].ts;
-                const divider = makeDayDivider(dayKey, representativeTs);
-                if (divider.message) finalMessages.push(divider.message);
-                items.sort((a, b) => a.ts - b.ts);
-                for (const item of items) {
-                    finalMessages.push(item.message);
                 }
             }
 
-            noDate.sort((a, b) => a.ts - b.ts);
-            for (const entry of noDate) {
-                finalMessages.push(entry.message);
+            const out: ExtractedMessage[] = [];
+            const existingIds = new Set<string>();
+            const insertedParents = new Set<string>();
+
+            // 1) Push channel messages in original order, but skip any that we know
+            //    also appear in the thread (same author + timestamp + text).
+            for (let i = 0; i < messages.length; i++) {
+              if (suppressedBaseIndices.has(i)) continue; // drop inline preview duplicate
+            
+              const msg = messages[i];
+              if (msg.id) existingIds.add(msg.id);
+              out.push(msg);
+            
+              // Try to locate replies using multiple possible parent keys
+              const keysToTry = [msg.threadId, msg.id].filter(Boolean) as string[];
+            
+              let replies: ExtractedMessage[] | undefined;
+              let usedKey: string | null = null;
+            
+              for (const k of keysToTry) {
+                const got = repliesByParent.get(k);
+                if (got?.length) {
+                  replies = got;
+                  usedKey = k;
+                  break;
+                }
+              }
+            
+              if (!replies || !replies.length || !usedKey) continue;
+            
+              // mark the actual parent key we matched so step (3) doesn't re-append later
+              insertedParents.add(usedKey);
+            
+              dbg("merge will append replies", {
+                parentId: usedKey,
+                msgId: msg.id,
+                threadId: msg.threadId,
+                author: msg.author,
+                ts: msg.timestamp,
+                parentText: textPreview(msg.text, 180),
+                repliesCount: replies.length,
+                firstReplyPreview: textPreview(replies[0]?.text),
+              });
+            
+              // 2) Append replies for this parent, deduping by id.
+              for (const reply of replies) {
+                if (reply.id && existingIds.has(reply.id)) continue;
+                if (reply.id) existingIds.add(reply.id);
+                out.push(reply);
+              }
+            }
+            
+            // 3) Any replies whose parent wasn't in the main messages (rare) go at the end.
+            for (const [parentId, replies] of repliesByParent.entries()) {
+                if (insertedParents.has(parentId)) continue;
+                for (const reply of replies) {
+                if (reply.id && existingIds.has(reply.id)) continue;
+                if (reply.id) existingIds.add(reply.id);
+                out.push(reply);
+                }
             }
 
-            return finalMessages;
+            dbg("merge end", {
+                mergedMessages: out.length,
+                appendedRepliesCount: out.filter(m => !!m.replyTo).length,
+              });
+              
+
+            return out;
         }
+
+
 
         // Remove quoted/preview blocks from a cloned content node so root "text" doesn't include them
         function stripQuotedPreview(container: Element | null): Element | null {
@@ -908,32 +1943,71 @@ export default defineContentScript({
             return clone;
         }
 
+        if (!isTop) return;
         // Bridge --------------------------------------------------------
         runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             (async () => {
                 try {
                     if (msg.type === 'PING') { sendResponse({ ok: true }); return; }
-                    if (msg.type === 'CHECK_CHAT_CONTEXT') { sendResponse(checkChatContext()); return; }
+                    if (msg.type === 'CHECK_CHAT_CONTEXT') { sendResponse(checkChatContext(msg.target)); return; }
                     if (msg.type === 'SCRAPE_TEAMS') {
-                        const { startAt, endAt, includeReactions, includeSystem, includeReplies, showHud } = msg.options || {};
+                        const { startAt, endAt, includeReactions, includeSystem, includeReplies, showHud, exportTarget } = msg.options || {};
+                        const target = exportTarget === 'team' ? 'team' : 'chat';
                         hudEnabled = showHud !== false;
                         if (!hudEnabled) clearHUD();
                         const scrapeOpts = { startAtISO: startAt, endAtISO: endAt, includeSystem, includeReactions, includeReplies: includeReplies !== false };
                         console.debug('[Teams Exporter] SCRAPE_TEAMS', location.href, msg.options);
                         currentRunStartedAt = Date.now();
                         hud('starting…');
-                        const messages = await autoScrollAggregateHelper(
+                        const replyCollector = createReplyCollector();
+                        const includeRepliesEnabled = includeReplies !== false;
+
+                        // if (target === 'team' && includeRepliesEnabled) {
+                        //     clickAllReplyButtonsBottomToTop();
+                        // }
+
+                        const extractWithReplies = async (
+                            item: Element,
+                            opts: ScrapeOptions,
+                            lastAuthorRef: { value: string },
+                            orderCtx: OrderContext & { seq?: number },
+                        ) => {
+                            const extracted = await extractOne(item, opts, lastAuthorRef, orderCtx);
+                            if (target === 'team' && includeRepliesEnabled) {
+                              const msg = extracted?.message as ExtractedMessage | undefined;
+                              if (extracted?.kind === "message" && msg && !msg.system) {
+                                await replyCollector.maybeCollect(item, msg, Boolean(includeReactions));
+                              }
+                            }
+                            return extracted;
+                            
+                        };
+
+                        let messages = await autoScrollAggregateHelper(
                             {
                                 hud,
                                 runtime,
-                                extractOne,
+                                extractOne: target === 'team' && includeRepliesEnabled ? extractWithReplies : extractOne,
                                 hydrateSparseMessages,
-                                getScroller,
-                                makeDayDivider
+                                getScroller: () => getScroller(target),
+                                getItems: target === 'team' ? getChannelItems : undefined,
+                                isLoading: target === 'team' ? isVirtualListLoading : undefined,
+                                makeDayDivider,
+                                tuning: target === 'team' ? {
+                                    dwellMs: 800,
+                                    maxStagnant: 30,
+                                    maxStagnantAtTop: 35,
+                                    loadingStallPasses: 20,
+                                    loadingExtraDelayMs: 700,
+                                } : undefined,
                             },
                             scrapeOpts,
                             currentRunStartedAt
                         );
+                        if (target === 'team' && includeRepliesEnabled) {
+                            messages = mergeRepliesIntoMessages(messages as ExtractedMessage[], replyCollector.repliesByParent);
+                        }
+
                         try {
                             const msgPromise = runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'extract', messagesExtracted: messages.length } });
                             if (msgPromise && msgPromise.catch) msgPromise.catch(() => { });
@@ -945,9 +2019,10 @@ export default defineContentScript({
                         const { messages: normalizedMessages, avatars } = await embedAvatarsInContent(messages);
 
                         currentRunStartedAt = null;
-                        const chatTitle = extractChatTitle();
+                        // Extract the actual chat/channel title instead of using document.title
+                        const title = target === 'team' ? extractChannelTitle() : extractChatTitle();
 
-                        const meta = { count: messages.length, title: chatTitle, startAt: startAt || null, endAt: endAt || null, avatars };
+                        const meta = { count: messages.length, title, startAt: startAt || null, endAt: endAt || null, avatars };
                         const requestId = msg.requestId || `${Date.now()}`;
 
                         // Estimate payload for logging

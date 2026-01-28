@@ -2,6 +2,7 @@ import { isoToLocalInput, localInputToISO } from './time';
 
 export type OptionFormat = 'json' | 'csv' | 'html' | 'txt';
 export type Theme = 'light' | 'dark';
+export type ExportTarget = 'chat' | 'team';
 
 export type Options = {
   lang?: string;
@@ -9,6 +10,7 @@ export type Options = {
   startAtISO: string;
   endAt: string;
   endAtISO: string;
+  exportTarget: ExportTarget;
   format: OptionFormat;
   includeReplies: boolean;
   includeReactions: boolean;
@@ -30,6 +32,7 @@ export const DEFAULT_OPTIONS: Options = {
   startAtISO: '',
   endAt: '',
   endAtISO: '',
+  exportTarget: 'chat',
   format: 'json',
   includeReplies: true,
   includeReactions: true,
