@@ -205,17 +205,17 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     }
     return formatWithQuotes(raw);
   };
-  const initials = (name = '') => (name.trim().split(/\s+/).map(p => p[0]).join('').slice(0, 2) || '•');
+  const initials = (name = '') => (name.trim().split(/\s+/).map(p => p[0]).join('').slice(0, 2) || '?');
 
   const style = `<style>
-    :root { --muted:#6b7280; --border:#e5e7eb; --bg:#ffffff; --chip:#f3f4f6; }
+    :root { --muted:#6b7280; --border:#e5e7eb; --bg:#ffffff; --chip:#f3f4f6; --thread-bg:#f8fafc; --thread-border:#dbeafe; --thread-accent:#3b82f6; }
     body{font:14px system-ui, -apple-system, Segoe UI, Roboto; background:#fff; color:#111; padding:20px}
     h1{margin:0 0 10px 0}
     .meta{color:var(--muted); margin:0 0 12px 0}
     .toolbar{margin-bottom:12px; display:flex; gap:8px; align-items:center}
     .toolbar button{border:1px solid var(--border); background:#f9fafb; color:#111; padding:6px 10px; border-radius:6px; cursor:pointer; font:13px system-ui}
     .toolbar button:hover{background:#eef2f7}
-    .msg{display:flex; gap:10px; margin:12px 0; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--bg)}
+    .msg{position:relative; display:flex; gap:10px; margin:12px 0; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--bg)}
     .avt{flex:0 0 36px; width:36px; height:36px; border-radius:50%; background:#eef2f7; overflow:hidden; display:flex; align-items:center; justify-content:center; font-weight:600; color:#334155}
     .avt img{width:36px; height:36px; border-radius:50%; display:block}
     .main{flex:1}
@@ -229,6 +229,17 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     .reply .reply-meta{display:flex; flex-wrap:wrap; gap:6px; font-size:12px; color:#6b7280; margin-bottom:4px}
     .reply blockquote{margin:0; padding:0; border:none; color:#1f2937; word-wrap:break-word; overflow-wrap:anywhere}
     blockquote{margin:8px 0; padding:8px 10px; border-left:3px solid #d1d5db; background:#f8fafc; color:#374151}
+    .thread{border:1px solid var(--thread-border); background:var(--thread-bg); border-radius:14px; padding:10px 12px; margin:14px 0}
+    .thread-parent .msg{margin:0; border-left:4px solid var(--thread-accent)}
+    .thread-meta{display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); margin:8px 2px 2px 2px}
+    .thread-toggle{border:1px solid var(--border); background:#f9fafb; color:#111; padding:2px 8px; border-radius:999px; cursor:pointer; font:12px system-ui}
+    .thread-toggle:hover{background:#eef2f7}
+    .thread.collapsed .thread-replies{display:none}
+    .thread.collapsed .thread-meta{opacity:.85}
+    .thread-replies{margin-top:6px; padding-left:18px; position:relative}
+    .thread-replies:before{content:""; position:absolute; left:7px; top:0; bottom:0; width:2px; background:var(--thread-border)}
+    .msg.reply-msg{margin:10px 0 0 0; background:#fff}
+    .msg.reply-msg:before{content:""; position:absolute; left:-18px; top:20px; width:10px; height:10px; border-radius:50%; background:var(--thread-accent)}
     .atts{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; margin-top:8px}
     .att, .att-img{border:1px solid var(--border); border-radius:10px; padding:8px; background:#fff; transition:max-height .2s ease, opacity .2s ease}
     .att a{word-break:break-word; overflow-wrap:anywhere; text-decoration:none}
@@ -268,6 +279,9 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     .compact .atts{gap:0; margin-top:0}
     .compact .avt{display:none}
     .compact .msg{margin:8px 0; border-color:rgba(0,0,0,0.08)}
+    .compact .thread{padding:6px 8px}
+    .compact .thread-replies{padding-left:12px}
+    .compact .msg.reply-msg:before{left:-14px; top:16px; width:8px; height:8px}
     .main > div{word-break:break-word; overflow-wrap:anywhere}
   </style>`;
 
@@ -280,88 +294,87 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     ${metaLine}
     <div class="toolbar"><button type="button" data-toggle-compact>Toggle compact view</button></div><hr/>`;
 
-  const body = rows
-    .map((m, idx) => {
-      if (m.system) {
-        const label = escapeHtml(m.text || m.author || '[system]');
-        return `<div class="divider"><span>${label}</span></div>`;
-      }
-      const ts = m.timestamp || '';
-      const rel = relLabel(ts);
-      const tsLabel = escapeHtml(fmtTs(ts));
-      const reactions = Array.isArray(m.reactions) ? m.reactions : [];
-      const atts = Array.isArray(m.attachments) ? m.attachments : [];
-      const tables = Array.isArray(m.tables) ? m.tables : [];
-      const replyTo = m.replyTo;
-      const text = formatText(m.text || '');
-      const avatar = m.avatar
-        ? `<img src="${escapeHtml(m.avatar)}" alt="avatar" />`
-        : escapeHtml((m.author || '').split(' ').map(p => p[0]).join('').slice(0, 2) || '•');
+  let msgIndex = 0;
+  const renderMessage = (m: ExportMessage, opts: { isReply?: boolean } = {}) => {
+    const idx = msgIndex++;
+    const ts = m.timestamp || '';
+    const rel = relLabel(ts);
+    const tsLabel = escapeHtml(fmtTs(ts));
+    const reactions = Array.isArray(m.reactions) ? m.reactions : [];
+    const atts = Array.isArray(m.attachments) ? m.attachments : [];
+    const tables = Array.isArray(m.tables) ? m.tables : [];
+    const replyTo = m.replyTo;
+    const text = formatText(m.text || '');
+    const avatar = m.avatar
+      ? `<img src="${escapeHtml(m.avatar)}" alt="avatar" />`
+      : escapeHtml((m.author || '').split(' ').map(p => p[0]).join('').slice(0, 2) || '?');
 
-      const reactHtml = reactions
-        .map(r => `<span class="chip${r.self ? ' self' : ''}">${escapeHtml(r.emoji || '')} ${r.count}${r.reactors ? ` · ${escapeHtml(r.reactors.join(', '))}` : ''}</span>`)
-        .join(' ');
+    const reactHtml = reactions
+      .map(r => `<span class="chip${r.self ? ' self' : ''}">${escapeHtml(r.emoji || '')} ${r.count}${r.reactors ? ` · ${escapeHtml(r.reactors.join(', '))}` : ''}</span>`)
+      .join(' ');
 
-      const attsHtml = atts
-        .map(att => {
-          const label = escapeHtml(att.label || att.href || 'attachment');
-          const href = att.href ? escapeHtml(att.href) : '';
-          const metaText = att.metaText ? `<div class="att-meta">${escapeHtml(att.metaText)}</div>` : '';
-          const type = att.type ? ` [${escapeHtml(att.type)}]` : '';
-          const size = att.size ? ` (${escapeHtml(att.size)})` : '';
-          const owner = att.owner ? ` — ${escapeHtml(att.owner)}` : '';
-          if (att.kind === 'preview') {
-            const lines = (att.metaText || '')
-              .split(/\n+/)
-              .map(s => s.trim())
-              .filter(Boolean);
-            const title = escapeHtml(lines[0] || att.label || 'Preview');
-            const rest = lines.slice(1);
-            const restHtml = rest.length
-              ? `<div class="att-preview-lines">${rest.map(l => `<div>${escapeHtml(l)}</div>`).join('')}</div>`
-              : '';
-            const img = href ? `<img src="${href}" alt="${label}" />` : '';
-            const source = att.label ? `<div class="att-preview-source">${label}</div>` : '';
-            return `<div class="att-preview">${img}<div class="att-preview-body">${source}<div class="att-preview-title">${title}</div>${restHtml}</div></div>`;
-          }
-          const isImage =
-            !!att.href &&
-            (
-              /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.href) ||
-              /asyncgw\.teams\.microsoft\.com/i.test(att.href) ||
-              /asm\.skype\.com/i.test(att.href) ||
-              /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.label || '') ||
-              /^(png|jpe?g|gif|webp)$/i.test(att.type || '')
-            );
+    const attsHtml = atts
+      .map(att => {
+        const label = escapeHtml(att.label || att.href || 'attachment');
+        const href = att.href ? escapeHtml(att.href) : '';
+        const metaText = att.metaText ? `<div class="att-meta">${escapeHtml(att.metaText)}</div>` : '';
+        const type = att.type ? ` [${escapeHtml(att.type)}]` : '';
+        const size = att.size ? ` (${escapeHtml(att.size)})` : '';
+        const owner = att.owner ? ` — ${escapeHtml(att.owner)}` : '';
+        if (att.kind === 'preview') {
+          const lines = (att.metaText || '')
+            .split(/\n+/)
+            .map(s => s.trim())
+            .filter(Boolean);
+          const title = escapeHtml(lines[0] || att.label || 'Preview');
+          const rest = lines.slice(1);
+          const restHtml = rest.length
+            ? `<div class="att-preview-lines">${rest.map(l => `<div>${escapeHtml(l)}</div>`).join('')}</div>`
+            : '';
+          const img = href ? `<img src="${href}" alt="${label}" />` : '';
+          const source = att.label ? `<div class="att-preview-source">${label}</div>` : '';
+          return `<div class="att-preview">${img}<div class="att-preview-body">${source}<div class="att-preview-title">${title}</div>${restHtml}</div></div>`;
+        }
+        const isImage =
+          !!att.href &&
+          (
+            /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.href) ||
+            /asyncgw\.teams\.microsoft\.com/i.test(att.href) ||
+            /asm\.skype\.com/i.test(att.href) ||
+            /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.label || '') ||
+            /^(png|jpe?g|gif|webp)$/i.test(att.type || '')
+          );
 
-          if (isImage && href) {
-            return `<div class="att-img"><img src="${href}" alt="${label}" data-full="${href}" />${metaText}</div>`;
-          }
-          const link = href ? `<a href="${href}" target="_blank" rel="noopener">${label}</a>` : label;
-          return `<div class="att">${link}${type}${size}${owner}${metaText}</div>`;
-        })
-        .join('');
+        if (isImage && href) {
+          return `<div class="att-img"><img src="${href}" alt="${label}" data-full="${href}" />${metaText}</div>`;
+        }
+        const link = href ? `<a href="${href}" target="_blank" rel="noopener">${label}</a>` : label;
+        return `<div class="att">${link}${type}${size}${owner}${metaText}</div>`;
+      })
+      .join('');
 
-      const tablesHtml = tables
-        .map(table => {
-          if (!Array.isArray(table) || !table.length) return '';
-          const rowsHtml = table
-            .map(row => {
-              if (!Array.isArray(row) || !row.length) return '';
-              const cells = row.map(cell => `<td>${formatText(cell || '')}</td>`).join('');
-              return `<tr>${cells}</tr>`;
-            })
-            .join('');
-          if (!rowsHtml) return '';
-          return `<div class="tbl-wrap"><table class="tbl"><tbody>${rowsHtml}</tbody></table></div>`;
-        })
-        .join('');
+    const tablesHtml = tables
+      .map(table => {
+        if (!Array.isArray(table) || !table.length) return '';
+        const rowsHtml = table
+          .map(row => {
+            if (!Array.isArray(row) || !row.length) return '';
+            const cells = row.map(cell => `<td>${formatText(cell || '')}</td>`).join('');
+            return `<tr>${cells}</tr>`;
+          })
+          .join('');
+        if (!rowsHtml) return '';
+        return `<div class="tbl-wrap"><table class="tbl"><tbody>${rowsHtml}</tbody></table></div>`;
+      })
+      .join('');
 
-      const replyHtml = replyTo
-        ? `<div class="reply"><div class="reply-meta">↩︎ <strong>${escapeHtml(replyTo.author || '')}</strong>${replyTo.timestamp ? `<span>• ${escapeHtml(replyTo.timestamp)}</span>` : ''}</div><blockquote>${escapeHtml(replyTo.text || '')}</blockquote></div>`
-        : '';
+    const hasReplyPreview = replyTo && (replyTo.author || replyTo.timestamp || replyTo.text);
+    const replyHtml = hasReplyPreview && !opts.isReply
+      ? `<div class="reply"><div class="reply-meta">↩︎ <strong>${escapeHtml(replyTo.author || '')}</strong>${replyTo.timestamp ? `<span>• ${escapeHtml(replyTo.timestamp)}</span>` : ''}</div><blockquote>${escapeHtml(replyTo.text || '')}</blockquote></div>`
+      : '';
 
-      return `<div class="msg" id="msg-${idx}">
+    const msgClass = `msg${opts.isReply ? ' reply-msg' : ''}`;
+    return `<div class="${msgClass}" id="msg-${idx}">
       <div class="avt">${avatar}</div>
       <div class="main">
         <div class="hdr">${escapeHtml(m.author || '')} — <span title="${escapeHtml(ts)}">${tsLabel}</span>${rel ? `<span class="rel">(${rel})</span>` : ''}${m.edited ? ' <span class="edited">• edited</span>' : ''}</div>
@@ -372,15 +385,182 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
         ${attsHtml ? `<div class="atts">${attsHtml}</div>` : ''}
       </div>
     </div>`;
-    })
-    .join('');
+  };
+
+  const normalizeKey = (value?: string | null) => (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const parseMs = (value?: string | null) => {
+    if (!value) return null;
+    const ms = Date.parse(value);
+    if (!Number.isNaN(ms)) return ms;
+    const normalized = value.replace(/ /g, 'T');
+    const ms2 = Date.parse(normalized);
+    return Number.isNaN(ms2) ? null : ms2;
+  };
+  const minuteKey = (ms: number) => Math.floor(ms / 60000);
+  const textMatches = (a: string, b: string) => {
+    if (!a || !b) return false;
+    return a.includes(b) || b.includes(a);
+  };
+
+  type ParentEntry = {
+    idx: number;
+    authorKey: string;
+    textKey: string;
+    tsKey: string;
+    tsMs: number | null;
+    minute: number | null;
+  };
+
+  const parentByIndex = new Map<number, ParentEntry>();
+  const parentsByAuthorTimestamp = new Map<string, number[]>();
+  const parentsByAuthorMinute = new Map<string, number[]>();
+  const parentsByMinute = new Map<number, number[]>();
+
+  for (let i = 0; i < rows.length; i++) {
+    const msg = rows[i];
+    if (!msg || msg.system) continue;
+    const authorKey = normalizeKey(msg.author);
+    const textKey = normalizeKey((msg.text || '').slice(0, 280));
+    const tsKey = normalizeKey(msg.timestamp);
+    const tsMs = parseMs(msg.timestamp);
+    const minute = typeof tsMs === 'number' ? minuteKey(tsMs) : null;
+    const entry: ParentEntry = { idx: i, authorKey, textKey, tsKey, tsMs, minute };
+    parentByIndex.set(i, entry);
+    if (authorKey && tsKey) {
+      const key = `${authorKey}|${tsKey}`;
+      const list = parentsByAuthorTimestamp.get(key) || [];
+      list.push(i);
+      parentsByAuthorTimestamp.set(key, list);
+    }
+    if (authorKey && minute != null) {
+      const key = `${authorKey}|${minute}`;
+      const list = parentsByAuthorMinute.get(key) || [];
+      list.push(i);
+      parentsByAuthorMinute.set(key, list);
+    }
+    if (minute != null) {
+      const list = parentsByMinute.get(minute) || [];
+      list.push(i);
+      parentsByMinute.set(minute, list);
+    }
+  }
+
+  const repliesByParent = new Map<number, { index: number; msg: ExportMessage }[]>();
+  const replyIndices = new Set<number>();
+
+  const findParentIndex = (reply: ExportMessage, replyIndex: number): number | null => {
+    const replyTo = reply.replyTo;
+    if (!replyTo) return null;
+    if (replyTo.id) {
+      const byId = rows.findIndex((m, idx) => idx <= replyIndex && m?.id === replyTo.id);
+      if (byId >= 0) return byId;
+    }
+    const authorKey = normalizeKey(replyTo.author);
+    const textKey = normalizeKey((replyTo.text || '').slice(0, 280));
+    const tsKey = normalizeKey(replyTo.timestamp);
+    const tsMs = parseMs(replyTo.timestamp);
+    const minute = typeof tsMs === 'number' ? minuteKey(tsMs) : null;
+
+    let candidates: number[] = [];
+    if (authorKey && tsKey) {
+      candidates = parentsByAuthorTimestamp.get(`${authorKey}|${tsKey}`) || [];
+    }
+    if (authorKey && minute != null) {
+      candidates = candidates.length ? candidates : (parentsByAuthorMinute.get(`${authorKey}|${minute}`) || []);
+    }
+    if (!candidates.length && minute != null) {
+      candidates = parentsByMinute.get(minute) || [];
+    }
+    if (!candidates.length && authorKey && textKey) {
+      candidates = Array.from(parentByIndex.values())
+        .filter(p => p.authorKey === authorKey && textMatches(p.textKey, textKey))
+        .map(p => p.idx);
+    }
+    if (!candidates.length && textKey) {
+      candidates = Array.from(parentByIndex.values())
+        .filter(p => textMatches(p.textKey, textKey))
+        .map(p => p.idx);
+    }
+    if (!candidates.length) return null;
+
+    const earlier = candidates.filter(idx => idx <= replyIndex);
+    if (!earlier.length) return null;
+    candidates = earlier;
+
+    if (candidates.length === 1) return candidates[0];
+
+    let bestIdx = candidates[0];
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (const idx of candidates) {
+      const parent = parentByIndex.get(idx);
+      if (!parent) continue;
+      let score = 0;
+      if (textKey && parent.textKey && textMatches(parent.textKey, textKey)) {
+        score -= 1000000;
+      }
+      if (tsMs != null && parent.tsMs != null) {
+        score += Math.abs(parent.tsMs - tsMs);
+      } else {
+        score += Math.abs(idx - replyIndex) * 60000;
+      }
+      if (score < bestScore) {
+        bestScore = score;
+        bestIdx = idx;
+      }
+    }
+    return bestIdx;
+  };
+
+  for (let i = 0; i < rows.length; i++) {
+    const m = rows[i];
+    if (!m || !m.replyTo || m.system) continue;
+    const parentIdx = findParentIndex(m, i);
+    if (parentIdx == null || parentIdx === i) continue;
+    const list = repliesByParent.get(parentIdx) || [];
+    list.push({ index: i, msg: m });
+    repliesByParent.set(parentIdx, list);
+    replyIndices.add(i);
+  }
+
+  const parts: string[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (replyIndices.has(i)) continue;
+    const m = rows[i];
+    if (m.system) {
+      const label = escapeHtml(m.text || m.author || '[system]');
+      parts.push(`<div class="divider"><span>${label}</span></div>`);
+      continue;
+    }
+
+    const grouped = repliesByParent.get(i);
+    if (grouped && grouped.length) {
+      const sortedReplies = grouped
+        .slice()
+        .sort((a, b) => a.index - b.index)
+        .map(r => r.msg);
+      const replyHtml = sortedReplies.map(r => renderMessage(r, { isReply: true })).join('');
+      const countLabel = sortedReplies.length == 1 ? '1 reply' : `${sortedReplies.length} replies`;
+      parts.push(
+        `<div class="thread">` +
+        `<div class="thread-parent">${renderMessage(m)}</div>` +
+        `<div class="thread-meta"><span>${countLabel}</span><button type="button" class="thread-toggle" data-thread-toggle>Collapse</button></div>` +
+        `<div class="thread-replies">${replyHtml}</div>` +
+        `</div>`,
+      );
+      continue;
+    }
+
+    parts.push(renderMessage(m, { isReply: Boolean(m.replyTo) }));
+  }
+
+  const body = parts.join('');
 
   const modal = `<div class="img-modal" id="img-modal" hidden>
     <button class="close" type="button" aria-label="Close">X</button>
     <img alt="full size image" />
   </div>`;
 
-  const script = `<script>(()=>{const btn=document.querySelector('[data-toggle-compact]');const key='teamsExporterCompact';const apply=(c)=>{document.body.classList.toggle('compact',c);if(btn)btn.textContent=c?'Switch to expanded view':'Switch to compact view';};const stored=localStorage.getItem(key);let compact=stored==='1';apply(compact);if(btn){btn.addEventListener('click',()=>{compact=!compact;apply(compact);try{localStorage.setItem(key,compact?'1':'0');}catch(_){}});}const modal=document.getElementById('img-modal');const modalImg=modal?modal.querySelector('img'):null;const closeBtn=modal?modal.querySelector('.close'):null;const close=()=>{if(modal){modal.hidden=true;}};const open=(src,alt)=>{if(!modal||!modalImg)return;modalImg.src=src;modalImg.alt=alt||'image';modal.hidden=false;};if(closeBtn){closeBtn.addEventListener('click',close);}if(modal){modal.addEventListener('click',(e)=>{if(e.target===modal)close();});}document.addEventListener('keydown',(e)=>{if(e.key==='Escape')close();});document.body.addEventListener('click',(e)=>{const t=e.target;if(!(t instanceof Element))return;const img=t.closest('.att-img img');if(!img)return;const src=img.getAttribute('data-full')||img.getAttribute('src');if(!src)return;open(src,img.getAttribute('alt')||'image');});})();</script>`;
+  const script = `<script>(()=>{const btn=document.querySelector('[data-toggle-compact]');const key='teamsExporterCompact';const apply=(c)=>{document.body.classList.toggle('compact',c);if(btn)btn.textContent=c?'Switch to expanded view':'Switch to compact view';};const stored=localStorage.getItem(key);let compact=stored==='1';apply(compact);if(btn){btn.addEventListener('click',()=>{compact=!compact;apply(compact);try{localStorage.setItem(key,compact?'1':'0');}catch(_){}});}document.querySelectorAll('.thread').forEach((thread)=>{const toggle=thread.querySelector('[data-thread-toggle]');if(!toggle)return;toggle.addEventListener('click',()=>{const collapsed=thread.classList.toggle('collapsed');toggle.textContent=collapsed?'Expand':'Collapse';});});const modal=document.getElementById('img-modal');const modalImg=modal?modal.querySelector('img'):null;const closeBtn=modal?modal.querySelector('.close'):null;const close=()=>{if(modal){modal.hidden=true;}};const open=(src,alt)=>{if(!modal||!modalImg)return;modalImg.src=src;modalImg.alt=alt||'image';modal.hidden=false;};if(closeBtn){closeBtn.addEventListener('click',close);}if(modal){modal.addEventListener('click',(e)=>{if(e.target===modal)close();});}document.addEventListener('keydown',(e)=>{if(e.key==='Escape')close();});document.body.addEventListener('click',(e)=>{const t=e.target;if(!(t instanceof Element))return;const img=t.closest('.att-img img');if(!img)return;const src=img.getAttribute('data-full')||img.getAttribute('src');if(!src)return;open(src,img.getAttribute('alt')||'image');});})();</script>`;
 
   return `<!doctype html><meta charset="utf-8">${style}${head}${body}${modal}${script}`;
 }
