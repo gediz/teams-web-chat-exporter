@@ -313,7 +313,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
       }
       const ts = m.timestamp || '';
       const rel = relLabel(ts);
-      const tsLabel = fmtTs(ts);
+      const tsLabel = escapeHtml(fmtTs(ts));
       const reactions = Array.isArray(m.reactions) ? m.reactions : [];
       const atts = Array.isArray(m.attachments) ? m.attachments : [];
       const tables = Array.isArray(m.tables) ? m.tables : [];
