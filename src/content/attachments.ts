@@ -87,6 +87,8 @@ export async function extractAttachments(item: Element, body: Element): Promise<
     const src = img.getAttribute('src') || '';
     if (!src.startsWith('blob:') && !src.startsWith('data:')) return null;
     if (!img.complete || !img.naturalWidth || !img.naturalHeight) return null;
+    const MAX_PIXELS = 4096 * 4096;
+    if (img.naturalWidth * img.naturalHeight > MAX_PIXELS) return null;
     try {
       const canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth;
@@ -105,21 +107,33 @@ export async function extractAttachments(item: Element, body: Element): Promise<
     const b64 = idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
     return b64.length < 4096;
   };
+  const ALLOWED_DOMAINS = ['.microsoft.com', '.skype.com', '.sharepoint.com', '.live.com', '.office.com', '.office365.com'];
+  const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+  const isAllowedDomain = (url: string) => {
+    try {
+      const hostname = new URL(url).hostname.toLowerCase();
+      return ALLOWED_DOMAINS.some(d => hostname.endsWith(d));
+    } catch {
+      return false;
+    }
+  };
   const fetchImageAsDataUrl = async (url: string) => {
     if (!/^https?:\/\//i.test(url)) return null;
+    if (!isAllowedDomain(url)) return null;
     let cached = fetchCache.get(url);
     if (!cached) {
       cached = (async () => {
         try {
           const res = await fetch(url, { credentials: 'include' });
           if (!res.ok) return null;
-          const buf = await res.arrayBuffer();
-          const bytes = new Uint8Array(buf);
-          let bin = '';
-          for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-          const b64 = btoa(bin);
-          const ct = res.headers.get('content-type') || 'image/png';
-          return `data:${ct};base64,${b64}`;
+          const blob = await res.blob();
+          if (blob.size > MAX_IMAGE_BYTES) return null;
+          return new Promise<string | null>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(blob);
+          });
         } catch {
           return null;
         }
@@ -250,15 +264,7 @@ export async function extractAttachments(item: Element, body: Element): Promise<
       push(a, { href: a.href, label: textFrom(a) || a.getAttribute('aria-label') || a.title || a.href });
     });
 
-    // OLD:
-    // contentRoot.querySelectorAll<HTMLImageElement>('[data-testid="lazy-image-wrapper"] img').forEach(img => {
-    //   const src = img.getAttribute('src') || '';
-    //   if (/^https?:\/\//i.test(src)) {
-    //     push(img, { href: src, label: img.getAttribute('alt') || 'image' });
-    //   }
-    // });
-
-    // NEW: inline AMS images + file preview AMS URLs (full-size)
+    // Inline AMS images + file preview AMS URLs (full-size)
     contentRoot
       .querySelectorAll<HTMLImageElement>('span[itemtype="http://schema.skype.com/AMSImage"] img[data-gallery-src], img[itemtype="http://schema.skype.com/AMSImage"][data-gallery-src]')
       .forEach(img => {
