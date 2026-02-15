@@ -220,8 +220,10 @@
         includes.push(t("summary.reactions", {}, lang));
       if (options.includeSystem) includes.push(t("summary.system", {}, lang));
       if (options.embedAvatars) includes.push(t("summary.avatars", {}, lang));
-      if (options.format === "html" && options.downloadImages)
+      if (options.format === "html" && options.downloadImages) {
         includes.push(t("summary.images", {}, lang));
+        includes.push(t("summary.zip", {}, lang));
+      }
       if (includes.length > 0) parts.push(includes.join(", "));
     }
 
@@ -525,7 +527,7 @@
         buildOptions: { format, saveAs: true, embedAvatars, downloadImages },
       };
       let response: StartExportResponse | StartExportZipResponse;
-      if (format === "html") {
+      if (format === "html" && downloadImages) {
         response = await runtimeSend<StartExportZipRequest>(runtime, {
           type: "START_EXPORT_ZIP",
           data: requestData,
