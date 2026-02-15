@@ -1,4 +1,4 @@
-import { normalizeAvatars, removeAvatars, textToBlobUrl, textToDataUrl, toCSV, toHTML } from './builders';
+import { normalizeAvatars, removeAvatars, textToBlobUrl, toCSV, toHTML } from './builders';
 import { formatRangeLabel, sanitizeBase } from '../utils/messages';
 import { buildZip } from './zip';
 import type { Attachment, ExportMessage, ExportMeta } from '../types/shared';
@@ -9,7 +9,7 @@ type ImageMode = 'none' | 'data-url' | 'files';
 
 type InlineImage = { filename: string; dataUrl: string };
 
-export type BuiltExport = {
+type BuiltExport = {
   baseFolder: string;
   filename: string;
   content: string;
@@ -47,15 +47,6 @@ function dataUrlToBytes(dataUrl: string): Uint8Array | null {
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
-}
-
-function bytesToDataUrl(bytes: Uint8Array, mime: string): string {
-  const chunkSize = 0x8000;
-  let bin = '';
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return `data:${mime};base64,${btoa(bin)}`;
 }
 
 function guessExtension(label?: string | null) {
@@ -247,35 +238,28 @@ function buildExportInternal(options: BuildExportOptions, imageMode: ImageMode):
   return { baseFolder, filename, content, mime, inlineImages };
 }
 
-export function buildExport(options: BuildExportOptions): BuiltExport {
-  const format = options.format || 'json';
-  const downloadImages = Boolean(options.downloadImages);
-  const mode: ImageMode = format === 'html' && downloadImages ? 'files' : 'none';
-  return buildExportInternal(options, mode);
-}
-
 export async function buildAndDownload(
   deps: BuildDownloadDeps,
   { messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false, downloadImages = false }: BuildExportOptions,
 ) {
-  const { downloads, isFirefox, onStatus } = deps;
+  const { downloads, onStatus } = deps;
   const mode: ImageMode = format === 'html' && downloadImages ? 'data-url' : 'none';
   const built = buildExportInternal({ messages, meta, format, embedAvatars, downloadImages }, mode);
 
   onStatus?.({ phase: 'build', filename: built.filename, messages: messages.length });
 
-  const url = isFirefox ? textToBlobUrl(built.content, built.mime) : textToDataUrl(built.content, built.mime);
+  const url = textToBlobUrl(built.content, built.mime);
   try {
     const id = await downloads.download({ url, filename: built.filename, saveAs });
-    if (isFirefox) setTimeout(() => URL.revokeObjectURL(url), 60000);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
     return { ok: true, filename: built.filename, id };
   } catch (e: any) {
     const safe = `${sanitizeBase('teams-chat')}-${Date.now()}.${format === 'html' ? 'html' : format === 'csv' ? 'csv' : format === 'txt' ? 'txt' : 'json'}`;
-    if (isFirefox) URL.revokeObjectURL(url);
+    URL.revokeObjectURL(url);
     try {
-      const url2 = isFirefox ? textToBlobUrl(built.content, built.mime) : textToDataUrl(built.content, built.mime);
+      const url2 = textToBlobUrl(built.content, built.mime);
       const id2 = await downloads.download({ url: url2, filename: safe, saveAs });
-      if (isFirefox) setTimeout(() => URL.revokeObjectURL(url2), 60000);
+      setTimeout(() => URL.revokeObjectURL(url2), 60000);
       return { ok: true, filename: safe, id: id2 };
     } catch (e2: any) {
       throw new Error(e2?.message || String(e2));
@@ -287,7 +271,7 @@ export async function buildAndDownloadZip(
   deps: BuildDownloadDeps,
   { messages = [], meta = {}, embedAvatars = false, downloadImages = false }: BuildExportOptions,
 ) {
-  const { downloads, isFirefox, onStatus } = deps;
+  const { downloads, onStatus } = deps;
   const built = buildExportInternal(
     { messages, meta, format: 'html', embedAvatars, downloadImages },
     downloadImages ? 'files' : 'none',
@@ -314,13 +298,13 @@ export async function buildAndDownloadZip(
   const zipBytes = buildZip(files);
   const mime = 'application/zip';
   const zipName = `${built.baseFolder}.zip`;
-  const url = isFirefox ? URL.createObjectURL(new Blob([zipBytes as BlobPart], { type: mime })) : bytesToDataUrl(zipBytes, mime);
+  const url = URL.createObjectURL(new Blob([zipBytes as BlobPart], { type: mime }));
   try {
     const id = await downloads.download({ url, filename: zipName, saveAs: true });
-    if (isFirefox) setTimeout(() => URL.revokeObjectURL(url), 60000);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
     return { ok: true, filename: zipName, id };
   } catch (e: any) {
-    if (isFirefox) URL.revokeObjectURL(url);
+    URL.revokeObjectURL(url);
     throw new Error(e?.message || String(e));
   }
 }

@@ -411,12 +411,6 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
 }
 
 // Encode text to a data URL to download from SW (works reliably in MV3)
-export function textToDataUrl(text: string, mime: string) {
-  const b64 = btoa(unescape(encodeURIComponent(text)));
-  return `data:${mime};base64,${b64}`;
-}
-
-// Firefox-compatible: Create blob URL (Firefox blocks data URLs in downloads)
 export function textToBlobUrl(text: string, mime: string) {
   const blob = new Blob([text], { type: mime });
   return URL.createObjectURL(blob);
