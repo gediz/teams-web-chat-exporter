@@ -60,7 +60,7 @@ export function extractReactions(item: Element): Reaction[] {
 
   for (const btn of pills) {
     const self = btn.getAttribute('aria-pressed') === 'true';
-    const emojiImg = btn.querySelector('[data-tid="emoticon-renderer"] img');
+    const emojiImg = btn.querySelector<HTMLImageElement>('[data-tid="emoticon-renderer"] img');
     const emojiContainer = btn.querySelector('[data-tid="emoticon-renderer"]');
     let emoji =
       emojiImg?.getAttribute('alt') ||
