@@ -90,3 +90,18 @@ Content script: [src/entrypoints/content.ts](../src/entrypoints/content.ts)
    - Description of the change
    - Testing performed
    - Screenshots (if UI changes)
+
+## CI (Continuous Integration)
+
+Every pull request is automatically checked by GitHub Actions before it can be merged. The workflow runs two checks:
+
+1. **`npm run check`** — Runs `svelte-check` to catch TypeScript type errors.
+2. **`npm run build`** — Builds the Chrome extension to catch build failures.
+
+If either check fails, the PR will show a red X and cannot be merged until the issue is fixed.
+
+**What this means for contributors:**
+- Run `npm run check` and `npm run build` locally before pushing. If they pass on your machine, they will pass in CI.
+- If CI fails on your PR, click the red X on GitHub to see the error log, fix the issue, and push again.
+
+The workflow file lives at [.github/workflows/ci.yml](../.github/workflows/ci.yml).
