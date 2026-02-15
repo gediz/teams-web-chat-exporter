@@ -16,25 +16,6 @@ export type StartExportRequest = {
 };
 export type StartExportResponse = { filename?: string; messages?: number; error?: string; code?: string };
 
-export type StartExportFolderRequest = {
-  type: 'START_EXPORT_FOLDER';
-  data: {
-    tabId?: number | null;
-    scrapeOptions: ScrapeOptions;
-    buildOptions: BuildOptions;
-  };
-};
-export type StartExportFolderResponse = {
-  folderName?: string;
-  filename?: string;
-  content?: string;
-  mime?: string;
-  inlineImages?: { filename: string; dataUrl: string }[];
-  startedAt?: number;
-  error?: string;
-  code?: string;
-};
-
 export type StartExportZipRequest = {
   type: 'START_EXPORT_ZIP';
   data: {
@@ -76,7 +57,6 @@ export type RuntimeRequest =
   | PingSWRequest
   | GetExportStatusRequest
   | StartExportRequest
-  | StartExportFolderRequest
   | StartExportZipRequest
   | BuildAndDownloadRequest;
 
@@ -84,7 +64,6 @@ export type BackgroundIncomingMessage =
   | PingSWRequest
   | GetExportStatusRequest
   | StartExportRequest
-  | StartExportFolderRequest
   | StartExportZipRequest
   | BuildAndDownloadRequest
   | ExportStatusUpdateMessage
@@ -95,6 +74,5 @@ export type RuntimeResponse<T extends RuntimeRequest> =
   T extends PingSWRequest ? PingSWResponse :
   T extends GetExportStatusRequest ? GetExportStatusResponse :
   T extends StartExportRequest ? StartExportResponse :
-  T extends StartExportFolderRequest ? StartExportFolderResponse :
   T extends StartExportZipRequest ? StartExportZipResponse :
   unknown;
