@@ -162,9 +162,9 @@ export default defineContentScript({
         }
 
         /**
-         * Fetches avatar images and converts them to base64 data URLs.
-         * This runs in the content script context which has access to Teams cookies.
-         */
+        * Fetches avatar images and converts them to base64 data URLs.
+        * This runs in the content script context which has access to Teams cookies.
+        */
         async function fetchAvatarAsDataURL(url: string): Promise<string | null> {
             try {
                 const res = await fetch(url, { credentials: 'include' });
@@ -186,9 +186,9 @@ export default defineContentScript({
         }
 
         /**
-         * Embeds avatars by fetching them in the content script context.
-         * Returns messages with base64 data URLs instead of HTTP URLs.
-         */
+        * Embeds avatars by fetching them in the content script context.
+        * Returns messages with base64 data URLs instead of HTTP URLs.
+        */
         async function embedAvatarsInContent(messages: ExtractedMessage[]): Promise<ExtractedMessage[]> {
             // Build map of unique avatar URLs
             const uniqueUrls = new Set<string>();
@@ -304,31 +304,31 @@ export default defineContentScript({
         async function hydrateSparseMessages(agg: Map<string, ContentAggregated>, opts: ScrapeOptions = {}) {
             if (!agg || agg.size === 0) return;
 
-              const needsHydration = (message: ExtractedMessage, item: Element) => {
-                  const textNeeds = isPlaceholderText(message.text);
-                  let reactionsNeed = false;
-                  if (opts.includeReactions) {
-                      const hadReactions = Array.isArray(message.reactions) && message.reactions.length > 0;
-                      const missingEmoji =
+            const needsHydration = (message: ExtractedMessage, item: Element) => {
+                const textNeeds = isPlaceholderText(message.text);
+                let reactionsNeed = false;
+                if (opts.includeReactions) {
+                    const hadReactions = Array.isArray(message.reactions) && message.reactions.length > 0;
+                    const missingEmoji =
                         hadReactions &&
                         (message.reactions || []).some(r => !r.emoji || !r.emoji.trim());
-                      if ((!hadReactions || missingEmoji) && item?.querySelector('[data-tid="diverse-reaction-pill-button"]')) {
-                          reactionsNeed = true;
-                      }
-                  }
-                  let imagesNeed = false;
-                  if (item?.querySelector('[data-tid="file-preview-root"][amspreviewurl]')) {
-                      const atts = Array.isArray(message.attachments) ? message.attachments : [];
-                      const missingPreview = !atts.length || atts.some(att => {
-                          const href = att.href || '';
-                          if (!href) return false;
-                          if (!/asm\.skype\.com|asyncgw\.teams\.microsoft\.com/i.test(href)) return false;
-                          return !att.dataUrl;
-                      });
-                      if (missingPreview) imagesNeed = true;
-                  }
-                  return { textNeeds, reactionsNeed, imagesNeed, needs: textNeeds || reactionsNeed || imagesNeed };
-              };
+                    if ((!hadReactions || missingEmoji) && item?.querySelector('[data-tid="diverse-reaction-pill-button"]')) {
+                        reactionsNeed = true;
+                    }
+                }
+                let imagesNeed = false;
+                if (item?.querySelector('[data-tid="file-preview-root"][amspreviewurl]')) {
+                    const atts = Array.isArray(message.attachments) ? message.attachments : [];
+                    const missingPreview = !atts.length || atts.some(att => {
+                        const href = att.href || '';
+                        if (!href) return false;
+                        if (!/asm\.skype\.com|asyncgw\.teams\.microsoft\.com/i.test(href)) return false;
+                        return !att.dataUrl;
+                    });
+                    if (missingPreview) imagesNeed = true;
+                }
+                return { textNeeds, reactionsNeed, imagesNeed, needs: textNeeds || reactionsNeed || imagesNeed };
+            };
 
             let pending: { id: string; item: Element }[] = [];
 
@@ -380,19 +380,19 @@ export default defineContentScript({
                         continue;
                     }
 
-                      const merged: ExtractedMessage = {
-                          id: existing.message.id || reExtracted.message.id || id,
-                          author: existing.message.author || reExtracted.message.author || '',
-                          timestamp: existing.message.timestamp || reExtracted.message.timestamp || '',
-                          text: preferText(existing.message.text || '', reExtracted.message.text || ''),
-                          edited: existing.message.edited || reExtracted.message.edited,
-                          system: existing.message.system || reExtracted.message.system,
-                          avatar: existing.message.avatar ?? reExtracted.message.avatar ?? null,
-                          reactions: existing.message.reactions,
-                          attachments: existing.message.attachments,
-                          tables: existing.message.tables,
-                          replyTo: existing.message.replyTo ?? reExtracted.message.replyTo ?? null,
-                      };
+                    const merged: ExtractedMessage = {
+                        id: existing.message.id || reExtracted.message.id || id,
+                        author: existing.message.author || reExtracted.message.author || '',
+                        timestamp: existing.message.timestamp || reExtracted.message.timestamp || '',
+                        text: preferText(existing.message.text || '', reExtracted.message.text || ''),
+                        edited: existing.message.edited || reExtracted.message.edited,
+                        system: existing.message.system || reExtracted.message.system,
+                        avatar: existing.message.avatar ?? reExtracted.message.avatar ?? null,
+                        reactions: existing.message.reactions,
+                        attachments: existing.message.attachments,
+                        tables: existing.message.tables,
+                        replyTo: existing.message.replyTo ?? reExtracted.message.replyTo ?? null,
+                    };
 
                     if (opts.includeReactions) {
                         const newReacts = reExtracted.message.reactions || [];
@@ -402,16 +402,16 @@ export default defineContentScript({
                         }
                     }
 
-                      const newAttachments = reExtracted.message.attachments || [];
-                      const prevAttCount = Array.isArray(merged.attachments) ? merged.attachments.length : 0;
-                      if (newAttachments.length && newAttachments.length >= prevAttCount) {
-                          merged.attachments = newAttachments;
-                      }
-                      const newTables = reExtracted.message.tables || [];
-                      const prevTableCount = Array.isArray(merged.tables) ? merged.tables.length : 0;
-                      if (newTables.length && newTables.length >= prevTableCount) {
-                          merged.tables = newTables;
-                      }
+                    const newAttachments = reExtracted.message.attachments || [];
+                    const prevAttCount = Array.isArray(merged.attachments) ? merged.attachments.length : 0;
+                    if (newAttachments.length && newAttachments.length >= prevAttCount) {
+                        merged.attachments = newAttachments;
+                    }
+                    const newTables = reExtracted.message.tables || [];
+                    const prevTableCount = Array.isArray(merged.tables) ? merged.tables.length : 0;
+                    if (newTables.length && newTables.length >= prevTableCount) {
+                        merged.tables = newTables;
+                    }
 
                     if (!merged.replyTo && reExtracted.message.replyTo) merged.replyTo = reExtracted.message.replyTo;
                     if (!merged.avatar && reExtracted.message.avatar) merged.avatar = reExtracted.message.avatar;
@@ -570,25 +570,25 @@ export default defineContentScript({
             }
 
             const contentEl = $('[id^="content-"]', body) || $('[data-tid="message-content"]', body) || body;
-              const tables = extractTables(contentEl);
-              const codeBlocks = extractCodeBlocks(contentEl);
-              const cleanRoot = stripQuotedPreview(contentEl) || contentEl;
-              normalizeMentions(cleanRoot);
-              let text = extractTextWithEmojis(cleanRoot);
-              if (codeBlocks.length && !/```/.test(text)) {
-                  const fenced = codeBlocks.map(block => `\n\`\`\`\n${block}\n\`\`\`\n`).join('\n');
-                  text = text ? `${text}\n${fenced}` : fenced.replace(/^\n/, '');
-              }
-              const edited = resolveEdited(item, body);
-              const avatar = resolveAvatar(item);
-              const reactions = opts.includeReactions ? await extractReactions(item) : [];
+            const tables = extractTables(contentEl);
+            const codeBlocks = extractCodeBlocks(contentEl);
+            const cleanRoot = stripQuotedPreview(contentEl) || contentEl;
+            normalizeMentions(cleanRoot);
+            let text = extractTextWithEmojis(cleanRoot);
+            if (codeBlocks.length && !/```/.test(text)) {
+                const fenced = codeBlocks.map(block => `\n\`\`\`\n${block}\n\`\`\`\n`).join('\n');
+                text = text ? `${text}\n${fenced}` : fenced.replace(/^\n/, '');
+            }
+            const edited = resolveEdited(item, body);
+            const avatar = resolveAvatar(item);
+            const reactions = opts.includeReactions ? await extractReactions(item) : [];
 
-              await waitForPreviewImages(item, 250);
-              const attachments = await extractAttachments(item, body);
-              const replyTo = opts.includeReplies === false ? null : extractReplyContext(item, body);
+            await waitForPreviewImages(item, 250);
+            const attachments = await extractAttachments(item, body);
+            const replyTo = opts.includeReplies === false ? null : extractReplyContext(item, body);
 
             const mid = body.getAttribute('data-mid') || item.id || `${ts}#${author}`;
-              const msg: ExtractedMessage = { id: mid, author, timestamp: ts, text, reactions, attachments, edited, avatar, replyTo, tables, system: false };
+            const msg: ExtractedMessage = { id: mid, author, timestamp: ts, text, reactions, attachments, edited, avatar, replyTo, tables, system: false };
 
             const seqVal = orderCtx.seq ?? 0;
             orderCtx.seq = seqVal + 1;
@@ -875,12 +875,12 @@ export default defineContentScript({
             const clone = container.cloneNode(true) as Element;
 
             // Known containers for quoted/preview content
-              const kill = [
-                  '[data-tid="quoted-reply-card"]',
-                  '[data-tid="referencePreview"]',
-                  '[role="group"][aria-label^="Begin Reference"]',
-                  'table[itemprop="copy-paste-table"]'
-              ];
+            const kill = [
+                '[data-tid="quoted-reply-card"]',
+                '[data-tid="referencePreview"]',
+                '[role="group"][aria-label^="Begin Reference"]',
+                'table[itemprop="copy-paste-table"]'
+            ];
             for (const sel of kill) {
                 clone.querySelectorAll(sel).forEach((n: Element) => n.remove());
             }
