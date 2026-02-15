@@ -314,7 +314,7 @@ export async function buildAndDownloadZip(
   const zipBytes = buildZip(files);
   const mime = 'application/zip';
   const zipName = `${built.baseFolder}.zip`;
-  const url = isFirefox ? URL.createObjectURL(new Blob([zipBytes], { type: mime })) : bytesToDataUrl(zipBytes, mime);
+  const url = isFirefox ? URL.createObjectURL(new Blob([zipBytes as BlobPart], { type: mime })) : bytesToDataUrl(zipBytes, mime);
   try {
     const id = await downloads.download({ url, filename: zipName, saveAs: true });
     if (isFirefox) setTimeout(() => URL.revokeObjectURL(url), 60000);
