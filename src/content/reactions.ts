@@ -44,7 +44,8 @@ export function extractReactions(item: Element): Reaction[] {
     if (direct) return direct;
     const src = img?.getAttribute('src') || '';
     const match = src.match(/\/emoticons\/([^/]+)\//i);
-    return match ? decodeURIComponent(match[1]) : '';
+    if (!match) return '';
+    try { return decodeURIComponent(match[1]); } catch { return match[1]; }
   };
   const keyFromLabelledBy = (labelledBy: string | null) => {
     if (!labelledBy) return '';
