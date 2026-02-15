@@ -142,7 +142,17 @@ function handleBuildAndDownloadMessage(msg: any, sendResponse: (res: any) => voi
     })();
 }
 
-function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
+type BuildStep = (
+    scrapeRes: ScrapeResult,
+    buildOptions: BuildOptions,
+    tabId: number,
+) => Promise<{ filename?: string; id?: number }>;
+
+function handleExportWithScrape(
+    msg: any,
+    sendResponse: (res: any) => void,
+    buildStep: BuildStep,
+) {
     const data = msg.data || {};
     const tabId = data.tabId;
     if (typeof tabId !== 'number') {
@@ -184,40 +194,7 @@ function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
                 return;
             }
 
-            const format = buildOptions.format || 'json';
-            const downloadImages = Boolean(buildOptions.downloadImages);
-            let buildRes: { filename?: string; id?: number };
-            if (format === 'html' && downloadImages) {
-                buildRes = await buildAndDownloadZip(
-                    {
-                        downloads,
-                        isFirefox,
-                        onStatus: (payload) => broadcastStatus({ ...payload, tabId }),
-                    },
-                    {
-                        messages: scrapeRes.messages || [],
-                        meta: scrapeRes.meta || {},
-                        embedAvatars: Boolean(buildOptions.embedAvatars),
-                        downloadImages,
-                    }
-                );
-            } else {
-                buildRes = await buildAndDownload(
-                    {
-                        downloads,
-                        isFirefox,
-                        onStatus: (payload) => broadcastStatus({ ...payload, tabId }),
-                    },
-                    {
-                        messages: scrapeRes.messages || [],
-                        meta: scrapeRes.meta || {},
-                        format,
-                        saveAs: buildOptions.saveAs !== false,
-                        embedAvatars: Boolean(buildOptions.embedAvatars),
-                        downloadImages,
-                    }
-                );
-            }
+            const buildRes = await buildStep(scrapeRes, buildOptions, tabId);
 
             broadcastStatus({ tabId, phase: 'complete', filename: buildRes.filename });
             sendResponse({ ok: true, filename: buildRes.filename, downloadId: buildRes.id });
@@ -233,74 +210,48 @@ function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
     })();
 }
 
-function handleStartExportZipMessage(msg: any, sendResponse: (res: any) => void) {
-    const data = msg.data || {};
-    const tabId = data.tabId;
-    if (typeof tabId !== 'number') {
-        sendResponse({ error: 'Missing tabId for export request' });
-        return;
-    }
-    if (activeExports.has(tabId)) {
-        sendResponse({ error: 'An export is already running for this tab' });
-        return;
-    }
-
-    const scrapeOptions = data.scrapeOptions || {};
-    const buildOptions = data.buildOptions || {};
-
-    (async () => {
-        let startedAt;
-        try {
-            await ensureContentScript(tabId);
-            const ctx = await sendMessageToTab(tabId, { type: 'CHECK_CHAT_CONTEXT' });
-            if (!ctx?.ok) {
-                const message = ctx?.reason || 'Open a chat conversation before exporting.';
-                sendResponse({ error: message });
-                return;
-            }
-
-            startedAt = Date.now();
-            updateActiveExport(tabId, { startedAt, phase: 'starting', lastStatus: undefined });
-            broadcastStatus({ tabId, phase: 'starting', startedAt });
-
-            broadcastStatus({ tabId, phase: 'scrape:start' });
-            const scrapeRes = await requestScrape(tabId, scrapeOptions);
-            const totalMessages = Array.isArray(scrapeRes.messages) ? scrapeRes.messages.length : 0;
-            broadcastStatus({ tabId, phase: 'scrape:complete', messages: totalMessages });
-
-            if (totalMessages === 0) {
-                const message = 'No messages found for the selected range.';
-                broadcastStatus({ tabId, phase: 'empty', message });
-                sendResponse({ error: message, code: 'EMPTY_RESULTS' });
-                return;
-            }
-
-            const buildRes = await buildAndDownloadZip(
-                {
-                    downloads,
-                    isFirefox,
-                    onStatus: (payload) => broadcastStatus({ ...payload, tabId }),
-                },
-                {
-                    messages: scrapeRes.messages || [],
-                    meta: scrapeRes.meta || {},
-                    embedAvatars: Boolean(buildOptions.embedAvatars),
-                    downloadImages: Boolean(buildOptions.downloadImages),
-                }
-            );
-
-            broadcastStatus({ tabId, phase: 'complete', filename: buildRes.filename });
-            sendResponse({ ok: true, filename: buildRes.filename, downloadId: buildRes.id });
-        } catch (err: any) {
-            const message = err?.message || String(err);
-            broadcastStatus({ tabId, phase: 'error', error: message });
-            sendResponse({ error: message });
-        } finally {
-            if (startedAt) {
-                activeExports.delete(tabId);
-            }
+function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
+    handleExportWithScrape(msg, sendResponse, async (scrapeRes, buildOptions, tabId) => {
+        const format = buildOptions.format || 'json';
+        const downloadImages = Boolean(buildOptions.downloadImages);
+        const deps = {
+            downloads,
+            isFirefox,
+            onStatus: (payload: Record<string, unknown>) => broadcastStatus({ ...payload, tabId }),
+        };
+        const commonOpts = {
+            messages: scrapeRes.messages || [],
+            meta: scrapeRes.meta || {},
+            embedAvatars: Boolean(buildOptions.embedAvatars),
+            downloadImages,
+        };
+        if (format === 'html' && downloadImages) {
+            return buildAndDownloadZip(deps, commonOpts);
         }
-    })();
+        return buildAndDownload(deps, {
+            ...commonOpts,
+            format,
+            saveAs: buildOptions.saveAs !== false,
+        });
+    });
+}
+
+function handleStartExportZipMessage(msg: any, sendResponse: (res: any) => void) {
+    handleExportWithScrape(msg, sendResponse, async (scrapeRes, buildOptions, tabId) => {
+        return buildAndDownloadZip(
+            {
+                downloads,
+                isFirefox,
+                onStatus: (payload: Record<string, unknown>) => broadcastStatus({ ...payload, tabId }),
+            },
+            {
+                messages: scrapeRes.messages || [],
+                meta: scrapeRes.meta || {},
+                embedAvatars: Boolean(buildOptions.embedAvatars),
+                downloadImages: Boolean(buildOptions.downloadImages),
+            },
+        );
+    });
 }
 
 resetBadge();
