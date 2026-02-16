@@ -110,7 +110,7 @@
   let exportSummary = "";
 
   const isTeamsUrl = (u?: string | null) =>
-    /^https:\/\/(.*\.)?(teams\.microsoft\.com|cloud\.microsoft|teams\.live\.com)\//.test(
+    /^https:\/\/(.*\.)?(teams\.microsoft\.com|teams\.microsoft\.us|cloud\.microsoft|teams\.live\.com)\//.test(
       u || "",
     );
 
