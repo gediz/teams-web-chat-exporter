@@ -6,7 +6,7 @@ This file provides AI assistants with context about the Teams Chat Exporter code
 
 **Teams Chat Exporter** is a cross-browser extension (Chrome, Edge, Firefox) that exports Microsoft Teams web chat conversations to JSON, CSV, HTML, or text formats.
 
-- **Version**: 1.3.0
+- **Version**: 1.3.1
 - **Framework**: WXT (Vite-based)
 - **Languages**: TypeScript + Svelte 5
 - **Supported Browsers**: Chrome, Edge, Firefox

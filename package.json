@@ -1,6 +1,6 @@
 {
   "name": "teams-web-chat-exporter",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Export Microsoft Teams web chat conversations to JSON, CSV, HTML, or Text formats",
   "type": "module",
   "private": true,
