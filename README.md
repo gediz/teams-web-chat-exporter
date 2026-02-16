@@ -14,12 +14,10 @@ A browser extension that exports chat conversations from the Microsoft Teams web
 ## Installation
 
 ### Chrome / Edge
-1. Open the [Teams Chat Exporter listing](https://chromewebstore.google.com/detail/teams-chat-exporter/jmghclbfbbapimhbgnpffbimphlpolnm) in the Chrome Web Store.
-2. Click "Add to Chrome".
+[![Available in the Chrome Web Store](docs/badges/available-in-the-chrome-web-store.png)](https://chromewebstore.google.com/detail/teams-chat-exporter/jmghclbfbbapimhbgnpffbimphlpolnm)
 
 ### Firefox
-1. Open the [Teams Chat Exporter listing](https://addons.mozilla.org/en-US/firefox/addon/teams-chat-exporter/) in Firefox Add-ons.
-2. Click "Add to Firefox".
+[![Get the Add-on for Firefox](docs/badges/mozilla-firefox-get-the-addon.png)](https://addons.mozilla.org/en-US/firefox/addon/teams-chat-exporter/)
 
 ### Manual Installation
 To install from a release ZIP or source code, see the [Manual Installation Guide](docs/MANUAL_INSTALL.md).
