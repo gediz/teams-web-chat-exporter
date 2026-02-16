@@ -51,7 +51,8 @@ export async function autoScrollAggregate<M extends ExportMessage>(
   let passes = 0;
   let stagnantPasses = 0;
   let lastOldestId = null;
-  const dwellMs = 700;
+  let lastAggSize = 0;
+  const baseDwellMs = 700;
 
   const headerSentinel = document.querySelector('[data-tid="message-pane-header"]');
   let topReached = false;
@@ -69,6 +70,8 @@ export async function autoScrollAggregate<M extends ExportMessage>(
   try {
     while (true) {
       passes++;
+      // Adaptive dwell: Teams gets slower with deep history
+      const dwellMs = baseDwellMs + Math.min(Math.floor(agg.size / 500) * 200, 2000);
       scroller.scrollTop = 0;
       await new Promise(r => requestAnimationFrame(r));
       await sleep(dwellMs);
@@ -138,13 +141,23 @@ export async function autoScrollAggregate<M extends ExportMessage>(
       } catch {}
       hud(`scroll pass ${passes} • seen ${filteredSeen}`);
 
-      if (startLimit != null && oldestTs != null && oldestTs <= startLimit) break;
+      if (startLimit != null && oldestTs != null && oldestTs <= startLimit) {
+        console.log('[Teams Exporter] scroll stop: startAt date reached', { oldestTimeAttr, startAtISO });
+        break;
+      }
 
       const heightUnchanged = newHeight === prevHeight;
       const countUnchanged = newCount === lastCount;
       const oldestUnchanged = oldestId && lastOldestId === oldestId;
+      // Teams virtualizes: DOM count/height may stay constant while content swaps.
+      // Track whether we're still collecting new messages.
+      const aggGrew = agg.size > lastAggSize;
+      lastAggSize = agg.size;
 
-      if (heightUnchanged && countUnchanged) {
+      if (aggGrew) {
+        // Still finding new messages — not stagnant regardless of DOM metrics
+        stagnantPasses = 0;
+      } else if (heightUnchanged && countUnchanged) {
         stagnantPasses++;
       } else if (oldestUnchanged) {
         stagnantPasses++;
@@ -159,8 +172,14 @@ export async function autoScrollAggregate<M extends ExportMessage>(
       prevHeight = newHeight;
       lastCount = newCount;
 
-      if (topReached && stagnantPasses >= 3) break;
-      if (!topReached && stagnantPasses >= 12) break;
+      if (topReached && stagnantPasses >= 3) {
+        console.log('[Teams Exporter] scroll stop: header sentinel reached + stagnant', { passes, stagnantPasses, aggregated: agg.size, oldestTimeAttr });
+        break;
+      }
+      if (!topReached && stagnantPasses >= 25) {
+        console.log('[Teams Exporter] scroll stop: stagnation threshold', { passes, stagnantPasses, aggregated: agg.size, oldestTimeAttr, dwellMs });
+        break;
+      }
     }
   } finally {
     if (observer && headerSentinel) observer.disconnect();
