@@ -64,5 +64,9 @@
   "errors.switchToChat": "Dışa aktarmadan önce Teams'de Sohbet uygulamasına geçin.",
   "banner.error": "Dışa aktarma başarısız.",
   "footer.tip1": "İlerlemeyi görmek için bu pencereyi açık tutun veya simgeye bakın.",
-  "footer.tip2": "Yardıma mı ihtiyacınız var? Aktif dışa aktarmaya yeniden bağlanmak için pencereyi tekrar açın."
+  "footer.tip2": "Yardıma mı ihtiyacınız var? Aktif dışa aktarmaya yeniden bağlanmak için pencereyi tekrar açın.",
+  "settings.title": "Ayarlar",
+  "settings.theme": "Tema",
+  "settings.theme.light": "Açık",
+  "settings.theme.dark": "Koyu"
 }

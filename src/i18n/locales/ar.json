@@ -64,5 +64,9 @@
   "errors.noMessages": "لا توجد رسائل في النطاق المحدد.",
   "errors.missingTabId": "معلومات علامة التبويب مفقودة",
   "errors.chatNotOpen": "افتح محادثة دردشة قبل التصدير.",
-  "errors.switchToChat": "انتقل إلى تطبيق الدردشة في Teams قبل التصدير."
+  "errors.switchToChat": "انتقل إلى تطبيق الدردشة في Teams قبل التصدير.",
+  "settings.title": "الإعدادات",
+  "settings.theme": "المظهر",
+  "settings.theme.light": "فاتح",
+  "settings.theme.dark": "داكن"
 }

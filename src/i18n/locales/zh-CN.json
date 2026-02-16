@@ -64,5 +64,9 @@
   "errors.noMessages": "所选范围内没有消息。",
   "errors.missingTabId": "缺少标签页信息",
   "errors.chatNotOpen": "导出前请打开一个聊天对话。",
-  "errors.switchToChat": "导出前请切换到 Teams 中的聊天应用。"
+  "errors.switchToChat": "导出前请切换到 Teams 中的聊天应用。",
+  "settings.title": "设置",
+  "settings.theme": "主题",
+  "settings.theme.light": "浅色",
+  "settings.theme.dark": "深色"
 }

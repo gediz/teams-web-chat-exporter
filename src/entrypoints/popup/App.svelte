@@ -42,6 +42,7 @@
   import IncludeSection from "./components/IncludeSection.svelte";
   import StatusBar from "./components/StatusBar.svelte";
   import HeaderActions from "./components/HeaderActions.svelte";
+  import SettingsPage from "./components/SettingsPage.svelte";
   import { t, setLanguage, getLanguage } from "../../i18n/i18n";
 
   const runtime =
@@ -67,21 +68,33 @@
 
   const DAY_MS = 24 * 60 * 60 * 1000;
   const languageOptions = [
-    { value: "en", label: "English" },
-    { value: "ar", label: "Arabic (العربية)" },
-    { value: "zh-CN", label: "Chinese (简体中文)" },
-    { value: "nl", label: "Dutch (Nederlands)" },
-    { value: "fr", label: "French (Français)" },
-    { value: "de", label: "German (Deutsch)" },
-    { value: "he", label: "Hebrew (עברית)" },
-    { value: "it", label: "Italian (Italiano)" },
-    { value: "ja", label: "Japanese (日本語)" },
-    { value: "ko", label: "Korean (한국어)" },
-    { value: "pt-BR", label: "Portuguese (Português)" },
-    { value: "ru", label: "Russian (Русский)" },
-    { value: "es", label: "Spanish (Español)" },
-    { value: "tr", label: "Turkish (Türkçe)" },
+    { value: "en", code: "EN", native: "English", label: "English" },
+    { value: "ar", code: "AR", native: "العربية", label: "Arabic (العربية)" },
+    { value: "az", code: "AZ", native: "Azərbaycan", label: "Azerbaijani (Azərbaycan)" },
+    { value: "bn", code: "BN", native: "বাংলা", label: "Bengali (বাংলা)" },
+    { value: "bg", code: "BG", native: "Български", label: "Bulgarian (Български)" },
+    { value: "zh-CN", code: "ZH", native: "简体中文", label: "Chinese Simplified (简体中文)" },
+    { value: "zh-TW", code: "TW", native: "繁體中文", label: "Chinese Traditional (繁體中文)" },
+    { value: "cs", code: "CS", native: "Čeština", label: "Czech (Čeština)" },
+    { value: "nl", code: "NL", native: "Nederlands", label: "Dutch (Nederlands)" },
+    { value: "fr", code: "FR", native: "Français", label: "French (Français)" },
+    { value: "de", code: "DE", native: "Deutsch", label: "German (Deutsch)" },
+    { value: "he", code: "HE", native: "עברית", label: "Hebrew (עברית)" },
+    { value: "hi", code: "HI", native: "हिन्दी", label: "Hindi (हिन्दी)" },
+    { value: "hu", code: "HU", native: "Magyar", label: "Hungarian (Magyar)" },
+    { value: "it", code: "IT", native: "Italiano", label: "Italian (Italiano)" },
+    { value: "ja", code: "JA", native: "日本語", label: "Japanese (日本語)" },
+    { value: "ko", code: "KO", native: "한국어", label: "Korean (한국어)" },
+    { value: "ms", code: "MS", native: "Melayu", label: "Malay (Bahasa Melayu)" },
+    { value: "pl", code: "PL", native: "Polski", label: "Polish (Polski)" },
+    { value: "pt-BR", code: "PT", native: "Português", label: "Portuguese (Português)" },
+    { value: "ru", code: "RU", native: "Русский", label: "Russian (Русский)" },
+    { value: "es", code: "ES", native: "Español", label: "Spanish (Español)" },
+    { value: "th", code: "TH", native: "ไทย", label: "Thai (ไทย)" },
+    { value: "tr", code: "TR", native: "Türkçe", label: "Turkish (Türkçe)" },
   ];
+
+  let showSettings = false;
 
   let options: Options = { ...DEFAULT_OPTIONS };
   const currentLang = () => options.lang || "en";
@@ -627,85 +640,95 @@
 </script>
 
 <div class="popup">
-  <div class="popup-content">
-    <!-- Header -->
-    <header class="header">
-      <h1>
-        {t("title.app", {}, options.lang || "en") || "Teams Chat Exporter"}
-      </h1>
-      <HeaderActions
+  {#if showSettings}
+    <div class="popup-content">
+      <SettingsPage
         theme={options.theme}
         lang={options.lang || "en"}
         languages={languageOptions}
+        on:back={() => (showSettings = false)}
         on:themeChange={(e) => updateOption("theme", e.detail)}
         on:langChange={(e) => updateOption("lang", e.detail)}
       />
-    </header>
-
-    <!-- Alert Banner -->
-    {#if bannerMessage}
-      <div class="alert error show" role="alert" aria-live="assertive">
-        <span class="alert-title"
-          >{t("banner.error", {}, options.lang || "en")}</span
-        >
-        <span>{bannerMessage}</span>
-      </div>
-    {/if}
-
-    <!-- Export Button -->
-    <ExportButton
-      disabled={false}
-      {busy}
-      {busyLabel}
-      summary={exportSummary}
-      lang={options.lang || "en"}
-      on:run={startExport}
-    />
-
-    <!-- Format Section (Full Width) -->
-    <FormatSection
-      format={options.format}
-      lang={options.lang || "en"}
-      on:formatChange={(e) => updateOption("format", e.detail)}
-    />
-
-    <!-- Two Column Grid: Date Range + Include -->
-    <div class="settings-grid">
-      <DateRangeSection
-        startAt={options.startAt}
-        endAt={options.endAt}
-        activeRange={quickActive}
-        ranges={quickRanges}
-        lang={options.lang || "en"}
-        {highlightMode}
-        on:changeStart={(e) => updateOption("startAt", e.detail)}
-        on:changeEnd={(e) => updateOption("endAt", e.detail)}
-        on:quickSelect={(e) => handleQuickRange(e.detail)}
-      />
-
-      <IncludeSection
-        includeReplies={options.includeReplies}
-        includeReactions={options.includeReactions}
-        includeSystem={options.includeSystem}
-        embedAvatars={options.embedAvatars}
-        downloadImages={options.downloadImages}
-        lang={options.lang || "en"}
-        disableReplies={options.format === "txt"}
-        disableReactions={options.format === "txt"}
-        disableAvatars={options.format === "txt" || options.format === "csv"}
-        disableImages={options.format !== "html"}
-        on:includeRepliesChange={(e) =>
-          updateOption("includeReplies", e.detail)}
-        on:includeReactionsChange={(e) =>
-          updateOption("includeReactions", e.detail)}
-        on:includeSystemChange={(e) => updateOption("includeSystem", e.detail)}
-        on:embedAvatarsChange={(e) => updateOption("embedAvatars", e.detail)}
-        on:includeImagesChange={(e) =>
-          updateOption("downloadImages", e.detail)}
-      />
     </div>
-  </div>
+  {:else}
+    <div class="popup-content">
+      <!-- Header -->
+      <header class="header">
+        <h1>
+          {t("title.app", {}, options.lang || "en") || "Teams Chat Exporter"}
+        </h1>
+        <HeaderActions
+          on:openSettings={() => (showSettings = true)}
+        />
+      </header>
 
-  <!-- Status Bar (Sticky Bottom) -->
-  <StatusBar status={statusText} count={statusCount} isBusy={busy} />
+      <!-- Alert Banner -->
+      {#if bannerMessage}
+        <div class="alert error show" role="alert" aria-live="assertive">
+          <span class="alert-title"
+            >{t("banner.error", {}, options.lang || "en")}</span
+          >
+          <span>{bannerMessage}</span>
+        </div>
+      {/if}
+
+      <!-- Export Button -->
+      <ExportButton
+        disabled={false}
+        {busy}
+        {busyLabel}
+        summary={exportSummary}
+        lang={options.lang || "en"}
+        on:run={startExport}
+      />
+
+      <!-- Format Section (Full Width) -->
+      <FormatSection
+        format={options.format}
+        lang={options.lang || "en"}
+        on:formatChange={(e) => updateOption("format", e.detail)}
+      />
+
+      <!-- Two Column Grid: Date Range + Include -->
+      <div class="settings-grid">
+        <DateRangeSection
+          startAt={options.startAt}
+          endAt={options.endAt}
+          activeRange={quickActive}
+          ranges={quickRanges}
+          lang={options.lang || "en"}
+          {highlightMode}
+          on:changeStart={(e) => updateOption("startAt", e.detail)}
+          on:changeEnd={(e) => updateOption("endAt", e.detail)}
+          on:quickSelect={(e) => handleQuickRange(e.detail)}
+        />
+
+        <IncludeSection
+          includeReplies={options.includeReplies}
+          includeReactions={options.includeReactions}
+          includeSystem={options.includeSystem}
+          embedAvatars={options.embedAvatars}
+          downloadImages={options.downloadImages}
+          lang={options.lang || "en"}
+          disableReplies={options.format === "txt"}
+          disableReactions={options.format === "txt"}
+          disableAvatars={options.format === "txt" || options.format === "csv"}
+          disableImages={options.format !== "html"}
+          on:includeRepliesChange={(e) =>
+            updateOption("includeReplies", e.detail)}
+          on:includeReactionsChange={(e) =>
+            updateOption("includeReactions", e.detail)}
+          on:includeSystemChange={(e) =>
+            updateOption("includeSystem", e.detail)}
+          on:embedAvatarsChange={(e) => updateOption("embedAvatars", e.detail)}
+          on:includeImagesChange={(e) =>
+            updateOption("downloadImages", e.detail)}
+        />
+      </div>
+    </div>
+
+    <!-- Status Bar (Sticky Bottom) -->
+    <StatusBar status={statusText} count={statusCount} isBusy={busy} />
+  {/if}
 </div>

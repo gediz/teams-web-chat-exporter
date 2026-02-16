@@ -64,5 +64,9 @@
   "errors.noMessages": "選択した範囲にメッセージはありません。",
   "errors.missingTabId": "タブ情報がありません",
   "errors.chatNotOpen": "エクスポート前にチャット会話を開いてください。",
-  "errors.switchToChat": "エクスポート前に Teams のチャット アプリに切り替えてください。"
+  "errors.switchToChat": "エクスポート前に Teams のチャット アプリに切り替えてください。",
+  "settings.title": "設定",
+  "settings.theme": "テーマ",
+  "settings.theme.light": "ライト",
+  "settings.theme.dark": "ダーク"
 }

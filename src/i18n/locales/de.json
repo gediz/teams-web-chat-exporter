@@ -64,5 +64,9 @@
   "errors.noMessages": "Keine Nachrichten im ausgewählten Bereich.",
   "errors.missingTabId": "Tab-Informationen fehlen",
   "errors.chatNotOpen": "Öffnen Sie eine Chat-Unterhaltung vor dem Exportieren.",
-  "errors.switchToChat": "Wechseln Sie vor dem Exportieren zur Chat-App in Teams."
+  "errors.switchToChat": "Wechseln Sie vor dem Exportieren zur Chat-App in Teams.",
+  "settings.title": "Einstellungen",
+  "settings.theme": "Design",
+  "settings.theme.light": "Hell",
+  "settings.theme.dark": "Dunkel"
 }

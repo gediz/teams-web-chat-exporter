@@ -64,5 +64,9 @@
   "errors.noMessages": "선택한 범위에 메시지가 없습니다.",
   "errors.missingTabId": "탭 정보가 없습니다",
   "errors.chatNotOpen": "내보내기 전에 채팅 대화를 여세요.",
-  "errors.switchToChat": "내보내기 전에 Teams의 채팅 앱으로 전환하세요."
+  "errors.switchToChat": "내보내기 전에 Teams의 채팅 앱으로 전환하세요.",
+  "settings.title": "설정",
+  "settings.theme": "테마",
+  "settings.theme.light": "라이트",
+  "settings.theme.dark": "다크"
 }

@@ -64,5 +64,9 @@
   "errors.noMessages": "Nessun messaggio nell'intervallo selezionato.",
   "errors.missingTabId": "Informazioni scheda mancanti",
   "errors.chatNotOpen": "Apri una conversazione prima di esportare.",
-  "errors.switchToChat": "Passa all'app Chat in Teams prima di esportare."
+  "errors.switchToChat": "Passa all'app Chat in Teams prima di esportare.",
+  "settings.title": "Impostazioni",
+  "settings.theme": "Tema",
+  "settings.theme.light": "Chiaro",
+  "settings.theme.dark": "Scuro"
 }
