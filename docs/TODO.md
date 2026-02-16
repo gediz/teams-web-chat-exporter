@@ -16,11 +16,13 @@
 - [ ] Add screenshot/GIF, version badge to README.md
 - [ ] Settings: Configurable domain allowlist for image fetching (default-only / default + custom / allow all).
 - [ ] Settings: Configurable canvas size cap for image embedding.
-- [ ] Refactoring: Deduplicate background export handlers (items 7, 12 from audit).
+- [x] Refactoring: Deduplicate background export handlers (items 7, 12 from audit).
 
 ## Telemetry (Future)
 - [ ] Specify schema for session stats & environment diagnostics
 
 ## Known Issues
 1. **Content Script Injection**: The manual `chrome.scripting.executeScript` fallback in `background.js` relies on WXT outputting a specific filename (`content.js`). This may need adjustment if build configuration changes.
-2. ~~**Data URL Size**: Large HTML exports may exceed browser Data URL limits (approx. 50MB in Chrome). Firefox uses Blob URLs which are safer.~~ Fixed: all browsers now use Blob URLs.
+2. ~~**Data URL Size**: Large HTML exports may exceed browser Data URL limits (approx. 50MB in Chrome). Firefox uses Blob URLs which are safer.~~ Fixed: service workers use data URLs, Firefox uses Blob URLs.
+3. ~~**Chrome 64MiB Message Limit**: Exporting large chats (6000+ messages) with inline images failed with `Message exceeded maximum allowed size of 64MiB`.~~ Fixed: scrape results are now streamed via port-based chunking.
+4. **Long Chat Export Duration**: Exporting 10,000+ messages (1+ year) can take 30–60 minutes. Teams loads history progressively slower, and the scroll stagnation detector may stop before all history is loaded.

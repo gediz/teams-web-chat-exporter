@@ -85,6 +85,19 @@ Run these tests on both Chrome and Firefox before release:
 - [ ] **Firefox**: Storage persistence works across restarts.
 - [ ] **Performance**: Memory usage is stable during large exports.
 
+### Large Export Testing
+- [ ] Export a chat with 5,000+ messages (all options enabled).
+- [ ] Export completes without 64MiB message errors.
+- [ ] JSON export file is valid and contains all messages.
+- [ ] HTML+images zip export renders correctly in browser.
+- [ ] Avatars appear correctly in HTML and JSON exports.
+
+#### Known behavior with large exports
+- **Duration**: Exporting 10,000+ messages spanning a year or more can take 30–60 minutes. Teams gets progressively slower loading older history, and the extension adapts by increasing wait times between scroll passes.
+- **Scroll stagnation**: The extension stops scrolling when no new messages are found for 25 consecutive passes (~45–70 seconds depending on history depth). If Teams has more history but stops loading it, the export will contain only what was loaded.
+- **Memory**: Inline image data (attachment previews) can reach 100MB+ for image-heavy chats. This data is streamed to the background in chunks to avoid Chrome's 64MiB message size limit, but it does consume memory during the export.
+- **Service worker**: Chrome MV3 uses a service worker which lacks `URL.createObjectURL`. Downloads fall back to base64 data URLs. For very large exports (>200MB), this may cause memory pressure.
+
 ## Troubleshooting
 
 - **Build Fails**: Try `rm -rf .output .wxt node_modules && npm install`.
