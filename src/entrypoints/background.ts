@@ -93,11 +93,95 @@ async function ensureContentScript(tabId: number) {
     if (!pong2?.ok) throw new Error('Content script did not respond after injection');
 }
 
+// Port-based streaming: content script sends scrape results in chunks to bypass 64MiB limit
+const pendingScrapes = new Map<string, {
+    resolve: (result: ScrapeResult) => void;
+    reject: (err: Error) => void;
+}>();
+
+runtime.onConnect.addListener((port: chrome.runtime.Port) => {
+    if (!port.name.startsWith('scrape-result:')) return;
+    const requestId = port.name.slice('scrape-result:'.length);
+    const pending = pendingScrapes.get(requestId);
+    if (!pending) { log('port connected but no pending scrape for', requestId); port.disconnect(); return; }
+
+    log('streaming port connected for', requestId);
+    const messages: ExportMessage[] = [];
+    let meta: ExportMeta = {};
+    let batches = 0;
+
+    port.onMessage.addListener((msg: any) => {
+        if (msg.type === 'meta') {
+            meta = msg.meta || {};
+            log('received meta:', { title: meta.title, avatars: Object.keys(meta.avatars || {}).length });
+        } else if (msg.type === 'messages') {
+            const batch = Array.isArray(msg.messages) ? msg.messages : [];
+            messages.push(...batch);
+            batches++;
+            log(`received batch ${batches}: ${batch.length} messages (total: ${messages.length})`);
+        } else if (msg.type === 'done') {
+            log(`streaming complete: ${messages.length} messages in ${batches} batches`);
+            pendingScrapes.delete(requestId);
+            pending.resolve({ messages, meta });
+        } else if (msg.type === 'error') {
+            log('streaming error:', msg.error);
+            pendingScrapes.delete(requestId);
+            pending.reject(new Error(msg.error || 'Streaming error'));
+        }
+    });
+
+    port.onDisconnect.addListener(() => {
+        if (pendingScrapes.has(requestId)) {
+            log('port disconnected unexpectedly for', requestId, `(received ${messages.length} messages so far)`);
+            pendingScrapes.delete(requestId);
+            pending.reject(new Error('Content script disconnected unexpectedly'));
+        }
+    });
+});
+
 async function requestScrape(tabId: number, options: ScrapeOptions): Promise<ScrapeResult> {
-    const res = await sendMessageToTab(tabId, { type: 'SCRAPE_TEAMS', options });
-    if (!res) throw new Error('No response from content script');
-    if (res.error) throw new Error(res.error);
-    return res;
+    const requestId = `${tabId}-${Date.now()}`;
+
+    // Register pending entry BEFORE sending message to avoid race condition:
+    // the port may connect before sendMessageToTab's promise resolves.
+    let streamResolve: (r: ScrapeResult) => void;
+    let streamReject: (e: Error) => void;
+    const streamPromise = new Promise<ScrapeResult>((resolve, reject) => {
+        streamResolve = resolve;
+        streamReject = reject;
+    });
+    pendingScrapes.set(requestId, { resolve: streamResolve!, reject: streamReject! });
+
+    try {
+        const res = await sendMessageToTab(tabId, { type: 'SCRAPE_TEAMS', options, requestId });
+        if (!res) {
+            pendingScrapes.delete(requestId);
+            throw new Error('No response from content script');
+        }
+        if (res.error) {
+            pendingScrapes.delete(requestId);
+            throw new Error(res.error);
+        }
+
+        if (res.streaming) {
+            log('awaiting streamed scrape results for request', requestId);
+            // Port should connect within seconds; 30s safety net
+            setTimeout(() => {
+                if (pendingScrapes.has(requestId)) {
+                    pendingScrapes.delete(requestId);
+                    streamReject!(new Error('Timed out waiting for streamed scrape results'));
+                }
+            }, 30_000);
+            return streamPromise;
+        }
+
+        // Legacy non-streaming fallback
+        pendingScrapes.delete(requestId);
+        return res;
+    } catch (err) {
+        pendingScrapes.delete(requestId);
+        throw err;
+    }
 }
 
 function broadcastStatus(payload: ExportStatusPayload) {

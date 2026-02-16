@@ -10,6 +10,7 @@ import { extractReplyContext } from '../content/replies';
   import { extractTables, extractTextWithEmojis, normalizeMentions } from '../content/text';
 import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scroll';
 import { extractChatTitle } from '../content/title';
+import { extractAvatarId } from '../utils/avatars';
 import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ReplyContext, ScrapeOptions } from '../types/shared';
 
 // Typed globals for Firefox builds
@@ -172,13 +173,13 @@ export default defineContentScript({
                     console.warn(`[Avatar Fetch] HTTP ${res.status} for ${url.substring(0, 100)}...`);
                     return null;
                 }
-                const buf = await res.arrayBuffer();
-                const bytes = new Uint8Array(buf);
-                let bin = '';
-                for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-                const b64 = btoa(bin);
-                const ct = res.headers.get('content-type') || 'image/png';
-                return `data:${ct};base64,${b64}`;
+                const blob = await res.blob();
+                return new Promise<string | null>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.onerror = () => resolve(null);
+                    reader.readAsDataURL(blob);
+                });
             } catch (err) {
                 console.error(`[Avatar Fetch] Failed for ${url.substring(0, 100)}...`, err);
                 return null;
@@ -186,11 +187,10 @@ export default defineContentScript({
         }
 
         /**
-        * Embeds avatars by fetching them in the content script context.
-        * Returns messages with base64 data URLs instead of HTTP URLs.
+        * Fetches avatars and returns normalized messages with avatarId references
+        * plus a deduplicated avatars map. This keeps the sendResponse payload small.
         */
-        async function embedAvatarsInContent(messages: ExtractedMessage[]): Promise<ExtractedMessage[]> {
-            // Build map of unique avatar URLs
+        async function embedAvatarsInContent(messages: ExtractedMessage[]): Promise<{ messages: ExtractedMessage[]; avatars: Record<string, string> }> {
             const uniqueUrls = new Set<string>();
             for (const m of messages) {
                 if (m.avatar && !m.avatar.startsWith('data:')) {
@@ -199,25 +199,33 @@ export default defineContentScript({
             }
 
             if (uniqueUrls.size === 0) {
-                return messages;
+                return { messages, avatars: {} };
             }
 
-            // Fetch all unique avatars
-            const urlToDataUrl = new Map<string, string | null>();
+            // Fetch unique avatars and build normalized map
+            const avatars: Record<string, string> = {};
+            const urlToId = new Map<string, string>();
             const urlsArray = Array.from(uniqueUrls);
-            for (let i = 0; i < urlsArray.length; i++) {
-                const url = urlsArray[i];
+            for (const url of urlsArray) {
                 const dataUrl = await fetchAvatarAsDataURL(url);
-                urlToDataUrl.set(url, dataUrl);
+                if (dataUrl) {
+                    const id = extractAvatarId(url);
+                    avatars[id] = dataUrl;
+                    urlToId.set(url, id);
+                }
             }
 
-            // Replace avatar URLs with data URLs, but keep original URL for ID extraction
-            return messages.map(m => {
+            // Replace avatar URLs with short avatarId references
+            const normalized = messages.map(m => {
                 if (!m.avatar || m.avatar.startsWith('data:')) return m;
-                const originalUrl = m.avatar;
-                const dataUrl = urlToDataUrl.get(originalUrl);
-                return { ...m, avatar: dataUrl || null, avatarUrl: dataUrl ? originalUrl : undefined };
+                const id = urlToId.get(m.avatar);
+                if (id) {
+                    return { ...m, avatar: null, avatarId: id };
+                }
+                return { ...m, avatar: null };
             });
+
+            return { messages: normalized, avatars };
         }
 
         const extractCodeBlock = (el: Element) => {
@@ -933,12 +941,49 @@ export default defineContentScript({
 
                         // Fetch avatars in content script context (has access to Teams cookies)
                         hud('fetching avatars...');
-                        const messagesWithAvatars = await embedAvatarsInContent(messages);
+                        const { messages: normalizedMessages, avatars } = await embedAvatarsInContent(messages);
 
                         currentRunStartedAt = null;
-                        // Extract the actual chat title instead of using document.title
                         const chatTitle = extractChatTitle();
-                        sendResponse({ messages: messagesWithAvatars, meta: { count: messages.length, title: chatTitle, startAt: startAt || null, endAt: endAt || null } });
+
+                        const meta = { count: messages.length, title: chatTitle, startAt: startAt || null, endAt: endAt || null, avatars };
+                        const requestId = msg.requestId || `${Date.now()}`;
+
+                        // Estimate payload for logging
+                        let attDataUrlBytes = 0;
+                        let attCount = 0;
+                        for (const m of normalizedMessages) {
+                            if (m.attachments) {
+                                for (const att of m.attachments) {
+                                    if (att.dataUrl) { attDataUrlBytes += att.dataUrl.length; attCount++; }
+                                }
+                            }
+                        }
+                        const avatarCount = Object.keys(avatars).length;
+                        console.log(`[Teams Exporter] Streaming ${normalizedMessages.length} messages, ${avatarCount} avatars, ${attCount} attachment dataUrls (~${(attDataUrlBytes / 1024 / 1024).toFixed(1)}MB)`);
+
+                        // Signal background that results will be streamed via port
+                        // (avoids Chrome's 64MiB sendResponse limit)
+                        sendResponse({ ok: true, streaming: true });
+
+                        // Stream results via port in chunks
+                        const port = runtime.connect({ name: `scrape-result:${requestId}` });
+                        try {
+                            port.postMessage({ type: 'meta', meta });
+                            const BATCH = 100;
+                            for (let i = 0; i < normalizedMessages.length; i += BATCH) {
+                                const batch = normalizedMessages.slice(i, i + BATCH);
+                                port.postMessage({ type: 'messages', messages: batch });
+                                console.debug(`[Teams Exporter] Sent batch ${Math.floor(i / BATCH) + 1}: messages ${i + 1}-${i + batch.length}`);
+                            }
+                            port.postMessage({ type: 'done' });
+                            console.debug('[Teams Exporter] Streaming complete');
+                        } catch (streamErr: any) {
+                            console.error('[Teams Exporter] Streaming error:', streamErr);
+                            try { port.postMessage({ type: 'error', error: streamErr?.message || String(streamErr) }); } catch (_) { /* port may be dead */ }
+                        } finally {
+                            port.disconnect();
+                        }
                     }
                 } catch (e: any) {
                     console.error('[Teams Exporter] Error:', e);

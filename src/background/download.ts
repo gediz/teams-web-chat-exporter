@@ -1,4 +1,4 @@
-import { normalizeAvatars, removeAvatars, textToBlobUrl, toCSV, toHTML } from './builders';
+import { binaryToDownloadUrl, removeAvatars, revokeDownloadUrl, textToDownloadUrl, toCSV, toHTML } from './builders';
 import { formatRangeLabel, sanitizeBase } from '../utils/messages';
 import { buildZip } from './zip';
 import type { Attachment, ExportMessage, ExportMeta } from '../types/shared';
@@ -143,49 +143,29 @@ function applyInlineImages(messages: ExportMessage[], mode: ImageMode) {
 function prepareMessages(messages: ExportMessage[], meta: ExportMeta, format: BuildExportOptions['format'], embedAvatars: boolean) {
   let processedMessages = messages;
   let enrichedMeta = { ...meta };
+  const avatarMap = meta.avatars || {};
 
   if (embedAvatars && (format === 'json' || format === 'html')) {
-    // Avatars are already base64 data URLs from content script
-    // Just need to normalize them for JSON format
     if (format === 'json') {
-      // Build avatar map using original URLs for ID extraction
-      const avatarMap = new Map<string, string | null>();
-      for (const m of messages) {
-        if (m.avatar && m.avatar.startsWith('data:') && m.avatarUrl) {
-          // Use original HTTP URL as key for proper ID extraction
-          avatarMap.set(m.avatarUrl, m.avatar);
-        }
-      }
-
-      if (avatarMap.size > 0) {
-        const msgsWithUrls = messages.map(m => (m.avatarUrl ? { ...m, avatar: m.avatarUrl } : m));
-        const { messages: normalized, avatars } = normalizeAvatars(msgsWithUrls, avatarMap);
-        // Remove avatarUrl field from final output
-        processedMessages = normalized.map(m => {
-          const { avatarUrl, ...rest } = m as any;
-          return rest;
-        });
-        enrichedMeta.avatars = avatars;
-      } else {
-        // No avatars found, remove avatarUrl field
-        processedMessages = messages.map(m => {
-          const { avatarUrl, ...rest } = m as any;
-          return rest;
-        });
-      }
+      // Content script already normalized: messages have avatarId, meta has avatars map
+      // Just pass through — avatarId references and meta.avatars are already set
+      processedMessages = messages;
     } else {
-      // For HTML: messages already have base64, just remove avatarUrl field
+      // HTML: expand avatarId back to inline data URL for <img src>
       processedMessages = messages.map(m => {
-        const { avatarUrl, ...rest } = m as any;
-        return rest;
+        if (m.avatarId && avatarMap[m.avatarId]) {
+          const { avatarId, ...rest } = m;
+          return { ...rest, avatar: avatarMap[avatarId] };
+        }
+        return m;
       });
+      // Don't include avatar map in HTML meta (data is already inlined)
+      delete enrichedMeta.avatars;
     }
   } else if (!embedAvatars) {
     // Remove avatars entirely when option is disabled
-    processedMessages = removeAvatars(messages).map(m => {
-      const { avatarUrl, ...rest } = m as any;
-      return rest;
-    });
+    processedMessages = removeAvatars(messages);
+    delete enrichedMeta.avatars;
   }
 
   return { processedMessages, enrichedMeta };
@@ -248,16 +228,16 @@ export async function buildAndDownload(
 
   onStatus?.({ phase: 'build', filename: built.filename, messages: messages.length });
 
-  const url = textToBlobUrl(built.content, built.mime);
+  const url = textToDownloadUrl(built.content, built.mime);
   try {
     const id = await downloads.download({ url, filename: built.filename, saveAs });
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    setTimeout(() => revokeDownloadUrl(url), 60000);
     return { ok: true, filename: built.filename, id };
   } catch (e: any) {
     const safe = `${sanitizeBase('teams-chat')}-${Date.now()}.${format === 'html' ? 'html' : format === 'csv' ? 'csv' : format === 'txt' ? 'txt' : 'json'}`;
-    URL.revokeObjectURL(url);
+    revokeDownloadUrl(url);
     try {
-      const url2 = textToBlobUrl(built.content, built.mime);
+      const url2 = textToDownloadUrl(built.content, built.mime);
       const id2 = await downloads.download({ url: url2, filename: safe, saveAs });
       setTimeout(() => URL.revokeObjectURL(url2), 60000);
       return { ok: true, filename: safe, id: id2 };
@@ -298,13 +278,13 @@ export async function buildAndDownloadZip(
   const zipBytes = buildZip(files);
   const mime = 'application/zip';
   const zipName = `${built.baseFolder}.zip`;
-  const url = URL.createObjectURL(new Blob([zipBytes as BlobPart], { type: mime }));
+  const url = binaryToDownloadUrl(zipBytes, mime);
   try {
     const id = await downloads.download({ url, filename: zipName, saveAs: true });
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    setTimeout(() => revokeDownloadUrl(url), 60_000);
     return { ok: true, filename: zipName, id };
   } catch (e: any) {
-    URL.revokeObjectURL(url);
+    revokeDownloadUrl(url);
     throw new Error(e?.message || String(e));
   }
 }
