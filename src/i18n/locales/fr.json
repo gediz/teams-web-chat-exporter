@@ -64,5 +64,9 @@
   "errors.noMessages": "Aucun message pour la plage sélectionnée.",
   "errors.missingTabId": "Informations d'onglet manquantes",
   "errors.chatNotOpen": "Ouvrez une conversation avant d'exporter.",
-  "errors.switchToChat": "Passez à l'application Chat dans Teams avant d'exporter."
+  "errors.switchToChat": "Passez à l'application Chat dans Teams avant d'exporter.",
+  "settings.title": "Paramètres",
+  "settings.theme": "Thème",
+  "settings.theme.light": "Clair",
+  "settings.theme.dark": "Sombre"
 }

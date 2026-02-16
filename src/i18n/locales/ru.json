@@ -64,5 +64,9 @@
   "errors.noMessages": "В выбранном диапазоне сообщений нет.",
   "errors.missingTabId": "Отсутствует информация о вкладке",
   "errors.chatNotOpen": "Откройте чат перед экспортом.",
-  "errors.switchToChat": "Перейдите в приложение Чат в Teams перед экспортом."
+  "errors.switchToChat": "Перейдите в приложение Чат в Teams перед экспортом.",
+  "settings.title": "Настройки",
+  "settings.theme": "Тема",
+  "settings.theme.light": "Светлая",
+  "settings.theme.dark": "Тёмная"
 }

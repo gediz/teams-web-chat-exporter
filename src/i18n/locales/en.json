@@ -64,5 +64,9 @@
   "errors.switchToChat": "Switch to the Chat app in Teams before exporting.",
   "banner.error": "Export failed.",
   "footer.tip1": "Keep this popup open to monitor progress, or close it and watch the badge.",
-  "footer.tip2": "Need help? Reopen the popup to reconnect to an active export."
+  "footer.tip2": "Need help? Reopen the popup to reconnect to an active export.",
+  "settings.title": "Settings",
+  "settings.theme": "Theme",
+  "settings.theme.light": "Light",
+  "settings.theme.dark": "Dark"
 }

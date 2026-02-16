@@ -64,5 +64,9 @@
   "errors.noMessages": "No se encontraron mensajes en el rango seleccionado.",
   "errors.missingTabId": "Falta información de la pestaña",
   "errors.chatNotOpen": "Abre una conversación de chat antes de exportar.",
-  "errors.switchToChat": "Cambia a la aplicación de Chat en Teams antes de exportar."
+  "errors.switchToChat": "Cambia a la aplicación de Chat en Teams antes de exportar.",
+  "settings.title": "Ajustes",
+  "settings.theme": "Tema",
+  "settings.theme.light": "Claro",
+  "settings.theme.dark": "Oscuro"
 }

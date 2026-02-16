@@ -64,5 +64,9 @@
   "errors.noMessages": "Nenhuma mensagem no período selecionado.",
   "errors.missingTabId": "Informação da aba ausente",
   "errors.chatNotOpen": "Abra uma conversa de chat antes de exportar.",
-  "errors.switchToChat": "Mude para o aplicativo de Chat no Teams antes de exportar."
+  "errors.switchToChat": "Mude para o aplicativo de Chat no Teams antes de exportar.",
+  "settings.title": "Configurações",
+  "settings.theme": "Tema",
+  "settings.theme.light": "Claro",
+  "settings.theme.dark": "Escuro"
 }

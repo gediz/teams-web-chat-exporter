@@ -64,5 +64,9 @@
   "errors.noMessages": "Geen berichten in het geselecteerde bereik.",
   "errors.missingTabId": "Tabbladinformatie ontbreekt",
   "errors.chatNotOpen": "Open een chatgesprek voordat u exporteert.",
-  "errors.switchToChat": "Schakel over naar de Chat-app in Teams voordat u exporteert."
+  "errors.switchToChat": "Schakel over naar de Chat-app in Teams voordat u exporteert.",
+  "settings.title": "Instellingen",
+  "settings.theme": "Thema",
+  "settings.theme.light": "Licht",
+  "settings.theme.dark": "Donker"
 }

@@ -64,5 +64,9 @@
   "errors.noMessages": "לא נמצאו הודעות בטווח שנבחר.",
   "errors.missingTabId": "חסר מידע על הכרטיסייה",
   "errors.chatNotOpen": "פתח שיחת צ'אט לפני הייצוא.",
-  "errors.switchToChat": "עבור לאפליקציית הצ'אט ב-Teams לפני הייצוא."
+  "errors.switchToChat": "עבור לאפליקציית הצ'אט ב-Teams לפני הייצוא.",
+  "settings.title": "הגדרות",
+  "settings.theme": "ערכת נושא",
+  "settings.theme.light": "בהיר",
+  "settings.theme.dark": "כהה"
 }
