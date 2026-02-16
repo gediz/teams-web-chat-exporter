@@ -40,6 +40,7 @@ export default defineConfig({
     ],
     host_permissions: [
       'https://*.teams.microsoft.com/*',
+      'https://*.teams.microsoft.us/*',
       'https://teams.cloud.microsoft/*',
       'https://teams.live.com/*',
     ],

@@ -29,6 +29,7 @@ type ContentAggregated = AggregatedItem & { message?: ExtractedMessage };
 export default defineContentScript({
     matches: [
         'https://*.teams.microsoft.com/*',
+        'https://*.teams.microsoft.us/*',
         'https://teams.cloud.microsoft/*',
         'https://teams.live.com/*',
     ],
