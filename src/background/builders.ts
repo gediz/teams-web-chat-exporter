@@ -1,4 +1,5 @@
 import type { ExportMessage, ExportMeta } from '../types/shared';
+import { extractAvatarId } from '../utils/avatars';
 
 /**
  * Converts avatar HTTP URLs to base64 data URLs for offline viewing.
@@ -26,32 +27,6 @@ export async function embedAvatarsInRows(rows: ExportMessage[]) {
     return { ...m, avatar: inlined || null };
   });
   return { messages: converted, avatarMap: map };
-}
-
-/**
- * Extracts a stable user ID from a Teams avatar URL.
- * E.g., "https://.../8:orgid:cf7134d2-b5df-4b93-bbeb-e68d4545bb89/..." -> "8orgid-cf7134d2"
- */
-export function extractAvatarId(url: string): string {
-  const match = url.match(/\/([^/]+)\/profilepicturev2/);
-  if (match) {
-    const fullId = match[1];
-    // Extract the first part of the UUID for a shorter ID
-    const parts = fullId.split(':');
-    if (parts.length >= 3) {
-      const prefix = parts[1]; // "orgid"
-      const uuid = parts[2].split('-')[0]; // First part of UUID
-      return `${parts[0]}${prefix}-${uuid}`;
-    }
-  }
-  // Fallback: use a hash of the URL
-  let hash = 0;
-  for (let i = 0; i < url.length; i++) {
-    const char = url.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  return `avatar-${Math.abs(hash).toString(36)}`;
 }
 
 /**
@@ -92,8 +67,8 @@ export function normalizeAvatars(messages: ExportMessage[], avatarMap: Map<strin
  */
 export function removeAvatars(messages: ExportMessage[]) {
   return messages.map(m => {
-    if (!m.avatar) return m;
-    const { avatar, ...rest } = m;
+    if (!m.avatar && !m.avatarId) return m;
+    const { avatar, avatarId, ...rest } = m;
     return rest;
   });
 }
@@ -410,8 +385,36 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
   return `<!doctype html><meta charset="utf-8">${style}${head}${body}${modal}${script}`;
 }
 
-// Encode text to a data URL to download from SW (works reliably in MV3)
-export function textToBlobUrl(text: string, mime: string) {
-  const blob = new Blob([text], { type: mime });
-  return URL.createObjectURL(blob);
+const hasBlobUrls = typeof URL.createObjectURL === 'function';
+
+/** Create a downloadable URL from text. Uses Blob URL when available, data URL in service workers. */
+export function textToDownloadUrl(text: string, mime: string): string {
+  if (hasBlobUrls) {
+    return URL.createObjectURL(new Blob([text], { type: mime }));
+  }
+  // Service worker fallback: base64 data URL
+  const encoded = btoa(unescape(encodeURIComponent(text)));
+  return `data:${mime};base64,${encoded}`;
+}
+
+/** Create a downloadable URL from binary data. Uses Blob URL when available, data URL in service workers. */
+export function binaryToDownloadUrl(data: Uint8Array, mime: string): string {
+  if (hasBlobUrls) {
+    return URL.createObjectURL(new Blob([data as BlobPart], { type: mime }));
+  }
+  // Service worker fallback: chunked base64 data URL
+  let binary = '';
+  const CHUNK = 32768;
+  for (let i = 0; i < data.length; i += CHUNK) {
+    const chunk = data.subarray(i, i + CHUNK);
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  }
+  return `data:${mime};base64,${btoa(binary)}`;
+}
+
+/** Revoke a URL if it's a Blob URL (no-op for data URLs). */
+export function revokeDownloadUrl(url: string) {
+  if (hasBlobUrls && url.startsWith('blob:')) {
+    URL.revokeObjectURL(url);
+  }
 }
