@@ -36,6 +36,7 @@
   } from "../../types/messaging";
   import ExportButton from "./components/ExportButton.svelte";
   import FormatSection from "./components/FormatSection.svelte";
+  import TargetSection from "./components/TargetSection.svelte";
   import DateRangeSection, {
     type QuickRange,
   } from "./components/DateRangeSection.svelte";
@@ -98,7 +99,7 @@
 
   let options: Options = { ...DEFAULT_OPTIONS };
   const currentLang = () => options.lang || "en";
-  const runLabel = () => t("actions.export", {}, currentLang());
+  const runLabel = () => t(`actions.export.${options.exportTarget}`, {}, currentLang());
   const busyExportLabel = () => t("actions.busy.exporting", {}, currentLang());
   const busyBuildLabel = () => t("actions.busy.building", {}, currentLang());
   const emptyLabel = () => t("status.empty", {}, currentLang());
@@ -215,6 +216,9 @@
     const parts: string[] = [];
     const lang = currentLang();
 
+    const targetLabel = t(`target.${options.exportTarget}`, {}, lang);
+    parts.push(targetLabel);
+
     // Format
     const formatLabel = t(`format.${options.format}`, {}, lang);
     parts.push(formatLabel);
@@ -245,6 +249,7 @@
 
   // Update summary when options change
   $: {
+    options.exportTarget;
     options.format;
     options.includeReplies;
     options.includeReactions;
@@ -343,6 +348,12 @@
     }
     if (message.includes("Open a chat conversation")) {
       return t("errors.chatNotOpen", {}, lang);
+    }
+    if (message.includes("Switch to the Teams app")) {
+      return t("errors.switchToTeams", {}, lang);
+    }
+    if (message.includes("Open a team channel")) {
+      return t("errors.teamNotOpen", {}, lang);
     }
     // Return original message if no translation found
     return message;
@@ -525,6 +536,7 @@
         embedAvatars,
         downloadImages,
         showHud,
+        exportTarget,
       } = options;
       setStatus(t("status.running", {}, currentLang()));
       const requestData = {
@@ -536,6 +548,7 @@
           includeReactions,
           includeSystem,
           showHud,
+          exportTarget,
         },
         buildOptions: { format, saveAs: true, embedAvatars, downloadImages },
       };
@@ -681,6 +694,12 @@
         summary={exportSummary}
         lang={options.lang || "en"}
         on:run={startExport}
+      />
+
+      <TargetSection
+        target={options.exportTarget}
+        lang={options.lang || "en"}
+        on:targetChange={(e) => updateOption("exportTarget", e.detail)}
       />
 
       <!-- Format Section (Full Width) -->
