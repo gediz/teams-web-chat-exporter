@@ -298,9 +298,7 @@ function handleExportWithScrape(
             broadcastStatus({ tabId, phase: 'error', error: message });
             sendResponse({ error: message });
         } finally {
-            if (startedAt) {
-                activeExports.delete(tabId);
-            }
+            activeExports.delete(tabId);
         }
     })();
 }
