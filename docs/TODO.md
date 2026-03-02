@@ -21,6 +21,10 @@
 ## Telemetry (Future)
 - [ ] Specify schema for session stats & environment diagnostics
 
+## Notes for Exporters
+- Teams can jump to very old history if the scrollbar is dragged to the very top; use incremental upward scrolling to capture mid-old messages reliably.
+- There appears to be a UI cap (~750 messages) after which Teams stops rendering older history in the browser; consider multi-pass capture with a refresh and dedupe if coverage is missing.
+
 ## Known Issues
 1. **Content Script Injection**: The manual `chrome.scripting.executeScript` fallback in `background.js` relies on WXT outputting a specific filename (`content.js`). This may need adjustment if build configuration changes.
 2. ~~**Data URL Size**: Large HTML exports may exceed browser Data URL limits (approx. 50MB in Chrome). Firefox uses Blob URLs which are safer.~~ Fixed: service workers use data URLs, Firefox uses Blob URLs.
