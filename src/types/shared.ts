@@ -20,6 +20,7 @@ export type ReplyContext = {
 
 export type ExportMessage = {
   id?: string;
+  threadId?: string | null;
   author?: string;
   timestamp?: string;
   text?: string;
@@ -53,7 +54,6 @@ export type ScrapeOptions = {
   includeSystem?: boolean;
   showHud?: boolean;
   exportTarget?: 'chat' | 'team';
-  __allowInlineThreadReplies?: boolean;
 };
 
 export type BuildOptions = {

@@ -68,5 +68,12 @@
   "settings.title": "設定",
   "settings.theme": "主題",
   "settings.theme.light": "淺色",
-  "settings.theme.dark": "深色"
+  "settings.theme.dark": "深色",
+  "target.title": "匯出來源",
+  "target.chat": "聊天",
+  "target.team": "團隊頻道",
+  "actions.export.chat": "匯出目前聊天",
+  "actions.export.team": "匯出目前團隊頻道",
+  "errors.teamNotOpen": "匯出前請先開啟團隊頻道。",
+  "errors.switchToTeams": "匯出前請先在 Teams 中切換到 Teams 應用程式。"
 }

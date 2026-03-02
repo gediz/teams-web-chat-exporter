@@ -68,5 +68,12 @@
   "settings.title": "Instellingen",
   "settings.theme": "Thema",
   "settings.theme.light": "Licht",
-  "settings.theme.dark": "Donker"
+  "settings.theme.dark": "Donker",
+  "target.title": "Exportbron",
+  "target.chat": "Gesprek",
+  "target.team": "Teamkanaal",
+  "actions.export.chat": "Huidige chat exporteren",
+  "actions.export.team": "Huidig teamkanaal exporteren",
+  "errors.teamNotOpen": "Open een teamkanaal voordat je exporteert.",
+  "errors.switchToTeams": "Schakel vóór het exporteren in Teams over naar de Teams-app."
 }

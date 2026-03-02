@@ -68,5 +68,12 @@
   "settings.title": "Beállítások",
   "settings.theme": "Téma",
   "settings.theme.light": "Világos",
-  "settings.theme.dark": "Sötét"
+  "settings.theme.dark": "Sötét",
+  "target.title": "Exportforrás",
+  "target.chat": "Csevegés",
+  "target.team": "Csapatcsatorna",
+  "actions.export.chat": "Jelenlegi csevegés exportálása",
+  "actions.export.team": "Jelenlegi csapatcsatorna exportálása",
+  "errors.teamNotOpen": "Exportálás előtt nyisson meg egy csapatcsatornát.",
+  "errors.switchToTeams": "Exportálás előtt váltson a Teams alkalmazáson belül a Teams nézetre."
 }

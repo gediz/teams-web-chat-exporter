@@ -68,5 +68,12 @@
   "settings.title": "설정",
   "settings.theme": "테마",
   "settings.theme.light": "라이트",
-  "settings.theme.dark": "다크"
+  "settings.theme.dark": "다크",
+  "target.title": "내보내기 원본",
+  "target.chat": "채팅",
+  "target.team": "팀 채널",
+  "actions.export.chat": "현재 채팅 내보내기",
+  "actions.export.team": "현재 팀 채널 내보내기",
+  "errors.teamNotOpen": "내보내기 전에 팀 채널을 여세요.",
+  "errors.switchToTeams": "내보내기 전에 Teams에서 Teams 앱으로 전환하세요."
 }

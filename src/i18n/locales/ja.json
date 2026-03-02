@@ -68,5 +68,12 @@
   "settings.title": "設定",
   "settings.theme": "テーマ",
   "settings.theme.light": "ライト",
-  "settings.theme.dark": "ダーク"
+  "settings.theme.dark": "ダーク",
+  "target.title": "エクスポート元",
+  "target.chat": "チャット",
+  "target.team": "チーム チャネル",
+  "actions.export.chat": "現在のチャットをエクスポート",
+  "actions.export.team": "現在のチーム チャネルをエクスポート",
+  "errors.teamNotOpen": "エクスポート前にチーム チャネルを開いてください。",
+  "errors.switchToTeams": "エクスポート前に Teams 内で Teams アプリに切り替えてください。"
 }

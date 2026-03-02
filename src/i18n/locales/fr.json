@@ -68,5 +68,12 @@
   "settings.title": "Paramètres",
   "settings.theme": "Thème",
   "settings.theme.light": "Clair",
-  "settings.theme.dark": "Sombre"
+  "settings.theme.dark": "Sombre",
+  "target.title": "Source d’exportation",
+  "target.chat": "Discussion",
+  "target.team": "Canal d’équipe",
+  "actions.export.chat": "Exporter la discussion actuelle",
+  "actions.export.team": "Exporter le canal d’équipe actuel",
+  "errors.teamNotOpen": "Ouvrez un canal d’équipe avant d’exporter.",
+  "errors.switchToTeams": "Basculez vers l’application Teams dans Teams avant d’exporter."
 }

@@ -68,5 +68,12 @@
   "settings.title": "Tetapan",
   "settings.theme": "Tema",
   "settings.theme.light": "Cerah",
-  "settings.theme.dark": "Gelap"
+  "settings.theme.dark": "Gelap",
+  "target.title": "Sumber eksport",
+  "target.chat": "Sembang",
+  "target.team": "Saluran pasukan",
+  "actions.export.chat": "Eksport sembang semasa",
+  "actions.export.team": "Eksport saluran pasukan semasa",
+  "errors.teamNotOpen": "Buka saluran pasukan sebelum mengeksport.",
+  "errors.switchToTeams": "Tukar ke aplikasi Teams dalam Teams sebelum mengeksport."
 }

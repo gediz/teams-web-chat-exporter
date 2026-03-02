@@ -68,5 +68,12 @@
   "settings.title": "Ayarlar",
   "settings.theme": "Tema",
   "settings.theme.light": "Açık",
-  "settings.theme.dark": "Koyu"
+  "settings.theme.dark": "Koyu",
+  "target.title": "Dışa aktarma kaynağı",
+  "target.chat": "Sohbet",
+  "target.team": "Ekip kanalı",
+  "actions.export.chat": "Mevcut sohbeti dışa aktar",
+  "actions.export.team": "Mevcut ekip kanalını dışa aktar",
+  "errors.teamNotOpen": "Dışa aktarmadan önce bir ekip kanalı açın.",
+  "errors.switchToTeams": "Dışa aktarmadan önce Teams içinde Teams uygulamasına geçin."
 }
