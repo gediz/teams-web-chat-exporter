@@ -16,6 +16,9 @@ jobs:
           node-version: 22
           cache: npm
 
+      # Node 22 ships with npm 10.x; upgrade to npm 11 to match the
+      # version that generated package-lock.json (avoids "Missing from lock file" errors)
+      - run: npm install -g npm@11
       - run: npm ci
       - run: npm run check
       - run: npm run build
