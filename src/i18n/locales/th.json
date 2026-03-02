@@ -68,5 +68,12 @@
   "settings.title": "การตั้งค่า",
   "settings.theme": "ธีม",
   "settings.theme.light": "สว่าง",
-  "settings.theme.dark": "มืด"
+  "settings.theme.dark": "มืด",
+  "target.title": "แหล่งที่มาสำหรับการส่งออก",
+  "target.chat": "แชท",
+  "target.team": "ช่องของทีม",
+  "actions.export.chat": "ส่งออกแชทปัจจุบัน",
+  "actions.export.team": "ส่งออกช่องของทีมปัจจุบัน",
+  "errors.teamNotOpen": "เปิดช่องของทีมก่อนส่งออก",
+  "errors.switchToTeams": "สลับไปที่แอป Teams ใน Teams ก่อนส่งออก"
 }

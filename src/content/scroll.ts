@@ -82,15 +82,40 @@ export async function autoScrollAggregate<M extends ExportMessage>(
   const loadingStallPasses = deps.tuning?.loadingStallPasses ?? 6;
   const loadingExtraDelayMs = deps.tuning?.loadingExtraDelayMs ?? 350;
 
-  const headerSentinel = document.querySelector('[data-tid="message-pane-header"]');
+  const resolveTopSentinel = (root: Element | null): Element | null => {
+    if (!root) return null;
+
+    const selectors = [
+      '[data-tid="message-pane-header"]',
+      '[data-tid="channel-pane-header"]',
+      '[data-tid="posts-pane-header"]',
+      '[data-tid="channel-header"]',
+    ];
+
+    for (const selector of selectors) {
+      const node = document.querySelector(selector);
+      if (!node) continue;
+      if (root.contains(node)) return node;
+    }
+
+    const items = getItems();
+    for (const item of items) {
+      if (root.contains(item)) return item;
+    }
+
+    return null;
+  };
+
+  let topSentinel: Element | null = resolveTopSentinel(scroller);
   let topReached = false;
   const createObserver = (root: Element | null) => {
-    if (!headerSentinel || !root) return null;
+    topSentinel = resolveTopSentinel(root);
+    if (!topSentinel || !root) return null;
     const obs = new IntersectionObserver(entries => {
       const entry = entries[0];
       if (entry?.isIntersecting) topReached = true;
     }, { root, threshold: 0.01 });
-    obs.observe(headerSentinel);
+    obs.observe(topSentinel);
     return obs;
   };
   let observer = createObserver(scroller);
@@ -145,6 +170,10 @@ const forceScrollUp = (el: HTMLElement, multiplier = 2) => {
     while (true) {
       passes++;
       scroller = ensureScroller();
+      if (observer && (!topSentinel || !(topSentinel as Element).isConnected)) {
+        observer.disconnect();
+        observer = createObserver(scroller);
+      }
       const scrollerEl = scroller as HTMLElement;
       const prevTop = scrollerEl.scrollTop;
       slowScrollUp(scrollerEl);
@@ -312,7 +341,7 @@ const forceScrollUp = (el: HTMLElement, multiplier = 2) => {
       }
     }
   } finally {
-    if (observer && headerSentinel) observer.disconnect();
+    if (observer) observer.disconnect();
   }
 
   // Final bottom pass to capture any newest messages that appeared during upward scrolling.
@@ -411,7 +440,8 @@ const forceScrollUp = (el: HTMLElement, multiplier = 2) => {
     const author = msg.author || '';
     const ts = msg.timestamp || '';
     // if you have a thread/threadRoot id in your type, include it here
-    const threadRoot = (msg as any).threadRootId || (msg as any).threadId || '';
+    const threadScoped = msg as ExportMessage & { threadRootId?: string };
+    const threadRoot = threadScoped.threadRootId || threadScoped.threadId || '';
 
     const key = `${threadRoot}|${author}|${ts}|${text}`;
 

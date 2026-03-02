@@ -68,5 +68,12 @@
   "settings.title": "الإعدادات",
   "settings.theme": "المظهر",
   "settings.theme.light": "فاتح",
-  "settings.theme.dark": "داكن"
+  "settings.theme.dark": "داكن",
+  "target.title": "مصدر التصدير",
+  "target.chat": "الدردشة",
+  "target.team": "قناة الفريق",
+  "actions.export.chat": "تصدير الدردشة الحالية",
+  "actions.export.team": "تصدير قناة الفريق الحالية",
+  "errors.teamNotOpen": "افتح قناة فريق قبل التصدير.",
+  "errors.switchToTeams": "بدّل إلى تطبيق Teams داخل Teams قبل التصدير."
 }

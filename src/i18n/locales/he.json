@@ -68,5 +68,12 @@
   "settings.title": "הגדרות",
   "settings.theme": "ערכת נושא",
   "settings.theme.light": "בהיר",
-  "settings.theme.dark": "כהה"
+  "settings.theme.dark": "כהה",
+  "target.title": "מקור הייצוא",
+  "target.chat": "צ׳אט",
+  "target.team": "ערוץ צוות",
+  "actions.export.chat": "ייצוא הצ׳אט הנוכחי",
+  "actions.export.team": "ייצוא ערוץ הצוות הנוכחי",
+  "errors.teamNotOpen": "פתח ערוץ צוות לפני הייצוא.",
+  "errors.switchToTeams": "לפני הייצוא, עבור לאפליקציית Teams בתוך Teams."
 }

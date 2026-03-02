@@ -68,5 +68,12 @@
   "settings.title": "设置",
   "settings.theme": "主题",
   "settings.theme.light": "浅色",
-  "settings.theme.dark": "深色"
+  "settings.theme.dark": "深色",
+  "target.title": "导出来源",
+  "target.chat": "聊天",
+  "target.team": "团队频道",
+  "actions.export.chat": "导出当前聊天",
+  "actions.export.team": "导出当前团队频道",
+  "errors.teamNotOpen": "导出前请先打开团队频道。",
+  "errors.switchToTeams": "导出前请先在 Teams 中切换到 Teams 应用。"
 }

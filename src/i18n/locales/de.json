@@ -68,5 +68,12 @@
   "settings.title": "Einstellungen",
   "settings.theme": "Design",
   "settings.theme.light": "Hell",
-  "settings.theme.dark": "Dunkel"
+  "settings.theme.dark": "Dunkel",
+  "target.title": "Exportquelle",
+  "target.chat": "Unterhaltung",
+  "target.team": "Teamkanal",
+  "actions.export.chat": "Aktuellen Chat exportieren",
+  "actions.export.team": "Aktuellen Teamkanal exportieren",
+  "errors.teamNotOpen": "Öffnen Sie vor dem Export einen Teamkanal.",
+  "errors.switchToTeams": "Wechseln Sie vor dem Export in Teams zur App „Teams“."
 }

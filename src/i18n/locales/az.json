@@ -68,5 +68,12 @@
   "settings.title": "Parametrlər",
   "settings.theme": "Mövzu",
   "settings.theme.light": "Açıq",
-  "settings.theme.dark": "Tünd"
+  "settings.theme.dark": "Tünd",
+  "target.title": "İxrac mənbəyi",
+  "target.chat": "Söhbət",
+  "target.team": "Komanda kanalı",
+  "actions.export.chat": "Cari söhbəti ixrac et",
+  "actions.export.team": "Cari komanda kanalını ixrac et",
+  "errors.teamNotOpen": "İxrac etməzdən əvvəl komanda kanalını açın.",
+  "errors.switchToTeams": "İxrac etməzdən əvvəl Teams daxilində Teams tətbiqinə keçin."
 }

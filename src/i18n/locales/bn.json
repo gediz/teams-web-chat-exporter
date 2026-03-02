@@ -68,5 +68,12 @@
   "settings.title": "সেটিংস",
   "settings.theme": "থিম",
   "settings.theme.light": "হালকা",
-  "settings.theme.dark": "গাঢ়"
+  "settings.theme.dark": "গাঢ়",
+  "target.title": "রপ্তানির উৎস",
+  "target.chat": "চ্যাট",
+  "target.team": "টিম চ্যানেল",
+  "actions.export.chat": "বর্তমান চ্যাট রপ্তানি করুন",
+  "actions.export.team": "বর্তমান টিম চ্যানেল রপ্তানি করুন",
+  "errors.teamNotOpen": "রপ্তানি করার আগে একটি টিম চ্যানেল খুলুন।",
+  "errors.switchToTeams": "রপ্তানি করার আগে Teams-এর ভেতরে Teams অ্যাপে যান।"
 }

@@ -68,5 +68,12 @@
   "settings.title": "Настройки",
   "settings.theme": "Тема",
   "settings.theme.light": "Светлая",
-  "settings.theme.dark": "Тёмная"
+  "settings.theme.dark": "Тёмная",
+  "target.title": "Источник экспорта",
+  "target.chat": "Чат",
+  "target.team": "Канал команды",
+  "actions.export.chat": "Экспортировать текущий чат",
+  "actions.export.team": "Экспортировать текущий канал команды",
+  "errors.teamNotOpen": "Перед экспортом откройте канал команды.",
+  "errors.switchToTeams": "Перед экспортом переключитесь на приложение Teams в Teams."
 }

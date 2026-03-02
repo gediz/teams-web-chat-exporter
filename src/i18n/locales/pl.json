@@ -68,5 +68,12 @@
   "settings.title": "Ustawienia",
   "settings.theme": "Motyw",
   "settings.theme.light": "Jasny",
-  "settings.theme.dark": "Ciemny"
+  "settings.theme.dark": "Ciemny",
+  "target.title": "Źródło eksportu",
+  "target.chat": "Czat",
+  "target.team": "Kanał zespołu",
+  "actions.export.chat": "Eksportuj bieżący czat",
+  "actions.export.team": "Eksportuj bieżący kanał zespołu",
+  "errors.teamNotOpen": "Przed eksportem otwórz kanał zespołu.",
+  "errors.switchToTeams": "Przed eksportem przełącz się w Teams na aplikację Teams."
 }

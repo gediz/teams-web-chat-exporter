@@ -68,5 +68,12 @@
   "settings.title": "Nastavení",
   "settings.theme": "Motiv",
   "settings.theme.light": "Světlý",
-  "settings.theme.dark": "Tmavý"
+  "settings.theme.dark": "Tmavý",
+  "target.title": "Zdroj exportu",
+  "target.chat": "Konverzace",
+  "target.team": "Týmový kanál",
+  "actions.export.chat": "Exportovat aktuální chat",
+  "actions.export.team": "Exportovat aktuální týmový kanál",
+  "errors.teamNotOpen": "Před exportem otevřete týmový kanál.",
+  "errors.switchToTeams": "Před exportem se v Teams přepněte na aplikaci Teams."
 }

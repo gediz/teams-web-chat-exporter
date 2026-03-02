@@ -7,7 +7,7 @@ import { formatElapsed, parseTimeStamp } from '../utils/time';
 import { extractAttachments } from '../content/attachments';
 import { extractReactions } from '../content/reactions';
 import { extractReplyContext } from '../content/replies';
-import { extractTables, normalizeMentions } from '../content/text';
+import { extractTables, extractTextWithEmojis, normalizeMentions } from '../content/text';
 import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scroll';
 import { extractChatTitle, extractChannelTitle } from '../content/title';
 import { extractAvatarId } from '../utils/avatars';
@@ -27,6 +27,8 @@ type ExtractedMessage = ExportMessage & {
 };
 
 type ContentAggregated = AggregatedItem & { message?: ExtractedMessage };
+type InternalScrapeOptions = ScrapeOptions & { __allowInlineThreadReplies?: boolean };
+
 export default defineContentScript({
     matches: [
         'https://*.teams.microsoft.com/*',
@@ -71,12 +73,12 @@ export default defineContentScript({
                 const navSelected = isTeamsNavSelected();
                 const hasSurface = hasChannelMessageSurface();
 
-                if (hasSurface) {
-                    return { ok: true };
-                }
-
                 if (!navSelected) {
                     return { ok: false, reason: 'Switch to the Teams app in Teams before exporting.' };
+                }
+
+                if (hasSurface) {
+                    return { ok: true };
                 }
 
                 return { ok: false, reason: 'Open a team channel before exporting.' };
@@ -247,9 +249,7 @@ export default defineContentScript({
                 }
             }
         
-            // 🔽 NEW: process from bottom → top
-            // DOM order is top → bottom, so we reverse the array.
-            return items.slice().reverse();
+            return items;
         }
         
 
@@ -531,79 +531,8 @@ export default defineContentScript({
           }
           
 
-        // Text with emoji (IMG alt) + block breaks
-        function extractTextWithEmojis(root: Element | null): string {
-            if (!root) return '';
-            let out = '';
-            const collectText = (node: Element | null): string => {
-                if (!node) return '';
-                let buf = '';
-                const walkCollect = (n: ChildNode) => {
-                    if (n.nodeType === Node.TEXT_NODE) { buf += n.nodeValue; return; }
-                    if (n.nodeType !== Node.ELEMENT_NODE) return;
-                    const el = n as Element;
-                    const tag = el.tagName;
-                    if (tag === 'BR') { buf += '\n'; return; }
-                    if (tag === 'IMG') { buf += (el.getAttribute('alt') || el.getAttribute('aria-label') || ''); return; }
-                    if (tag === 'CODE') { buf += '`'; for (const c of el.childNodes) walkCollect(c); buf += '`'; return; }
-                    if (tag === 'PRE') { const code = extractCodeBlock(el); if (code) buf += `\n\`\`\`\n${code}\n\`\`\`\n`; return; }
-                    const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/;
-                    const start = buf.length;
-                    for (const c of el.childNodes) walkCollect(c);
-                    if (blockish.test(tag) && buf.length > start) buf += '\n';
-                };
-                walkCollect(node);
-                return buf.replace(/\n{3,}/g, '\n\n').trim();
-            };
-            const walk = (n: ChildNode) => {
-                if (n.nodeType === Node.TEXT_NODE) { out += n.nodeValue; return; }
-                if (n.nodeType !== Node.ELEMENT_NODE) return;
-                const el = n as Element;
-                const tag = el.tagName;
-                if (tag === 'BR') { out += '\n'; return; }
-                if (tag === 'IMG') { out += (el.getAttribute('alt') || el.getAttribute('aria-label') || ''); return; }
-                if (tag === 'CODE') { out += '`'; for (const c of el.childNodes) walk(c); out += '`'; return; }
-                if (tag === 'PRE') { const code = extractCodeBlock(el); if (code) out += `\n\`\`\`\n${code}\n\`\`\`\n`; return; }
-                if (tag === 'BLOCKQUOTE') {
-                    const quoted = collectText(el);
-                    if (quoted) {
-                        const lines = quoted.split(/\n/);
-                        if (out && !out.endsWith('\n')) out += '\n';
-                        out += lines.map(line => (line ? `> ${line}` : '>')).join('\n');
-                        out += '\n';
-                    }
-                    return;
-                }
-                const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/;
-                const start = out.length;
-                for (const c of el.childNodes) walk(c);
-                if (blockish.test(tag) && out.length > start) out += '\n';
-            };
-            walk(root);
-            return out.replace(/\n{3,}/g, '\n\n').trim();
-        }
-
         // Helpers -------------------------------------------------------
         const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-        const DEBUG_THREAD_PHRASE = "Anyone having issues when linking the against the library";
-        const DEBUG = true;
-
-        function dbg(label: string, obj?: any) {
-        if (!DEBUG) return;
-        try {
-            console.log(`[teams-export][debug] ${label}`, obj ?? "");
-        } catch {}
-        }
-
-        function textPreview(s: string, n = 140) {
-        const t = (s || "").replace(/\s+/g, " ").trim();
-        return t.length > n ? t.slice(0, n) + "…" : t;
-        }
-
-        function includesDebugPhrase(s: string) {
-        return (s || "").toLowerCase().includes(DEBUG_THREAD_PHRASE.toLowerCase());
-        }
 
 
         async function waitForPreviewImages(item: Element, timeoutMs = 350) {
@@ -806,6 +735,7 @@ export default defineContentScript({
 
         async function waitForRepliesPaneForParent(parentId: string, timeoutMs = 6000): Promise<boolean> {
             const start = Date.now();
+            let sawAnyMessages = false;
             while (Date.now() - start < timeoutMs) {
               const runway = getRepliesRunway();
               if (!runway) { await sleep(120); continue; }
@@ -821,16 +751,15 @@ export default defineContentScript({
                 (el as HTMLElement).getAttribute?.('data-tid') === 'channel-replies-pane-message' ||
                 el.querySelector?.('[data-tid="channel-replies-pane-message"]')
               );
+              if (hasAnyMessages) sawAnyMessages = true;
           
               if (match || hasAnyMessages) {
-                // If we have an explicit match, great.
-                // If only "hasAnyMessages", still wait a bit more for correct match.
                 if (match) return true;
               }
           
               await sleep(150);
             }
-            return false;
+            return sawAnyMessages;
           }
 
           
@@ -858,7 +787,6 @@ export default defineContentScript({
                 const ok = await waitForRepliesPaneForParent(parentId, 6500);
                 if (ok) return "pane";
           
-                dbg("openRepliesForItem: wrong/unstable pane, retrying", { parentId, attempt });
                 await closeRepliesPane();
                 await sleep(250);
                 continue;
@@ -866,7 +794,6 @@ export default defineContentScript({
           
           
               // Optional: quick second click inside the attempt
-              dbg("openRepliesForItem: no runway and no inline detected, retry click", { parentId, attempt });
               await sleep(200);
               await realClick(btn);
               await sleep(200);
@@ -883,11 +810,9 @@ export default defineContentScript({
                 continue;
               }
           
-              dbg("openRepliesForItem: still nothing, next attempt", { parentId, attempt });
               await sleep(300);
             }
-          
-            dbg("openRepliesForItem: failed after retries", { parentId });
+
             return "fail";
           }
           
@@ -897,7 +822,6 @@ export default defineContentScript({
                 '[data-tid="close-l2-view-button"]',
                 '[data-tid="channel-replies-header"] button[aria-label*="Back"]',
                 '[data-tid="channel-replies-header"] button[aria-label*="Close"]',
-                'button[aria-label^="Back"]',
                 'button[aria-label*="Back to channel"]',
                 '[data-tid="close-replies-button"]',
             ];
@@ -1215,7 +1139,7 @@ export default defineContentScript({
         // Extract one item into a message object + an orderKey
         async function extractOne(
             item: Element,
-            opts: ScrapeOptions,
+            opts: InternalScrapeOptions,
             lastAuthorRef: { value: string },
             orderCtx: OrderContext & { seq?: number }
         ): Promise<ContentAggregated | null> {
@@ -1630,18 +1554,6 @@ export default defineContentScript({
                 currentRunStartedAt,
               ) as ExtractedMessage[];
           
-              dbg("collectRepliesForThread raw replies sample", {
-                parentId,
-                total: replies.length,
-                sample: replies.slice(0, 3).map(r => ({
-                  id: r.id,
-                  author: r.author,
-                  ts: r.timestamp,
-                  text: textPreview(r.text),
-                  replyTo: r.replyTo ? textPreview(r.replyTo.text) : null,
-                })),
-              });
-          
               // Defensive pass: grab any visible replies that the scroll loop missed.
               const seenIds = new Set<string>();
               for (const reply of replies) {
@@ -1766,21 +1678,7 @@ export default defineContentScript({
                   buildReplyContextFromChainId(parentId) ||
                   (message ? buildReplyContext(message) : { author: "", timestamp: "", text: "", id: parentId });
           
-                dbg("opening replies", {
-                  parentId,
-                  hasMessage: Boolean(message),
-                  messageId: message?.id,
-                  parentPreview: message ? (message.text || "").slice(0, 120) : null,
-                  btnText: btn.innerText?.trim(),
-                });
-          
                 const replies = await collectRepliesForThread(parentId, parentContext, btn, includeReactions);
-          
-                dbg("collectRepliesForThread done", {
-                  parentId,
-                  repliesCount: replies.length,
-                  sample: replies.slice(0, 2).map(r => ({ id: r.id, author: r.author, text: (r.text || "").slice(0, 80) })),
-                });
           
                 if (replies.length) repliesByParent.set(parentId, replies);
           
@@ -1796,32 +1694,14 @@ export default defineContentScript({
             messages: ExtractedMessage[],
             repliesByParent: Map<string, ExtractedMessage[]>,
             ) {
-            dbg("merge start", {
-                baseMessages: messages.length,
-                parentsWithReplies: repliesByParent.size,
-                repliesTotal: Array.from(repliesByParent.values()).reduce((a, v) => a + v.length, 0),
-                });
-                  
             if (!repliesByParent.size) return messages;
 
-            // --- Helpers to build a "logical" identity for a message -------------
-            const normalize = (s?: string | null) => (s || '').trim().toLowerCase();
-
-            const logicalKey = (m: ExtractedMessage) => {
-                const author = normalize(m.author);
-                const text = normalize((m.text || '').slice(0, 280)); // short prefix is fine
-                const ts = normalize(m.timestamp);
-                return `${author}|${ts}|${text}`;
-            };
-
-            // Map from logical key -> indices of messages that came from the main channel view
-            const baseKeyToIndices = new Map<string, number[]>();
+            const baseIdToIndices = new Map<string, number[]>();
             messages.forEach((m, idx) => {
-                const key = logicalKey(m);
-                if (!key.trim()) return;
-                const list = baseKeyToIndices.get(key) || [];
+                if (!m?.id) return;
+                const list = baseIdToIndices.get(m.id) || [];
                 list.push(idx);
-                baseKeyToIndices.set(key, list);
+                baseIdToIndices.set(m.id, list);
             });
 
             // Any base (channel) message that also appears in the thread pane
@@ -1830,9 +1710,8 @@ export default defineContentScript({
 
             for (const replies of repliesByParent.values()) {
                 for (const reply of replies) {
-                const key = logicalKey(reply);
-                if (!key.trim()) continue;
-                const indices = baseKeyToIndices.get(key);
+                if (!reply?.id) continue;
+                const indices = baseIdToIndices.get(reply.id);
                 if (!indices) continue;
                 for (const idx of indices) {
                     suppressedBaseIndices.add(idx);
@@ -1872,18 +1751,7 @@ export default defineContentScript({
             
               // mark the actual parent key we matched so step (3) doesn't re-append later
               insertedParents.add(usedKey);
-            
-              dbg("merge will append replies", {
-                parentId: usedKey,
-                msgId: msg.id,
-                threadId: msg.threadId,
-                author: msg.author,
-                ts: msg.timestamp,
-                parentText: textPreview(msg.text, 180),
-                repliesCount: replies.length,
-                firstReplyPreview: textPreview(replies[0]?.text),
-              });
-            
+
               // 2) Append replies for this parent, deduping by id.
               for (const reply of replies) {
                 if (reply.id && existingIds.has(reply.id)) continue;
@@ -1901,12 +1769,6 @@ export default defineContentScript({
                 out.push(reply);
                 }
             }
-
-            dbg("merge end", {
-                mergedMessages: out.length,
-                appendedRepliesCount: out.filter(m => !!m.replyTo).length,
-              });
-              
 
             return out;
         }
