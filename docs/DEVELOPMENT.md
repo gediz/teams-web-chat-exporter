@@ -1,104 +1,117 @@
-# Developer Guide
+# Development
 
-This document contains technical details for the Teams Chat Exporter extension, built with the WXT Framework.
+This document uses commands exactly as defined in `package.json`.
 
-## Project Structure
+## Requirements
 
-```
-.
-├── src/
-│   ├── entrypoints/
-│   │   ├── popup/          # Svelte UI for the popup
-│   │   ├── background.ts   # Service worker
-│   │   └── content.ts      # Content script (scraper)
-│   ├── background/         # Background script modules
-│   ├── content/            # Content script modules
-│   ├── utils/              # Shared utilities
-│   ├── types/              # TypeScript types
-│   └── i18n/               # Internationalization
-├── public/                 # Static assets (icons)
-├── docs/                   # Documentation
-├── wxt.config.ts           # WXT configuration
-└── package.json            # Dependencies & Scripts
-```
+- Node.js LTS
+- npm
 
-## Quick Start
-
-### 1. Install Dependencies
+## Install
 
 ```bash
 npm install
 ```
 
-### 2. Development
+## Run in development
 
 ```bash
-# Chrome (Manual reload required)
+# Chrome/Edge target
 npm run dev
 
-# Firefox (Auto-reload enabled)
+# Firefox target
 npm run dev:firefox
 ```
 
-### 3. Build for Production
+`wxt.config.ts` has `runner.disabled: true` (browser won't auto-open) and `dev.reloadOnChange: false` (no auto-reload). Load the extension manually — see [MANUAL_INSTALL.md](MANUAL_INSTALL.md).
+
+## Build
 
 ```bash
-# Build for Chrome/Edge
+# Chrome/Edge
 npm run build
 
-# Build for Firefox
+# Firefox
 npm run build:firefox
-
-# Build for all browsers
-npm run build && npm run build:firefox
-
-# Create store-ready ZIPs
-npm run zip              # Chrome
-npm run zip:firefox      # Firefox
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for store publishing instructions.
+Build output folders:
 
-## Testing Checklist
+- `.output/chrome-mv3/`
+- `.output/firefox-mv2/`
 
-Run these tests on both Chrome and Firefox before release:
+## Create zip packages
 
-### Core Functionality
+```bash
+# Chrome/Edge zip
+npm run zip
+
+# Firefox zip
+npm run zip:firefox
+```
+
+## Type check
+
+```bash
+npm run check
+```
+
+## Recommended local checks before PR
+
+```bash
+npm run check
+npm run build
+```
+
+If your change affects Firefox-specific behavior, also run:
+
+```bash
+npm run build:firefox
+```
+
+## Quick test checklist
+
+### Core
 - [ ] Extension loads without errors.
 - [ ] Popup opens and displays correctly.
 - [ ] Theme toggle works.
 - [ ] Date range inputs work.
 - [ ] Export button triggers scraping.
-- [ ] Messages collected correctly.
 - [ ] Badge updates during scraping.
 - [ ] Empty chat shows banner.
-- [ ] Date filtering works.
+- [ ] Options persist across popup close/reopen.
 
-### Export Formats
+### Export formats
 - [ ] JSON export downloads and contains correct data.
 - [ ] CSV export downloads and is formatted correctly.
 - [ ] HTML export downloads and renders correctly.
+- [ ] Text export downloads and reads correctly.
 - [ ] Avatar embedding works (HTML).
 
-### Browser-Specifics
+### Include toggles
+- [ ] Replies toggle works.
+- [ ] Reactions toggle works.
+- [ ] System messages toggle works.
+- [ ] Date range filter works.
+
+### Targets
+- [ ] Chat export works.
+- [ ] Team channel export works.
+
+### Browser-specific
 - [ ] **Firefox**: Downloads work (uses blob URL fallback).
 - [ ] **Firefox**: Storage persistence works across restarts.
-- [ ] **Performance**: Memory usage is stable during large exports.
 
-### Large Export Testing
+### Large exports (pre-release)
 - [ ] Export a chat with 5,000+ messages (all options enabled).
 - [ ] Export completes without 64MiB message errors.
 - [ ] JSON export file is valid and contains all messages.
 - [ ] HTML+images zip export renders correctly in browser.
 - [ ] Avatars appear correctly in HTML and JSON exports.
-
-#### Known behavior with large exports
-- **Duration**: Exporting 10,000+ messages spanning a year or more can take 30–60 minutes. Teams gets progressively slower loading older history, and the extension adapts by increasing wait times between scroll passes.
-- **Scroll stagnation**: The extension stops scrolling when no new messages are found for 25 consecutive passes (~45–70 seconds depending on history depth). If Teams has more history but stops loading it, the export will contain only what was loaded.
-- **Memory**: Inline image data (attachment previews) can reach 100MB+ for image-heavy chats. This data is streamed to the background in chunks to avoid Chrome's 64MiB message size limit, but it does consume memory during the export.
-- **Service worker**: Chrome MV3 uses a service worker which lacks `URL.createObjectURL`. Downloads fall back to base64 data URLs. For very large exports (>200MB), this may cause memory pressure.
+- [ ] Memory usage is stable during large exports.
 
 ## Troubleshooting
 
-- **Build Fails**: Try `rm -rf .output .wxt node_modules && npm install`.
-- **Hot Reload**: Works best in Firefox (`npm run dev:firefox`). Chrome requires manual reload for content scripts.
+- If extension changes are not visible, reload the unpacked extension manually.
+- If build output looks stale, remove `.output` and `.wxt`, then rebuild.
+- If dependencies get out of sync, run `rm -rf node_modules .output .wxt && npm install`.

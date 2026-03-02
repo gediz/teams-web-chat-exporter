@@ -1,70 +1,41 @@
-# CLAUDE.md - AI Assistant Guide
+# CLAUDE.md - Assistant Guide
 
-This file provides AI assistants with context about the Teams Chat Exporter codebase.
+This file gives quick, accurate context for AI assistants working in this repository.
 
-## Project Overview
+## Project Snapshot
 
-**Teams Chat Exporter** is a cross-browser extension (Chrome, Edge, Firefox) that exports Microsoft Teams web chat conversations to JSON, CSV, HTML, or text formats.
+- Name: Teams Chat Exporter
+- Version: 1.3.1
+- Stack: WXT + TypeScript + Svelte 5
+- Browsers: Chrome, Edge, Firefox
+- Export formats: JSON, CSV, HTML, txt
+- UI locales: 24 files in `src/i18n/locales/`
 
-- **Version**: 1.3.1
-- **Framework**: WXT (Vite-based)
-- **Languages**: TypeScript + Svelte 5
-- **Supported Browsers**: Chrome, Edge, Firefox
-- **UI Languages**: 24 (en, ar, az, bn, bg, zh-CN, zh-TW, cs, nl, fr, de, he, hi, hu, it, ja, ko, ms, pl, pt-BR, ru, es, th, tr)
+## Source of Truth Files
 
-## Quick Reference
+- Runtime/build config: [wxt.config.ts](wxt.config.ts)
+- NPM scripts and dependencies: [package.json](package.json)
+- Popup UI entry: [src/entrypoints/popup/App.svelte](src/entrypoints/popup/App.svelte)
+- Background entry: [src/entrypoints/background.ts](src/entrypoints/background.ts)
+- Content entry: [src/entrypoints/content.ts](src/entrypoints/content.ts)
 
-### Key Files
-- **Popup**: [src/entrypoints/popup/App.svelte](src/entrypoints/popup/App.svelte)
-- **Background**: [src/entrypoints/background.ts](src/entrypoints/background.ts)
-- **Content**: [src/entrypoints/content.ts](src/entrypoints/content.ts)
-- **Config**: [wxt.config.ts](wxt.config.ts)
+## Docs To Use
 
-### Build Commands
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for all build and testing commands.
+- [README.md](README.md)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+- [docs/MANUAL_INSTALL.md](docs/MANUAL_INSTALL.md)
+- [docs/TODO.md](docs/TODO.md)
 
-### Architecture
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for:
-- Project structure
-- Component communication
-- Message flow
-- Data structures
-- Browser compatibility
+## Assistant Rules
 
-### Code Conventions
-See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for:
-- Naming conventions
-- TypeScript guidelines
-- Svelte patterns
-- Common development tasks
-
-## Documentation
-
-- [README.md](README.md): User guide
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): Technical design
-- [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md): Code conventions and common tasks
-- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): Build and testing
-- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): Store publishing
-- [docs/MANUAL_INSTALL.md](docs/MANUAL_INSTALL.md): Installation steps
-- [docs/TODO.md](docs/TODO.md): Project roadmap
-
-## When Helping Users
-
-### For Code Questions
-1. Check [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for technical design
-2. Check [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for code conventions and common tasks
-3. Reference specific files with line numbers (e.g., `App.svelte:42`)
-
-### For Build Issues
-1. Check [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for all build commands
-2. Common fix: `rm -rf .output .wxt node_modules && npm install`
-
-### For Feature Requests
-1. Check [docs/TODO.md](docs/TODO.md) for planned features
-2. Consider cross-browser compatibility
-3. Add i18n keys for new UI strings (14 languages)
+1. Verify claims against code before stating them.
+2. Keep wording short and literal.
+3. Do not describe behavior that is not in the code.
+4. For commands, use scripts exactly as defined in `package.json`.
 
 ---
 
-**Last Updated**: 2025-11-30
-**Version**: 1.1.0
+Last verified against repository state on 2026-03-03.
