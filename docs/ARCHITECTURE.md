@@ -1,16 +1,14 @@
 # Architecture
 
-Technical overview of the Teams Chat Exporter extension.
+Technical summary of how the extension works.
 
-## Technology Stack
+## Stack
 
-- **Framework**: WXT 0.19+ (Vite-based)
-- **Popup UI**: Svelte 5 + TypeScript
-- **Background/Content**: TypeScript
-- **Styling**: CSS (scoped in Svelte components)
-- **I18N**: Custom implementation (14 languages)
+- WXT
+- TypeScript
+- Svelte 5 (popup UI)
 
-## Project Structure
+## Project structure
 
 ```
 src/
@@ -23,31 +21,34 @@ src/
 │   └── content.ts          # Content script (scraper)
 ├── background/             # Background script modules
 │   ├── builders.ts         # Export format builders
-│   └── download.ts         # Download handler
+│   ├── download.ts         # Download handler
+│   └── zip.ts              # ZIP archive creation
 ├── content/                # Content script modules
 │   ├── scroll.ts           # Auto-scroll logic
 │   ├── reactions.ts        # Reaction parsing
 │   ├── replies.ts          # Reply parsing
 │   ├── attachments.ts      # Attachment parsing
-│   └── text.ts             # Text extraction
+│   ├── text.ts             # Text extraction
+│   └── title.ts            # Chat/channel title extraction
 ├── utils/                  # Shared utilities
 │   ├── time.ts             # Time formatting
 │   ├── text.ts             # Text processing
 │   ├── dom.ts              # DOM helpers
-│   ├── options.ts          # Settings persistence
+│   ├── options.ts          # Settings persistence + Options type
 │   ├── messaging.ts        # Chrome messaging
 │   ├── badge.ts            # Badge updates
-│   └── messages.ts         # Message utilities
+│   ├── messages.ts         # Message utilities
+│   └── avatars.ts          # Avatar processing
 ├── types/                  # TypeScript types
 │   ├── messaging.ts        # Message types
-│   └── shared.ts           # Shared types
+│   └── shared.ts           # Shared types (ExportMessage, etc.)
 ├── i18n/                   # Internationalization
-│   └── locales/            # Translation files
-└── public/                 # Public assets
+│   └── locales/            # 24 translation files
+└── public/                 # Static assets
     └── icons/              # Extension icons
 ```
 
-## Component Communication
+## Component communication
 
 ```
 ┌─────────────┐
@@ -70,106 +71,83 @@ src/
 └─────────────┘
 ```
 
-## Message Flow
+## Runtime flow
 
-### Export Process
+1. Popup sends `START_EXPORT` (or `START_EXPORT_ZIP`) to background.
+2. Background checks tab context and ensures content script is ready.
+3. Background asks content script to scrape Teams (`SCRAPE_TEAMS`).
+4. Content script streams scrape data to background in chunks through a runtime port.
+5. Background builds output (`json/csv/html/txt`) and starts download.
+6. Background sends progress/status back to popup with `EXPORT_STATUS`.
 
-1. **User clicks "Export"** in popup
-2. **Popup** sends `START_EXPORT` to background with options
-3. **Background** sends `SCRAPE_TEAMS` to content script
-4. **Content script**:
-   - Validates Teams chat is open
-   - Auto-scrolls to load all messages
-   - Extracts messages, reactions, replies
-   - Returns aggregated data
-5. **Background**:
-   - Builds export file (JSON/CSV/HTML/Text)
-   - Triggers download via Chrome Downloads API
-   - Sends `EXPORT_STATUS` updates to popup
-6. **Popup** displays progress and completion
+Streaming is used to avoid message-size limits on single runtime messages.
 
-## Data Structures
+## Key data types
 
-### Options
-```typescript
-{
-  lang: string,              // UI language
-  startAt: string,           // Date range start (YYYY-MM-DD)
-  endAt: string,             // Date range end (YYYY-MM-DD)
-  format: 'json' | 'csv' | 'html' | 'txt',
-  includeReplies: boolean,
-  includeReactions: boolean,
-  includeSystem: boolean,
-  embedAvatars: boolean,     // HTML only
-  showHud: boolean,          // In-page progress overlay
-  theme: 'light' | 'dark'
-}
-```
+- `Options`: user settings, stored in `chrome.storage.local` (`src/utils/options.ts`)
+- `ExportMessage`: normalized message shape (`src/types/shared.ts`)
+- `ScrapeOptions` / `BuildOptions`: scrape and output settings (`src/types/shared.ts`)
 
-### Message
-```typescript
-{
-  id: string,
-  author: string,
-  timestamp: string,
-  text: string,
-  edited: boolean,
-  avatar: string | null,
-  reactions: Array<{ emoji: string, count: number }>,
-  attachments: Array<{ href: string, label: string, type?: string }>,
-  replyTo: { author: string, text: string } | null,
-  system: boolean
-}
-```
+### Options fields
 
-## Browser Compatibility
+| Field | Type |
+|-------|------|
+| `lang` | `string?` |
+| `startAt` / `endAt` | `string` (local input format) |
+| `startAtISO` / `endAtISO` | `string` (ISO) |
+| `exportTarget` | `'chat' \| 'team'` |
+| `format` | `'json' \| 'csv' \| 'html' \| 'txt'` |
+| `includeReplies` | `boolean` |
+| `includeReactions` | `boolean` |
+| `includeSystem` | `boolean` |
+| `embedAvatars` | `boolean` |
+| `downloadImages` | `boolean` |
+| `showHud` | `boolean` |
+| `theme` | `'light' \| 'dark'` |
 
-### Chrome/Edge (Manifest V3)
-- Uses `chrome.*` namespace
-- Service worker background
-- Native Downloads API (data URLs)
+### ExportMessage fields
 
-### Firefox (Manifest V2)
-- Uses `browser.*` namespace (polyfilled)
-- Background page (not service worker)
-- Blob URL fallback for downloads
-- Badge uses `browserAction` instead of `action`
+| Field | Type |
+|-------|------|
+| `id` | `string?` |
+| `threadId` | `string?` |
+| `author` | `string?` |
+| `timestamp` | `string?` |
+| `text` | `string?` |
+| `edited` | `boolean?` |
+| `system` | `boolean?` |
+| `avatar` | `string?` |
+| `avatarUrl` | `string?` |
+| `avatarId` | `string?` |
+| `reactions` | `Array<{ emoji, count, reactors?, self? }>` |
+| `attachments` | `Array<{ href?, label?, type?, size?, owner?, metaText?, dataUrl?, kind? }>` |
+| `tables` | `string[][][]` |
+| `replyTo` | `{ author, timestamp, text, id? }?` |
 
-### WXT Polyfills
-WXT automatically handles cross-browser differences:
-- API namespace (`chrome` vs `browser`)
-- Manifest version conversion
-- Storage API compatibility
-- Messaging Promise handling
+## Status and persistence
 
-## Build Pipeline
+- Background tracks active exports per tab in memory.
+- Popup receives status updates like `starting`, `scrape:start`, `scrape:complete`, `build`, `complete`, `empty`, and `error`.
+- Options are saved under `teamsExporterOptions` in local extension storage.
+- Last error is saved under `teamsExporterLastError` for popup recovery.
 
-1. **Development**: `npm run dev` / `npm run dev:firefox`
-   - Vite dev server with HMR
-   - Source maps enabled
-   - No minification
+## Browser notes
 
-2. **Production**: `npm run build` / `npm run build:firefox`
-   - TypeScript compilation
-   - Svelte component bundling
-   - Tree-shaking and minification
-   - Source maps (external)
+- Chrome/Edge build target: MV3 output (`.output/chrome-mv3/`)
+- Firefox build target: MV2 output (`.output/firefox-mv2/`)
+- Background code uses `browser.*` when available, otherwise `chrome.*`
+- Firefox MV2 uses `browserAction`; Chrome MV3 uses `action`
+- Downloads use browser-specific URL creation logic in `src/background/builders.ts` (`textToDownloadUrl`, `binaryToDownloadUrl`)
+- Chrome MV3 service worker lacks `URL.createObjectURL`, so downloads use base64 data URLs
+- Firefox uses blob URLs for downloads (no data URL size issues)
 
-3. **Output**:
-   - Chrome: `.output/chrome-mv3/`
-   - Firefox: `.output/firefox-mv2/`
+## Large export behavior
 
-## Storage
+- Exporting 10,000+ messages spanning a year or more can take 30–60 minutes. Teams gets slower loading older history.
+- Scroll stops when no new messages appear for several consecutive passes (default: 12–20 passes depending on loading signals). If Teams has more history but stops loading it, only what was loaded gets exported.
+- Inline image data (attachment previews) can use 100MB+ of memory for image-heavy chats. This data is streamed in chunks to avoid Chrome's 64MiB single-message limit.
+- Teams may cap rendered messages at ~750 in the DOM. The scroll engine works around this with deduplication and incremental aggregation.
 
-Uses `chrome.storage.local` for:
-- User preferences (options)
-- Last error message (for popup reconnection)
+## Known quirks
 
-Data is persisted across sessions but not synced across devices.
-
-## Performance Considerations
-
-- **Scraping**: Sequential DOM parsing (single-threaded)
-- **Memory**: ~5-10 MB for 1000 messages
-- **Large exports**: HTML with embedded avatars can exceed 50 MB
-- **Optimization**: Blob URLs in Firefox prevent data URL size limits
+- Content script injection in background.ts uses a hardcoded filename `content.js`. If WXT changes its output naming, this will break.

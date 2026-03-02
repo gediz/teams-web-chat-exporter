@@ -1,39 +1,41 @@
-# Manual Installation Guide
+# Manual Installation
 
-This guide explains how to install the Teams Chat Exporter extension manually.
+Use this when testing from source or from release files.
 
-## Option 1: Install from Release ZIP
+## From source code
 
-If you downloaded a `.zip` file from the [Releases page](https://github.com/gediz/teams-web-chat-exporter/releases):
+### 1) Install dependencies
 
-### Chrome / Edge
-1. Extract the ZIP file.
-2. Navigate to `chrome://extensions/`.
-3. Enable **Developer mode**.
-4. Click **Load unpacked**.
-5. Select the extracted folder.
+```bash
+npm install
+```
 
-### Firefox
-1. Navigate to `about:debugging#/runtime/this-firefox`.
-2. Click **Load Temporary Add-on...**.
-3. Select the ZIP file (or `manifest.json` inside the folder).
+### 2) Build the target you need
 
-## Option 2: Load Unpacked (From Source)
+```bash
+# Chrome/Edge
+npm run build
 
-1. Build the project:
-   ```bash
-   npm install
-   npm run build
-   ```
-   This creates an `.output/` directory.
+# Firefox
+npm run build:firefox
+```
 
-### Chrome / Edge
-1. Navigate to `chrome://extensions/`.
-2. Enable **Developer mode**.
+## Load in Chrome / Edge
+
+1. Open `chrome://extensions/` (or `edge://extensions/`).
+2. Turn on **Developer mode**.
 3. Click **Load unpacked**.
-4. Select the `.output/chrome-mv3` directory.
+4. Select `.output/chrome-mv3/`.
 
-### Firefox
-1. Navigate to `about:debugging#/runtime/this-firefox`.
+## Load in Firefox (temporary)
+
+1. Open `about:debugging#/runtime/this-firefox`.
 2. Click **Load Temporary Add-on...**.
-3. Select the `manifest.json` file inside `.output/firefox-mv2`.
+3. Select `.output/firefox-mv2/manifest.json`.
+
+Firefox temporary add-ons are removed when Firefox restarts.
+
+## From release downloads
+
+- Chrome/Edge: extract zip, then load unpacked folder.
+- Firefox: if the release contains Firefox build files, extract and load `manifest.json` as above.

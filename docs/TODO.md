@@ -1,32 +1,21 @@
-# Project Roadmap
+# TODO
 
-## Remaining / Follow-ups
-- [ ] Tooling: Set up linting and formatting (ESLint/Prettier).
-- [ ] Tests: Vitest unit tests for utility/builder functions.
-- [ ] Tests: Playwright + Chrome extension loading for popup tests.
-- [ ] Tests: Mock-based content script tests.
-- [ ] Tests (stretch): Full E2E against live Teams.
-- [ ] Refactoring: Further module extraction in content script (attachments, reactions, parse helpers).
-- [ ] Investigation: Investigate occasional stalls in HUD/elapsed timer.
-- [ ] Add an option to pause/resume/stop export operation.
-- [ ] Add participant filtering workflow
-- [ ] Design summary sheet/report for export analytics
-- [ ] Investigate PDF export option
-- [ ] Add an option to export all available chats
-- [ ] Add screenshot/GIF, version badge to README.md
-- [ ] Settings: Configurable domain allowlist for image fetching (default-only / default + custom / allow all).
-- [ ] Settings: Configurable canvas size cap for image embedding.
-- [x] Refactoring: Deduplicate background export handlers (items 7, 12 from audit).
+## Planned
 
-## Telemetry (Future)
-- [ ] Specify schema for session stats & environment diagnostics
+- [ ] Add lint + formatter setup (ESLint/Prettier).
+- [ ] Add unit tests for utility and builder modules.
+- [ ] Add popup UI tests.
+- [ ] Add content-script tests with mocked DOM.
+- [ ] Improve handling when long exports stall.
+- [ ] Add pause/resume/stop export controls.
+- [ ] Add participant filtering.
+- [ ] Investigate PDF export options (library choice, layout fidelity, file size/performance, browser compatibility).
+- [ ] Investigate exporting multiple chats in one run.
+- [ ] Add README media (screenshots or GIF).
+- [ ] Add image-fetch allowlist settings.
+- [ ] Add configurable canvas size cap for embedded images.
 
-## Notes for Exporters
-- Teams can jump to very old history if the scrollbar is dragged to the very top; use incremental upward scrolling to capture mid-old messages reliably.
-- There appears to be a UI cap (~750 messages) after which Teams stops rendering older history in the browser; consider multi-pass capture with a refresh and dedupe if coverage is missing.
+## Done
 
-## Known Issues
-1. **Content Script Injection**: The manual `chrome.scripting.executeScript` fallback in `background.js` relies on WXT outputting a specific filename (`content.js`). This may need adjustment if build configuration changes.
-2. ~~**Data URL Size**: Large HTML exports may exceed browser Data URL limits (approx. 50MB in Chrome). Firefox uses Blob URLs which are safer.~~ Fixed: service workers use data URLs, Firefox uses Blob URLs.
-3. ~~**Chrome 64MiB Message Limit**: Exporting large chats (6000+ messages) with inline images failed with `Message exceeded maximum allowed size of 64MiB`.~~ Fixed: scrape results are now streamed via port-based chunking.
-4. **Long Chat Export Duration**: Exporting 10,000+ messages (1+ year) can take 30–60 minutes. Teams loads history progressively slower, and the scroll stagnation detector may stop before all history is loaded.
+This section tracks work completed since the last major TODO reorganization.
+- [x] Deduplicated background export handlers.

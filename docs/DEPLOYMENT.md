@@ -1,80 +1,57 @@
-# Deployment Guide
+# Deployment
 
-Guide for building and deploying the extension to browser stores.
+## Build artifacts
 
-## Prerequisites
+- Chrome/Edge build: `.output/chrome-mv3/`
+- Firefox build: `.output/firefox-mv2/`
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for:
-- Build commands (`npm run build`, `npm run build:firefox`)
-- Creating store ZIPs (`npm run zip`, `npm run zip:firefox`)
-- Testing checklist
+## Commands
 
-## Local Testing
+```bash
+# Build
+npm run build
+npm run build:firefox
 
-See [MANUAL_INSTALL.md](MANUAL_INSTALL.md) for loading unpacked extensions in Chrome and Firefox.
-
-## Store Deployment
-
-### Chrome Web Store
-1. Build and create ZIP (see [DEVELOPMENT.md](DEVELOPMENT.md))
-2. Upload to [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole)
-3. Create new item or update existing package
-
-### Firefox Add-ons (AMO)
-1. Ensure unique ID is set in `wxt.config.ts`
-2. Build and create ZIP (see [DEVELOPMENT.md](DEVELOPMENT.md))
-3. Upload to [Firefox Add-ons Developer Hub](https://addons.mozilla.org/developers/)
-4. Provide build instructions in review notes (see below)
-
-#### Build Instructions for Reviewers
-Copy this into "Notes to Reviewer":
-```
-# Teams Chat Exporter - Build Instructions
-
-## Overview
-Built with WXT (https://wxt.dev/). Source: https://github.com/gediz/teams-web-chat-exporter
-
-## Requirements
-- Node.js 18+ (LTS recommended)
-- npm 9+
-
-## Build Steps
-1. Clone repo: git clone https://github.com/gediz/teams-web-chat-exporter.git
-2. Install: npm install
-3. Build: npm run build:firefox
-4. Output: .output/firefox-mv2/
-
-## Architecture
-- src/entrypoints/popup/: Svelte UI
-- src/entrypoints/background.ts: Service worker
-- src/entrypoints/content.ts: Content script
-- wxt.config.ts: Configuration
-
-## Data Collection
-No data collection. All exports are local.
+# Zip packages
+npm run zip
+npm run zip:firefox
 ```
 
-### Edge Add-ons
-1. Build and create ZIP (see [DEVELOPMENT.md](DEVELOPMENT.md))
-2. Upload to [Edge Partner Center](https://partner.microsoft.com/dashboard/microsoftedge)
-3. Use the Chrome ZIP (same as Chrome Web Store)
+## Version update
 
-## Version Management
+Update version in both files before release:
 
-1. Update version in `wxt.config.ts`
-2. Test in both browsers (see [DEVELOPMENT.md](DEVELOPMENT.md) testing checklist)
-3. Create git tag
-4. Build release ZIPs (see [DEVELOPMENT.md](DEVELOPMENT.md))
-5. Upload to stores
+- `package.json`
+- `wxt.config.ts`
 
-## Build Output
+## Store uploads
 
-- `.output/chrome-mv3/`: Chrome build (Manifest V3).
-- `.output/firefox-mv2/`: Firefox build (Manifest V2).
-- `.output/*.zip`: Store-ready files.
+- Chrome Web Store: upload Chrome zip (`npm run zip` output)
+- Edge Add-ons: use same Chrome zip
+- Firefox Add-ons (AMO): upload Firefox zip (`npm run zip:firefox` output)
 
-## Troubleshooting
+## AMO reviewer notes
 
-- **Module not found**: Run `rm -rf node_modules .output && npm install`.
-- **Chrome Obfuscation**: Enable sourcemaps in `wxt.config.ts` if rejected.
-- **Firefox Source Review**: Link to GitHub repo in submission notes.
+If Firefox review asks for build steps or data collection info, paste this:
+
+```
+Source: https://github.com/gediz/teams-web-chat-exporter
+Requires: Node.js LTS, npm
+
+Build steps:
+1. npm install
+2. npm run build:firefox
+3. Output: .output/firefox-mv2/
+
+Data collection: None. All exports are saved locally. No data is transmitted.
+```
+
+## Release checklist
+
+1. Update versions.
+2. Run `npm run check`.
+3. Build both targets.
+4. Create both zip packages.
+5. Verify install in target browsers.
+6. Upload to stores.
+7. Tag and publish release notes.
