@@ -110,6 +110,7 @@ export async function autoScrollAggregate<M extends ExportMessage>(
   };
 
   scroller = ensureScroller();
+  if (!scroller) return [];
   scroller.scrollTop = scroller.scrollHeight;
   await new Promise(r => requestAnimationFrame(r));
   await sleep(300);
@@ -316,6 +317,7 @@ const forceScrollUp = (el: HTMLElement, multiplier = 2) => {
 
   // Final bottom pass to capture any newest messages that appeared during upward scrolling.
   scroller = ensureScroller();
+  if (!scroller) return [];
   scroller.scrollTop = scroller.scrollHeight;
   await new Promise(r => requestAnimationFrame(r));
   await sleep(deps.tuning?.dwellMs ?? 700);
