@@ -1,5 +1,6 @@
 import { defineBackground } from 'wxt/sandbox';
 import { createBadgeManager } from '../utils/badge';
+import { isTeamsUrl } from '../utils/teams-urls';
 import { buildAndDownload, buildAndDownloadZip } from '../background/download';
 import { formatDayLabelForExport, parseTimeStamp } from '../utils/time';
 import type { BackgroundIncomingMessage } from '../types/messaging';
@@ -56,11 +57,6 @@ tabs.onUpdated.addListener((tabId: number, changeInfo: chrome.tabs.TabChangeInfo
 const activeExports = new Map<number, ActiveExportInfo>(); // tabId -> { startedAt, lastStatus }
 // TERMINAL_PHASES: 'complete' = success, 'error' = failure, 'empty' = no data found (not a failure)
 const TERMINAL_PHASES = new Set(['complete', 'error', 'empty']);
-const TEAMS_URL_PATTERN = /^https:\/\/(.*\.)?(teams\.microsoft\.com|teams\.microsoft\.us|cloud\.microsoft|teams\.live\.com)\//i;
-
-function isTeamsUrl(url: string | null | undefined): boolean {
-    return TEAMS_URL_PATTERN.test(url || '');
-}
 
 function updateActiveExport(tabId: number, patch: Partial<ActiveExportInfo> = {}) {
     if (tabId == null) return;

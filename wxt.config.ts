@@ -1,5 +1,6 @@
 import { defineConfig } from 'wxt';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+import { TEAMS_MATCH_PATTERNS } from './src/utils/teams-urls';
 
 export default defineConfig({
   srcDir: 'src',
@@ -38,12 +39,7 @@ export default defineConfig({
       'downloads',
       'storage',
     ],
-    host_permissions: [
-      'https://*.teams.microsoft.com/*',
-      'https://*.teams.microsoft.us/*',
-      'https://teams.cloud.microsoft/*',
-      'https://teams.live.com/*',
-    ],
+    host_permissions: TEAMS_MATCH_PATTERNS,
     icons: {
       16: 'icons/action-16.png',
       32: 'icons/action-32.png',
