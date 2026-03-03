@@ -25,6 +25,7 @@
     localInputToISO,
   } from "../../utils/time";
   import { runtimeSend } from "../../utils/messaging";
+  import { isTeamsUrl } from "../../utils/teams-urls";
   import type {
     GetExportStatusRequest,
     GetExportStatusResponse,
@@ -122,11 +123,6 @@
   let startedAtMs: number | null = null;
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
   let exportSummary = "";
-
-  const isTeamsUrl = (u?: string | null) =>
-    /^https:\/\/(.*\.)?(teams\.microsoft\.com|teams\.microsoft\.us|cloud\.microsoft|teams\.live\.com)\//.test(
-      u || "",
-    );
 
   const formatElapsedSuffix = (ms: number) =>
     ` — ${t("status.elapsed", {}, currentLang())}: ${formatElapsed(ms)}`;

@@ -11,6 +11,7 @@ import { extractTables, extractTextWithEmojis, normalizeMentions } from '../cont
 import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scroll';
 import { extractChatTitle, extractChannelTitle } from '../content/title';
 import { extractAvatarId } from '../utils/avatars';
+import { TEAMS_MATCH_PATTERNS } from '../utils/teams-urls';
 import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ReplyContext, ScrapeOptions } from '../types/shared';
 
 // Typed globals for Firefox builds
@@ -30,12 +31,7 @@ type ContentAggregated = AggregatedItem & { message?: ExtractedMessage };
 type InternalScrapeOptions = ScrapeOptions & { __allowInlineThreadReplies?: boolean };
 
 export default defineContentScript({
-    matches: [
-        'https://*.teams.microsoft.com/*',
-        'https://*.teams.microsoft.us/*',
-        'https://teams.cloud.microsoft/*',
-        'https://teams.live.com/*',
-    ],
+    matches: TEAMS_MATCH_PATTERNS,
     runAt: 'document_idle',
     allFrames: true,
 
