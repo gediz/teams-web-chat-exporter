@@ -550,7 +550,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
       continue;
     }
 
-    parts.push(renderMessage(m, { isReply: Boolean(m.replyTo) }));
+    parts.push(renderMessage(m));
   }
 
   const body = parts.join('');
