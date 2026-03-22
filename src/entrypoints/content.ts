@@ -12,6 +12,8 @@ import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scr
 import { extractChatTitle, extractChannelTitle } from '../content/title';
 import { extractAvatarId } from '../utils/avatars';
 import { TEAMS_MATCH_PATTERNS } from '../utils/teams-urls';
+import { apiScrape } from '../content/api-client';
+import { convertApiMessages, buildApiMeta } from '../content/api-converter';
 import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ReplyContext, ScrapeOptions } from '../types/shared';
 
 // Typed globals for Firefox builds
@@ -1817,53 +1819,89 @@ export default defineContentScript({
                         console.debug('[Teams Exporter] SCRAPE_TEAMS', location.href, msg.options);
                         currentRunStartedAt = Date.now();
                         hud('starting…');
-                        const replyCollector = createReplyCollector();
-                        const includeRepliesEnabled = includeReplies !== false;
 
-                        // if (target === 'team' && includeRepliesEnabled) {
-                        //     clickAllReplyButtonsBottomToTop();
-                        // }
+                        // ── API Mode (fast, no scrolling) ──────────────────
+                        let messages: ExportMessage[] | null = null;
+                        let title: string | null = null;
+                        let avatars: Record<string, string> = {};
 
-                        const extractWithReplies = async (
-                            item: Element,
-                            opts: ScrapeOptions,
-                            lastAuthorRef: { value: string },
-                            orderCtx: OrderContext & { seq?: number },
-                        ) => {
-                            const extracted = await extractOne(item, opts, lastAuthorRef, orderCtx);
-                            if (target === 'team' && includeRepliesEnabled) {
-                              const msg = extracted?.message as ExtractedMessage | undefined;
-                              if (extracted?.kind === "message" && msg && !msg.system) {
-                                await replyCollector.maybeCollect(item, msg, Boolean(includeReactions));
-                              }
+                        try {
+                            hud('trying API mode…');
+                            const apiResult = await apiScrape((p) => {
+                                if (p.phase === 'discover') {
+                                    hud('discovering API endpoint…');
+                                } else {
+                                    hud(`API: page ${p.page}, ${p.messagesSoFar} messages`);
+                                }
+                                try {
+                                    const mp = runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'api-fetch', messagesVisible: p.messagesSoFar, passes: p.page } });
+                                    if (mp && mp.catch) mp.catch(() => {});
+                                } catch { /* ignore */ }
+                            });
+
+                            if (apiResult) {
+                                const converted = convertApiMessages(apiResult.messages, scrapeOpts);
+                                if (converted.length > 0) {
+                                    messages = converted;
+                                    title = target === 'team' ? extractChannelTitle() : extractChatTitle();
+                                    console.log(`[Teams Exporter] API mode: ${converted.length} messages from ${apiResult.messages.length} raw`);
+                                    hud(`API: ${converted.length} messages`);
+                                } else {
+                                    console.log('[Teams Exporter] API returned messages but all filtered out, trying DOM scroll');
+                                }
                             }
-                            return extracted;
-                            
-                        };
+                        } catch (apiErr) {
+                            console.log('[Teams Exporter] API mode failed, falling back to DOM scroll:', apiErr);
+                        }
 
-                        let messages = await autoScrollAggregateHelper(
-                            {
-                                hud,
-                                runtime,
-                                extractOne: target === 'team' && includeRepliesEnabled ? extractWithReplies : extractOne,
-                                hydrateSparseMessages,
-                                getScroller: () => getScroller(target),
-                                getItems: target === 'team' ? getChannelItems : undefined,
-                                isLoading: target === 'team' ? isVirtualListLoading : undefined,
-                                makeDayDivider,
-                                tuning: target === 'team' ? {
-                                    dwellMs: 800,
-                                    maxStagnant: 30,
-                                    maxStagnantAtTop: 35,
-                                    loadingStallPasses: 20,
-                                    loadingExtraDelayMs: 700,
-                                } : undefined,
-                            },
-                            scrapeOpts,
-                            currentRunStartedAt
-                        );
-                        if (target === 'team' && includeRepliesEnabled) {
-                            messages = mergeRepliesIntoMessages(messages as ExtractedMessage[], replyCollector.repliesByParent);
+                        // ── DOM Scroll Fallback ────────────────────────────
+                        if (!messages) {
+                            hud('scrolling…');
+                            const replyCollector = createReplyCollector();
+                            const includeRepliesEnabled = includeReplies !== false;
+
+                            const extractWithReplies = async (
+                                item: Element,
+                                opts: ScrapeOptions,
+                                lastAuthorRef: { value: string },
+                                orderCtx: OrderContext & { seq?: number },
+                            ) => {
+                                const extracted = await extractOne(item, opts, lastAuthorRef, orderCtx);
+                                if (target === 'team' && includeRepliesEnabled) {
+                                  const msg = extracted?.message as ExtractedMessage | undefined;
+                                  if (extracted?.kind === "message" && msg && !msg.system) {
+                                    await replyCollector.maybeCollect(item, msg, Boolean(includeReactions));
+                                  }
+                                }
+                                return extracted;
+                            };
+
+                            let scrollMessages = await autoScrollAggregateHelper(
+                                {
+                                    hud,
+                                    runtime,
+                                    extractOne: target === 'team' && includeRepliesEnabled ? extractWithReplies : extractOne,
+                                    hydrateSparseMessages,
+                                    getScroller: () => getScroller(target),
+                                    getItems: target === 'team' ? getChannelItems : undefined,
+                                    isLoading: target === 'team' ? isVirtualListLoading : undefined,
+                                    makeDayDivider,
+                                    tuning: target === 'team' ? {
+                                        dwellMs: 800,
+                                        maxStagnant: 30,
+                                        maxStagnantAtTop: 35,
+                                        loadingStallPasses: 20,
+                                        loadingExtraDelayMs: 700,
+                                    } : undefined,
+                                },
+                                scrapeOpts,
+                                currentRunStartedAt
+                            );
+                            if (target === 'team' && includeRepliesEnabled) {
+                                scrollMessages = mergeRepliesIntoMessages(scrollMessages as ExtractedMessage[], replyCollector.repliesByParent);
+                            }
+                            messages = scrollMessages;
+                            title = target === 'team' ? extractChannelTitle() : extractChatTitle();
                         }
 
                         try {
@@ -1874,11 +1912,20 @@ export default defineContentScript({
 
                         // Fetch avatars in content script context (has access to Teams cookies)
                         hud('fetching avatars...');
-                        const { messages: normalizedMessages, avatars } = await embedAvatarsInContent(messages);
+                        const messagesForAvatar = messages.map(m => ({
+                            id: m.id || '',
+                            threadId: m.threadId ?? null,
+                            author: m.author || '',
+                            timestamp: m.timestamp || '',
+                            text: m.text || '',
+                            edited: m.edited || false,
+                            avatar: m.avatar ?? null,
+                            ...m,
+                        })) as ExtractedMessage[];
+                        const { messages: normalizedMessages, avatars: fetchedAvatars } = await embedAvatarsInContent(messagesForAvatar);
+                        avatars = fetchedAvatars;
 
                         currentRunStartedAt = null;
-                        // Extract the actual chat/channel title instead of using document.title
-                        const title = target === 'team' ? extractChannelTitle() : extractChatTitle();
 
                         const meta = { count: messages.length, title, startAt: startAt || null, endAt: endAt || null, avatars };
                         const requestId = msg.requestId || `${Date.now()}`;
