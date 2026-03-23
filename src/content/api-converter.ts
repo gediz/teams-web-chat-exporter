@@ -23,10 +23,56 @@ const REACTION_EMOJI: Record<string, string> = {
   sad: '😢',
   angry: '😡',
   crossmark: '❌',
+  no: '🚫',
   skull: '💀',
   check: '✔️',
   checkmark: '✔️',
+  clap: '👏',
+  fire: '🔥',
+  '100': '💯',
+  eyes: '👀',
+  pray: '🙏',
+  praying: '🙏',
+  muscle: '💪',
+  tada: '🎉',
+  party: '🎉',
+  rocket: '🚀',
+  wave: '👋',
+  thinking: '🤔',
+  cry: '😢',
+  fistbump: '🤜🤛',
+  worry: '😟',
+  shaking: '🫨',
+  thewave1: '👋',
+  happy_person_raising_one_hand: '🙋',
 };
+
+/**
+ * Resolve Teams emoji codes that use Unicode codepoint naming.
+ * e.g. "2716_heavymultiplicationx" → ✖ (U+2716)
+ *      "2753_blackquestionmarkornament" → ❓ (U+2753)
+ */
+function resolveEmojiCode(key: string): string {
+  // Try to extract leading Unicode codepoint (hex digits before underscore)
+  const match = key.match(/^([0-9a-f]{4,5})(?:_|$)/i);
+  if (match) {
+    try {
+      return String.fromCodePoint(parseInt(match[1], 16));
+    } catch { /* invalid codepoint */ }
+  }
+  // Fallback: show the key as-is
+  return `:${key}:`;
+}
+
+// ── Utility ─────────────────────────────────────────────────────────────
+
+function humanizeBytes(bytes: number): string {
+  if (!bytes || bytes < 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
 
 // ── System Message Types ───────────────────────────────────────────────
 
@@ -54,6 +100,34 @@ function htmlToText(html: string): string {
 
   // Remove script/style
   temp.querySelectorAll('script, style').forEach(el => el.remove());
+
+  // Replace emoji/GIF <img> tags with their alt/title text
+  // Skip generic placeholder alt text on AMS images (e.g. "image", "resim", "Medya")
+  const GENERIC_IMG_ALT = new Set(['image', 'resim', 'medya', 'media', 'shared image', 'image preview', 'undefined', '图像', '影像']);
+  temp.querySelectorAll('img').forEach(img => {
+    const alt = img.getAttribute('alt') || img.getAttribute('title') || '';
+    if (alt && !GENERIC_IMG_ALT.has(alt.toLowerCase().trim())) {
+      img.replaceWith(document.createTextNode(alt));
+    } else {
+      img.remove();
+    }
+  });
+
+  // Replace <video> tags with descriptive text
+  temp.querySelectorAll('video').forEach(video => {
+    const alt = video.getAttribute('alt') || '';
+    const duration = video.getAttribute('data-duration') || '';
+    let label = alt || 'Video';
+    if (duration) {
+      const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/i);
+      if (match) {
+        const m = parseInt(match[2] || '0');
+        const s = parseInt(match[3] || '0');
+        label += ` (${m}:${String(s).padStart(2, '0')})`;
+      }
+    }
+    video.replaceWith(document.createTextNode(`[${label}]`));
+  });
 
   // Convert <br> to newlines
   temp.querySelectorAll('br').forEach(el => el.replaceWith('\n'));
@@ -284,11 +358,11 @@ function convertReactions(properties: Record<string, unknown>): Reaction[] {
 
   return emotions.map(e => {
     const key = (e.key || '').toLowerCase();
-    const emoji = REACTION_EMOJI[key] || `:${e.key}:`;
+    const emoji = REACTION_EMOJI[key] || resolveEmojiCode(e.key || '');
     const users = e.users || [];
     return {
       emoji,
-      count: users.length,
+      count: users.length || 1, // Self-chat reactions have empty users array
       reactors: users.length > 0 ? users.map(u => u.mri) : undefined,
     };
   });
@@ -309,14 +383,336 @@ function convertAttachments(properties: Record<string, unknown>): Attachment[] {
 
   if (!Array.isArray(files)) return [];
 
-  return files.map(f => ({
-    href: (f.objectUrl || f.baseUrl || '') as string,
-    label: (f.fileName || f.title || 'Attachment') as string,
-    type: (f.fileType || null) as string | null,
-    size: null,
-    owner: null,
-    metaText: null,
-  })).filter(a => a.label || a.href);
+  return files.map(f => {
+    const fileType = (f.fileType || '') as string;
+    const objectUrl = (f.objectUrl || f.baseUrl || '') as string;
+    // For image files, use AMS preview URL (fetchable with cookies) over SharePoint URL (requires auth)
+    const preview = f.filePreview as Record<string, unknown> | undefined;
+    const previewUrl = preview?.previewUrl as string | undefined;
+    const isImageFile = /^(png|jpe?g|gif|webp|bmp|svg|ico|tif|heic)$/i.test(fileType);
+    const href = (isImageFile && previewUrl) ? previewUrl : objectUrl;
+
+    return {
+      href,
+      label: (f.fileName || f.title || 'Attachment') as string,
+      type: (fileType || null) as string | null,
+      size: f.fileSize ? humanizeBytes(Number(f.fileSize)) : null,
+      owner: null,
+      metaText: null,
+    };
+  }).filter(a => a.label || a.href);
+}
+
+// ── Inline Image Extraction ───────────────────────────────────────────
+
+const AMS_IMG_RE = /<img[^>]+src="(https?:\/\/[^"]+\/v1\/objects\/[^"]+\/views\/[^"]+)"[^>]*>/gi;
+
+/**
+ * Extract inline image URLs from message content HTML.
+ * Teams inline images use AMS URLs like:
+ *   https://eu-prod.asyncgw.teams.microsoft.com/v1/objects/{id}/views/imgo
+ * Returns Attachment entries with href set to the image URL.
+ * The actual image data will be fetched later by the content script.
+ */
+function extractInlineImages(content: string, existingHrefs: Set<string>): Attachment[] {
+  if (!content) return [];
+  const images: Attachment[] = [];
+  let match;
+  AMS_IMG_RE.lastIndex = 0;
+  while ((match = AMS_IMG_RE.exec(content)) !== null) {
+    const href = match[0].match(/src="([^"]+)"/)?.[1];
+    if (!href || existingHrefs.has(href)) continue;
+    existingHrefs.add(href);
+
+    // Try to extract alt text for label
+    const altMatch = match[0].match(/alt="([^"]+)"/);
+    const label = altMatch ? altMatch[1] : 'image';
+
+    images.push({
+      href,
+      label,
+      type: null,
+      size: null,
+      owner: null,
+      metaText: null,
+    });
+  }
+  return images;
+}
+
+// ── GIF Extraction ────────────────────────────────────────────────────
+
+const GIPHY_IMG_RE = /<img[^>]+itemtype="http:\/\/schema\.skype\.com\/Giphy"[^>]*>/gi;
+const GIF_SRC_RE = /src="(https?:\/\/[^"]+)"/;
+
+/**
+ * Extract Giphy GIF images from message content HTML.
+ * GIF URLs are public (giphy.com) — no auth needed.
+ */
+function extractGifs(content: string, existingHrefs: Set<string>): Attachment[] {
+  if (!content) return [];
+  const gifs: Attachment[] = [];
+  let match;
+  GIPHY_IMG_RE.lastIndex = 0;
+  while ((match = GIPHY_IMG_RE.exec(content)) !== null) {
+    const srcMatch = match[0].match(GIF_SRC_RE);
+    const href = srcMatch?.[1];
+    if (!href || existingHrefs.has(href)) continue;
+    existingHrefs.add(href);
+
+    const altMatch = match[0].match(/alt="([^"]+)"/);
+    const label = altMatch ? altMatch[1] : 'GIF';
+
+    gifs.push({
+      href,
+      label,
+      type: 'gif',
+      size: null,
+      owner: null,
+      metaText: null,
+    });
+  }
+  return gifs;
+}
+
+// ── Video Extraction ──────────────────────────────────────────────────
+
+const VIDEO_RE = /<video[^>]+itemtype="http:\/\/schema\.skype\.com\/AMSVideo"[^>]*>/gi;
+
+/**
+ * Extract inline video from message content HTML.
+ * Returns an Attachment with type='video' and the AMS video URL.
+ */
+function extractVideos(content: string, existingHrefs: Set<string>): Attachment[] {
+  if (!content) return [];
+  const videos: Attachment[] = [];
+  let match;
+  VIDEO_RE.lastIndex = 0;
+  while ((match = VIDEO_RE.exec(content)) !== null) {
+    const srcMatch = match[0].match(/src="(https?:\/\/[^"]+)"/);
+    const videoUrl = srcMatch?.[1];
+    if (!videoUrl || existingHrefs.has(videoUrl)) continue;
+    existingHrefs.add(videoUrl);
+
+    // Construct thumbnail URL: replace /views/video with /views/thumbnail_resized
+    const thumbUrl = videoUrl.replace(/\/views\/video\b/, '/views/thumbnail_resized');
+
+    const durMatch = match[0].match(/data-duration="([^"]+)"/);
+    let durationLabel = '';
+    if (durMatch) {
+      const dm = durMatch[1].match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/i);
+      if (dm) {
+        const m = parseInt(dm[2] || '0');
+        const s = parseInt(dm[3] || '0');
+        durationLabel = ` (${m}:${String(s).padStart(2, '0')})`;
+      }
+    }
+
+    const altMatch = match[0].match(/alt="([^"]+)"/);
+    const label = `Video${durationLabel}${altMatch ? ' — ' + altMatch[1] : ''}`;
+
+    // Use thumbnail as href (fetchable as image), store video URL in metaText for the link
+    videos.push({
+      href: thumbUrl !== videoUrl ? thumbUrl : undefined,
+      label,
+      type: 'video',
+      size: durationLabel.replace(/[() ]/g, '') || null,
+      owner: videoUrl, // store video URL here for the HTML builder to use as link
+      metaText: null,
+    });
+  }
+  return videos;
+}
+
+// ── Link Preview Conversion ───────────────────────────────────────────
+
+/**
+ * Extract rich link previews from properties.links.
+ * Teams stores OpenGraph-like metadata: title, description, preview thumbnail URL.
+ * Returns Attachment entries with kind='preview' to reuse existing card rendering.
+ */
+function convertLinkPreviews(properties: Record<string, unknown>, existingHrefs: Set<string>): Attachment[] {
+  const rawLinks = properties.links;
+  if (!rawLinks) return [];
+
+  let links: Array<Record<string, unknown>>;
+  try {
+    links = typeof rawLinks === 'string' ? JSON.parse(rawLinks) : rawLinks as typeof links;
+  } catch { return []; }
+
+  if (!Array.isArray(links)) return [];
+
+  const previews: Attachment[] = [];
+  for (const link of links) {
+    let preview = link.preview as Record<string, unknown> | string | undefined;
+    if (!preview) continue;
+    if (typeof preview === 'string') {
+      try { preview = JSON.parse(preview); } catch { continue; }
+    }
+    if (typeof preview !== 'object' || !preview) continue;
+
+    const title = (preview.title || '') as string;
+    const description = (preview.description || '') as string;
+    const previewUrl = (preview.previewurl || '') as string;
+    const linkUrl = (link.url || '') as string;
+
+    // Skip if no useful data
+    if (!title && !description && !previewUrl) continue;
+
+    // Skip if link URL is already in content (would be redundant)
+    if (linkUrl && existingHrefs.has(linkUrl)) continue;
+
+    // Build source label from domain
+    let sourceLabel = '';
+    try {
+      sourceLabel = new URL(linkUrl).hostname;
+    } catch {
+      sourceLabel = linkUrl.substring(0, 40);
+    }
+
+    // Build metaText: title on first line, description on subsequent lines
+    const metaParts = [title, description].filter(Boolean);
+    const metaText = metaParts.join('\n') || undefined;
+
+    previews.push({
+      href: previewUrl || undefined,
+      label: sourceLabel || 'link preview',
+      type: null,
+      size: null,
+      owner: null,
+      metaText: metaText || null,
+      kind: 'preview',
+    });
+
+    if (previewUrl) existingHrefs.add(previewUrl);
+  }
+
+  return previews;
+}
+
+// ── Card Conversion ───────────────────────────────────────────────────
+
+/**
+ * Parse ISO 8601 duration (e.g. "PT12S" → "0:12", "PT1M30S" → "1:30").
+ */
+function formatDuration(iso: string): string {
+  const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/i);
+  if (!match) return iso;
+  const h = parseInt(match[1] || '0');
+  const m = parseInt(match[2] || '0');
+  const s = parseInt(match[3] || '0');
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/**
+ * Extract attachments from properties.cards (audio cards, adaptive cards).
+ * Most cards entries are empty arrays; only non-empty ones are processed.
+ */
+function convertCards(properties: Record<string, unknown>, existingHrefs: Set<string>): Attachment[] {
+  const rawCards = properties.cards;
+  if (!rawCards) return [];
+
+  let cards: Array<Record<string, unknown>>;
+  try {
+    cards = typeof rawCards === 'string' ? JSON.parse(rawCards) : rawCards as typeof cards;
+  } catch { return []; }
+
+  if (!Array.isArray(cards) || !cards.length) return [];
+
+  const results: Attachment[] = [];
+
+  for (let card of cards) {
+    if (typeof card === 'string') {
+      try { card = JSON.parse(card); } catch { continue; }
+    }
+    if (!card || typeof card !== 'object') continue;
+
+    const contentType = (card.contentType || '') as string;
+    const content = card.content as Record<string, unknown> | undefined;
+    if (!content || typeof content !== 'object') continue;
+
+    // Audio card (voice message)
+    if (contentType === 'application/vnd.microsoft.card.audio') {
+      const duration = content.duration ? formatDuration(String(content.duration)) : '';
+      const media = content.media as Array<Record<string, string>> | undefined;
+      const mediaUrl = media?.[0]?.url || '';
+      if (!mediaUrl || existingHrefs.has(mediaUrl)) continue;
+      existingHrefs.add(mediaUrl);
+
+      results.push({
+        href: mediaUrl,
+        label: `Voice message (${duration || '?'})`,
+        type: 'audio',
+        size: duration || null,
+        owner: null,
+        metaText: null,
+      });
+      continue;
+    }
+
+    // Adaptive card (structured content from bots/connectors)
+    if (contentType === 'application/vnd.microsoft.card.adaptive') {
+      const body = content.body as Array<Record<string, unknown>> | undefined;
+      if (!Array.isArray(body) || !body.length) continue;
+
+      // Extract text blocks for title/description
+      const textBlocks: string[] = [];
+      let imageUrl = '';
+      for (const item of body) {
+        if (item.type === 'TextBlock' && item.text) {
+          textBlocks.push(String(item.text).trim());
+        }
+        if (item.type === 'Container') {
+          const bg = item.backgroundImage as Record<string, string> | undefined;
+          if (bg?.url && !imageUrl) imageUrl = bg.url;
+          // Check nested items
+          const items = item.items as Array<Record<string, unknown>> | undefined;
+          if (items) {
+            for (const sub of items) {
+              if (sub.type === 'TextBlock' && sub.text) {
+                textBlocks.push(String(sub.text).trim());
+              }
+            }
+          }
+        }
+        if (item.type === 'Image' && item.url && !imageUrl) {
+          imageUrl = String(item.url);
+        }
+      }
+
+      // Get action URL
+      const action = content.selectAction as Record<string, string> | undefined;
+      const actionUrl = action?.url || '';
+
+      const title = textBlocks[0] || '';
+      const description = textBlocks.slice(1).filter(Boolean).join('\n');
+      if (!title && !imageUrl) continue;
+
+      // Source label from app name or action URL domain
+      const appName = (card.appName || '') as string;
+      let sourceLabel = appName;
+      if (!sourceLabel && actionUrl) {
+        try { sourceLabel = new URL(actionUrl).hostname; } catch { sourceLabel = ''; }
+      }
+
+      const metaParts = [title, description].filter(Boolean);
+      results.push({
+        href: imageUrl || undefined,
+        label: sourceLabel || 'card',
+        type: null,
+        size: null,
+        owner: null,
+        metaText: metaParts.join('\n') || null,
+        kind: 'preview',
+      });
+
+      if (imageUrl) existingHrefs.add(imageUrl);
+      continue;
+    }
+  }
+
+  return results;
 }
 
 // ── Mentions Conversion ────────────────────────────────────────────────
@@ -477,8 +873,30 @@ function convertOneMessage(
     }
   }
 
-  // Attachments
-  const attachments = convertAttachments(properties);
+  // Attachments (file attachments + inline images + link previews)
+  const fileAttachments = convertAttachments(properties);
+  const existingHrefs = new Set(fileAttachments.map(a => a.href).filter(Boolean) as string[]);
+  const inlineImages = extractInlineImages(rawContent, existingHrefs);
+  const gifs = extractGifs(rawContent, existingHrefs);
+  const videoAtts = extractVideos(rawContent, existingHrefs);
+  const linkPreviews = convertLinkPreviews(properties, existingHrefs);
+  const cardAttachments = convertCards(properties, existingHrefs);
+  // Deduplicate preview cards: adaptive cards may duplicate link previews for the same URL
+  const previewTitles = linkPreviews
+    .filter(a => a.kind === 'preview' && a.metaText)
+    .map(a => (a.metaText || '').split('\n')[0].toLowerCase().trim())
+    .filter(Boolean);
+  const dedupedCards = cardAttachments.filter(a => {
+    if (a.kind !== 'preview' || !a.metaText) return true;
+    const title = (a.metaText || '').split('\n')[0].toLowerCase().trim();
+    if (!title) return true;
+    // Substring match: "Title" vs "Title - Author - Site" are duplicates
+    const isDupe = previewTitles.some(pt => pt.includes(title) || title.includes(pt));
+    if (isDupe) return false;
+    previewTitles.push(title);
+    return true;
+  });
+  const attachments = [...fileAttachments, ...inlineImages, ...gifs, ...videoAtts, ...linkPreviews, ...dedupedCards];
 
   // Edited
   const edited = Boolean(properties.edittime);

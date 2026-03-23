@@ -379,7 +379,13 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
     }
 
     if (msg.type === 'SCRAPE_PROGRESS') {
-        updateBadgeForProgress(msg.payload || msg);
+        const payload = msg.payload || msg;
+        updateBadgeForProgress(payload);
+        // Forward progress to popup for detailed status display
+        try {
+            const fwd = runtime.sendMessage({ type: 'EXPORT_PROGRESS', ...payload });
+            if (fwd && fwd.catch) fwd.catch(() => {});
+        } catch { /* popup may be closed */ }
         return;
     }
 

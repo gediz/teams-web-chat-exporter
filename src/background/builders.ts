@@ -86,12 +86,17 @@ async function fetchAsDataURL(url: string) {
 }
 
 export function toCSV(messages: ExportMessage[]) {
-  const header = ['id', 'author', 'timestamp', 'text', 'edited', 'system', 'reactions_json', 'attachments_json'];
+  const header = ['id', 'author', 'timestamp', 'text', 'edited', 'system', 'subject', 'importance', 'mentions', 'reactions_json', 'attachments_json'];
 
   const rows = (messages || []).map(m => {
     const row = [];
     const text = (m.text || '').replace(/\n/g, '\\n');
     row.push(m.id ?? '', m.author ?? '', m.timestamp ?? '', text, m.edited ? 'true' : 'false', m.system ? 'true' : 'false');
+
+    row.push(m.subject ?? '');
+    row.push(m.importance ?? '');
+    const mentions = Array.isArray(m.mentions) ? m.mentions.map(n => n.name).join(', ') : '';
+    row.push(mentions);
 
     const reactions = Array.isArray(m.reactions) ? m.reactions : [];
     row.push(reactions.length ? JSON.stringify(reactions) : '');
@@ -105,7 +110,7 @@ export function toCSV(messages: ExportMessage[]) {
   return [header.join(','), ...rows].join('\n');
 }
 
-export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
+export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
   // Restore the richer HTML layout (avatars, replies, attachment grid, divider, compact mode)
   const fmtTs = (s: string | number) => {
     if (!s) return '';
@@ -206,6 +211,8 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     return formatWithQuotes(raw);
   };
   const initials = (name = '') => (name.trim().split(/\s+/).map(p => p[0]).join('').slice(0, 2) || '?');
+  const avatarMap = meta.avatars || {};
+  const safeCssId = (id: string) => id.replace(/[^a-zA-Z0-9_-]/g, '');
 
   const style = `<style>
     :root { --muted:#6b7280; --border:#e5e7eb; --bg:#ffffff; --chip:#f3f4f6; --thread-bg:#f8fafc; --thread-border:#dbeafe; --thread-accent:#3b82f6; }
@@ -218,6 +225,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     .msg{position:relative; display:flex; gap:10px; margin:12px 0; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--bg)}
     .avt{flex:0 0 36px; width:36px; height:36px; border-radius:50%; background:#eef2f7; overflow:hidden; display:flex; align-items:center; justify-content:center; font-weight:600; color:#334155}
     .avt img{width:36px; height:36px; border-radius:50%; display:block}
+    .avt-img{width:36px; height:36px; border-radius:50%; display:block; background-size:cover; background-position:center}
     .main{flex:1}
     code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;background:#f3f4f6;border:1px solid #e5e7eb;padding:1px 4px;border-radius:4px}
     pre.code-block{background:#0b1020;color:#e5e7eb;border-radius:10px;padding:10px 12px;overflow:auto;margin:8px 0;border:1px solid #111827}
@@ -248,6 +256,11 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     .atts{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; margin-top:8px}
     .att, .att-img{border:1px solid var(--border); border-radius:10px; padding:8px; background:#fff; transition:max-height .2s ease, opacity .2s ease}
     .att a{word-break:break-word; overflow-wrap:anywhere; text-decoration:none}
+    .att-audio{max-width:320px}
+    .att-audio audio{width:100%; margin-top:6px; border-radius:8px}
+    .att-video{position:relative; max-width:240px}
+    .att-video img{border-radius:10px; cursor:pointer !important}
+    .video-badge{position:absolute; bottom:8px; left:8px; background:rgba(0,0,0,0.7); color:#fff; font-size:12px; font-weight:600; padding:2px 8px; border-radius:4px}
     .att-meta{margin-top:6px; font-size:12px; color:#6b7280}
     .att-img{padding:0; overflow:hidden}
     .att-img img{display:block; width:100%; height:auto; max-height:340px; object-fit:contain; background:#fff; cursor:zoom-in}
@@ -267,19 +280,24 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     .img-modal[hidden]{display:none}
     .img-modal img{max-width:96vw; max-height:92vh; object-fit:contain; box-shadow:0 12px 40px rgba(0,0,0,0.4); background:#111}
     .img-modal .close{position:fixed; top:16px; right:16px; width:36px; height:36px; border-radius:18px; border:0; background:#111; color:#fff; font-size:20px; line-height:36px; cursor:pointer}
+    .subject{font-weight:600; font-size:15px; margin-bottom:4px; color:#0f172a}
+    .badge-urgent{display:inline-block; background:#dc2626; color:#fff; font-size:11px; font-weight:600; padding:1px 6px; border-radius:4px; margin-left:6px; vertical-align:middle}
+    .badge-important{display:inline-block; background:#d97706; color:#fff; font-size:11px; font-weight:600; padding:1px 6px; border-radius:4px; margin-left:6px; vertical-align:middle}
+    .mention{background:#dbeafe; padding:0 3px; border-radius:3px; color:#1d4ed8; font-weight:500}
     .reactions{margin-top:6px; font-size:12px; color:#374151}
     .chip{display:inline-flex; gap:6px; align-items:center; padding:2px 8px; border-radius:999px; background:#f3f4f6; border:1px solid transparent}
     .chip.self{border-color:#2563eb; box-shadow:0 0 0 1px rgba(37,99,235,0.2) inset}
-    .divider{position:relative; text-align:center; margin:18px 0}
-    .divider:before, .divider:after{content:""; position:absolute; top:50%; width:42%; height:1px; background:var(--border)}
-    .divider:before{left:0} .divider:after{right:0}
-    .divider span{display:inline-block; padding:0 10px; color:var(--muted); background:#fff; font-weight:600}
+    .divider{display:flex; align-items:center; gap:10px; margin:18px 0}
+    .divider:before, .divider:after{content:""; flex:1; height:1px; background:var(--border)}
+    .divider span{color:var(--muted); font-weight:600; white-space:nowrap; font-size:13px}
     .compact .msg{padding:10px}
     .compact .reactions{display:none}
     .compact .reply{display:none}
     .compact .att{max-height:0; opacity:0; pointer-events:none; padding:0; border:none; margin:0}
     .compact .att-img{max-height:0; opacity:0; pointer-events:none; padding:0; border:none; margin:0}
     .compact .att-preview{max-height:0; opacity:0; pointer-events:none; padding:0; border:none; margin:0}
+    .att-summary{display:none; font-size:12px; color:var(--muted); margin-top:4px}
+    .compact .att-summary{display:block}
     .compact .tbl-wrap{max-height:0; opacity:0; pointer-events:none; padding:0; border:none; margin:0}
     .compact .atts{gap:0; margin-top:0}
     .compact .avt{display:none}
@@ -288,6 +306,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     .compact .thread-replies{padding-left:12px}
     .compact .msg.reply-msg:before{left:-14px; top:16px; width:8px; height:8px}
     .main > div{word-break:break-word; overflow-wrap:anywhere}
+    ${Object.entries(avatarMap).map(([id, dataUrl]) => `.avt-${safeCssId(id)}{background-image:url("${dataUrl.replace(/["\\]/g, '')}")}`).join('\n    ')}
   </style>`;
 
   const metaParts = [];
@@ -310,9 +329,14 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     const tables = Array.isArray(m.tables) ? m.tables : [];
     const replyTo = m.replyTo;
     const text = formatText(m.text || '');
-    const avatar = m.avatar
-      ? `<img src="${escapeHtml(m.avatar)}" alt="avatar" />`
-      : escapeHtml((m.author || '').split(' ').map(p => p[0]).join('').slice(0, 2) || '?');
+    // Use CSS class for avatars (avoids duplicating large data URLs in every message)
+    const avatarId = m.avatarId || '';
+    const hasAvatar = avatarId && avatarMap[avatarId];
+    const avatar = hasAvatar
+      ? `<span class="avt-img avt-${safeCssId(avatarId)}"></span>`
+      : m.avatar
+        ? `<img src="${escapeHtml(m.avatar)}" alt="avatar" />`
+        : escapeHtml((m.author || '').split(' ').map(p => p[0]).join('').slice(0, 2) || '?');
 
     const reactHtml = reactions
       .map(r => `<span class="chip${r.self ? ' self' : ''}">${escapeHtml(r.emoji || '')} ${r.count}${r.reactors ? ` · ${escapeHtml(r.reactors.join(', '))}` : ''}</span>`)
@@ -340,15 +364,35 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
           const source = att.label ? `<div class="att-preview-source">${label}</div>` : '';
           return `<div class="att-preview">${img}<div class="att-preview-body">${source}<div class="att-preview-title">${title}</div>${restHtml}</div></div>`;
         }
-        const isImage =
-          !!att.href &&
-          (
-            /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.href) ||
-            /asyncgw\.teams\.microsoft\.com/i.test(att.href) ||
-            /asm\.skype\.com/i.test(att.href) ||
-            /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.label || '') ||
-            /^(png|jpe?g|gif|webp)$/i.test(att.type || '')
-          );
+        // Video attachments: show thumbnail with play overlay + link to video
+        if (att.type === 'video') {
+          const thumbSrc = att.dataUrl || href;
+          const videoUrl = att.owner || ''; // video URL stored in owner field
+          const videoLink = videoUrl ? `<a href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener">` : '';
+          const videoLinkEnd = videoUrl ? '</a>' : '';
+          if (thumbSrc) {
+            return `<div class="att-img att-video">${videoLink}<img src="${escapeHtml(thumbSrc)}" alt="${escapeHtml(att.label || 'Video')}" /><div class="video-badge">${escapeHtml(att.size || '▶')}</div>${videoLinkEnd}</div>`;
+          }
+          return `<div class="att">${videoLink}🎬 ${escapeHtml(att.label || 'Video')}${videoLinkEnd}</div>`;
+        }
+        // Audio attachments (voice messages)
+        if (att.type === 'audio') {
+          const audioSrc = att.dataUrl || href;
+          if (audioSrc) {
+            return `<div class="att att-audio">🎤 ${escapeHtml(att.label || 'Voice message')}<br><audio controls preload="none" src="${escapeHtml(audioSrc)}">Your browser does not support audio.</audio></div>`;
+          }
+          return `<div class="att">🎤 ${label}</div>`;
+        }
+        const isEmbeddedImage = !!att.dataUrl || /^data:image\//i.test(att.href || '');
+        const isAmsImage = /asyncgw\.teams\.microsoft\.com|asm\.skype\.com/i.test(att.href || '');
+        const isLocalImage = /^images\//i.test(att.href || '');
+        const looksLikeImage =
+          /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.href || '') ||
+          /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.label || '') ||
+          /^(png|jpe?g|gif|webp)$/i.test(att.type || '');
+        // Only render as <img> if we have the data or the URL is a known image service.
+        // SharePoint/OneDrive URLs require auth and will 401 as img src.
+        const isImage = !!att.href && (isEmbeddedImage || isAmsImage || isLocalImage || (looksLikeImage && !(/sharepoint\.com|\.my\.\w/i.test(att.href || ''))));
 
         if (isImage && href) {
           return `<div class="att-img"><img src="${href}" alt="${label}" data-full="${href}" />${metaText}</div>`;
@@ -393,12 +437,14 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     return `<div class="${msgClass}" id="msg-${idx}">
       <div class="avt">${avatar}</div>
       <div class="main">
-        <div class="hdr">${escapeHtml(m.author || '')} — <span title="${escapeHtml(ts)}">${tsLabel}</span>${rel ? `<span class="rel">(${rel})</span>` : ''}${m.edited ? ' <span class="edited">• edited</span>' : ''}</div>
+        <div class="hdr">${escapeHtml(m.author || '')} — <span title="${escapeHtml(ts)}">${tsLabel}</span>${rel ? `<span class="rel">(${rel})</span>` : ''}${m.edited ? ' <span class="edited">• edited</span>' : ''}${m.importance === 'urgent' ? '<span class="badge-urgent">URGENT</span>' : m.importance === 'high' ? '<span class="badge-important">IMPORTANT</span>' : ''}</div>
+        ${m.subject ? `<div class="subject">${escapeHtml(m.subject)}</div>` : ''}
         ${forwardHtml}${replyHtml}
-        <div>${text || (m.forwarded ? '' : '<span class="meta">(no text)</span>')}</div>
+        <div>${text || (m.forwarded || atts.length ? '' : '<span class="meta">(no text)</span>')}</div>
         ${tablesHtml || ''}
         ${reactHtml ? `<div class="reactions">${reactHtml}</div>` : ''}
         ${attsHtml ? `<div class="atts">${attsHtml}</div>` : ''}
+        ${atts.length ? `<div class="att-summary">📎 ${atts.length} attachment${atts.length > 1 ? 's' : ''}</div>` : ''}
       </div>
     </div>`;
   };
@@ -569,48 +615,66 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     parts.push(renderMessage(m));
   }
 
-  const body = parts.join('');
-
   const modal = `<div class="img-modal" id="img-modal" hidden>
     <button class="close" type="button" aria-label="Close">X</button>
     <img alt="full size image" />
   </div>`;
 
-  const script = `<script>(()=>{const btn=document.querySelector('[data-toggle-compact]');const key='teamsExporterCompact';const apply=(c)=>{document.body.classList.toggle('compact',c);if(btn)btn.textContent=c?'Switch to expanded view':'Switch to compact view';};const stored=localStorage.getItem(key);let compact=stored==='1';apply(compact);if(btn){btn.addEventListener('click',()=>{compact=!compact;apply(compact);try{localStorage.setItem(key,compact?'1':'0');}catch(_){}});}document.querySelectorAll('.thread').forEach((thread)=>{const toggle=thread.querySelector('[data-thread-toggle]');if(!toggle)return;toggle.addEventListener('click',()=>{const collapsed=thread.classList.toggle('collapsed');toggle.textContent=collapsed?'Expand':'Collapse';});});const modal=document.getElementById('img-modal');const modalImg=modal?modal.querySelector('img'):null;const closeBtn=modal?modal.querySelector('.close'):null;const close=()=>{if(modal){modal.hidden=true;}};const open=(src,alt)=>{if(!modal||!modalImg)return;modalImg.src=src;modalImg.alt=alt||'image';modal.hidden=false;};if(closeBtn){closeBtn.addEventListener('click',close);}if(modal){modal.addEventListener('click',(e)=>{if(e.target===modal)close();});}document.addEventListener('keydown',(e)=>{if(e.key==='Escape')close();});document.body.addEventListener('click',(e)=>{const t=e.target;if(!(t instanceof Element))return;const img=t.closest('.att-img img');if(!img)return;const src=img.getAttribute('data-full')||img.getAttribute('src');if(!src)return;open(src,img.getAttribute('alt')||'image');});})();</script>`;
+  const script = `<script>(()=>{const btn=document.querySelector('[data-toggle-compact]');const key='teamsExporterCompact';const apply=(c)=>{document.body.classList.toggle('compact',c);if(btn)btn.textContent=c?'Switch to expanded view':'Switch to compact view';};const stored=localStorage.getItem(key);let compact=stored==='1';apply(compact);if(btn){btn.addEventListener('click',()=>{compact=!compact;apply(compact);try{localStorage.setItem(key,compact?'1':'0');}catch(_){}});}document.querySelectorAll('.thread').forEach((thread)=>{const toggle=thread.querySelector('[data-thread-toggle]');if(!toggle)return;toggle.addEventListener('click',()=>{const collapsed=thread.classList.toggle('collapsed');toggle.textContent=collapsed?'Expand':'Collapse';});});const modal=document.getElementById('img-modal');const modalImg=modal?modal.querySelector('img'):null;const closeBtn=modal?modal.querySelector('.close'):null;const close=()=>{if(modal){modal.hidden=true;}};const open=(src,alt)=>{if(!modal||!modalImg)return;modalImg.src=src;modalImg.alt=alt||'image';modal.hidden=false;};if(closeBtn){closeBtn.addEventListener('click',close);}if(modal){modal.addEventListener('click',(e)=>{if(e.target===modal)close();});}document.addEventListener('keydown',(e)=>{if(e.key==='Escape')close();});document.body.addEventListener('click',(e)=>{const t=e.target;if(!(t instanceof Element))return;const img=t.closest('.att-img img');if(!img)return;if(img.closest('.att-video'))return;const src=img.getAttribute('data-full')||img.getAttribute('src');if(!src)return;open(src,img.getAttribute('alt')||'image');});})();</script>`;
 
-  return `<!doctype html><meta charset="utf-8">${style}${head}${body}${modal}${script}`;
+  // Return as array of chunks to avoid "Invalid string length" on large exports.
+  // Callers use Blob(chunks) directly instead of concatenating into one string.
+  return [`<!doctype html><meta charset="utf-8">${style}${head}`, ...parts, modal, script];
 }
 
-const hasBlobUrls = typeof URL.createObjectURL === 'function';
-
-/** Create a downloadable URL from text. Uses Blob URL when available, data URL in service workers. */
-export function textToDownloadUrl(text: string, mime: string): string {
-  if (hasBlobUrls) {
-    return URL.createObjectURL(new Blob([text], { type: mime }));
+/** Lazy check for Blob URL support (service workers may not have it). */
+function canCreateBlobUrls(): boolean {
+  try {
+    return typeof URL.createObjectURL === 'function';
+  } catch {
+    return false;
   }
-  // Service worker fallback: base64 data URL
-  const encoded = btoa(unescape(encodeURIComponent(text)));
-  return `data:${mime};base64,${encoded}`;
+}
+
+/** Create a downloadable URL from text (string or chunked string[]). Uses Blob URL when available. */
+export function textToDownloadUrl(text: string | string[], mime: string): string {
+  const parts = Array.isArray(text) ? text : [text];
+  if (canCreateBlobUrls()) {
+    try {
+      return URL.createObjectURL(new Blob(parts, { type: mime }));
+    } catch { /* fall through */ }
+  }
+  // Service worker fallback: encode chunks individually to avoid single huge string
+  const encoder = new TextEncoder();
+  const encoded = parts.map(p => encoder.encode(p));
+  const totalLen = encoded.reduce((s, a) => s + a.length, 0);
+  const bytes = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const chunk of encoded) { bytes.set(chunk, offset); offset += chunk.length; }
+  return binaryToDownloadUrl(bytes, mime);
 }
 
 /** Create a downloadable URL from binary data. Uses Blob URL when available, data URL in service workers. */
 export function binaryToDownloadUrl(data: Uint8Array, mime: string): string {
-  if (hasBlobUrls) {
-    return URL.createObjectURL(new Blob([data as BlobPart], { type: mime }));
+  if (canCreateBlobUrls()) {
+    try {
+      return URL.createObjectURL(new Blob([data as BlobPart], { type: mime }));
+    } catch { /* fall through */ }
   }
   // Service worker fallback: chunked base64 data URL
-  let binary = '';
+  // Process in small chunks to avoid string length limits
   const CHUNK = 32768;
+  const binaryChunks: string[] = [];
   for (let i = 0; i < data.length; i += CHUNK) {
     const chunk = data.subarray(i, i + CHUNK);
-    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+    binaryChunks.push(String.fromCharCode.apply(null, chunk as unknown as number[]));
   }
-  return `data:${mime};base64,${btoa(binary)}`;
+  return `data:${mime};base64,${btoa(binaryChunks.join(''))}`;
 }
 
 /** Revoke a URL if it's a Blob URL (no-op for data URLs). */
 export function revokeDownloadUrl(url: string) {
-  if (hasBlobUrls && url.startsWith('blob:')) {
+  if (url.startsWith('blob:') && canCreateBlobUrls()) {
     URL.revokeObjectURL(url);
   }
 }
