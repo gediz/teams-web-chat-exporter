@@ -228,6 +228,10 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
     .reply{background:#f8fafc; border-left:3px solid #d1d5db; padding:8px 10px; border-radius:8px; margin:8px 0; font-size:13px; color:#374151}
     .reply .reply-meta{display:flex; flex-wrap:wrap; gap:6px; font-size:12px; color:#6b7280; margin-bottom:4px}
     .reply blockquote{margin:0; padding:0; border:none; color:#1f2937; word-wrap:break-word; overflow-wrap:anywhere}
+    .forward{background:#f8fafc; border:1px solid #e2e8f0; border-left:3px solid #60a5fa; border-radius:8px; padding:10px 12px; margin:8px 0; font-size:13px}
+    .forward-header{color:#6b7280; font-size:12px; margin-bottom:6px; display:flex; align-items:center; gap:6px}
+    .forward-icon{font-size:14px}
+    .forward-body{color:#374151; word-wrap:break-word; overflow-wrap:anywhere}
     blockquote{margin:8px 0; padding:8px 10px; border-left:3px solid #d1d5db; background:#f8fafc; color:#374151}
     .thread{border:1px solid var(--thread-border); background:var(--thread-bg); border-radius:14px; padding:10px 12px; margin:14px 0}
     .thread-parent .msg{margin:0; border-left:4px solid var(--thread-accent)}
@@ -369,9 +373,14 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string {
       .join('');
 
     const hasReplyPreview = replyTo && (replyTo.author || replyTo.timestamp || replyTo.text);
-    const replyHtml = hasReplyPreview && !opts.isReply
-      ? `<div class="reply"><div class="reply-meta">↩︎ <strong>${escapeHtml(replyTo.author || '')}</strong>${replyTo.timestamp ? `<span>• ${escapeHtml(replyTo.timestamp)}</span>` : ''}</div><blockquote>${escapeHtml(replyTo.text || '')}</blockquote></div>`
-      : '';
+    let replyHtml = '';
+    if (hasReplyPreview && !opts.isReply) {
+      if (m.forwarded && replyTo) {
+        replyHtml = `<div class="forward"><div class="forward-header"><span class="forward-icon">↪</span> Forwarded from <strong>${escapeHtml(replyTo.author || 'unknown')}</strong></div>${replyTo.text ? `<div class="forward-body">${escapeHtml(replyTo.text)}</div>` : ''}</div>`;
+      } else {
+        replyHtml = `<div class="reply"><div class="reply-meta">↩︎ <strong>${escapeHtml(replyTo!.author || '')}</strong>${replyTo!.timestamp ? `<span>• ${escapeHtml(replyTo!.timestamp)}</span>` : ''}</div><blockquote>${escapeHtml(replyTo!.text || '')}</blockquote></div>`;
+      }
+    }
 
     const msgClass = `msg${opts.isReply ? ' reply-msg' : ''}`;
     return `<div class="${msgClass}" id="msg-${idx}">

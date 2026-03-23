@@ -295,7 +295,22 @@ function toPlainText(messages: ExportMessage[]) {
     const ts = m.timestamp || '';
     const author = m.author || '[unknown]';
     const text = (m.text || '').replace(/\r\n/g, '\n').replace(/\n{2,}/g, '\n\n');
-    lines.push(`[${ts}] ${author}: ${text}`);
+    let line = `[${ts}] ${author}: ${text}`;
+
+    // Include reply/forward context
+    if (m.forwarded && m.replyTo?.author) {
+      const fwdText = m.replyTo.text ? m.replyTo.text.replace(/\n/g, ' ').slice(0, 300) : '';
+      const fwdFrom = `[forwarded from ${m.replyTo.author}]`;
+      line = text
+        ? `[${ts}] ${author}: ${text}\n  ${fwdFrom} ${fwdText}`
+        : `[${ts}] ${author} ${fwdFrom}: ${fwdText}`;
+    } else if (m.replyTo?.text) {
+      const quotedText = m.replyTo.text.replace(/\n/g, ' ').slice(0, 200);
+      const attribution = m.replyTo.author ? `${m.replyTo.author}: ` : '';
+      line = `[${ts}] ${author}: ${text}\n  > ${attribution}${quotedText}`;
+    }
+
+    lines.push(line);
   }
   return lines.join('\n');
 }

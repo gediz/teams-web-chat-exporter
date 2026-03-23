@@ -26,6 +26,7 @@ export type ExportMessage = {
   text?: string;
   edited?: boolean;
   system?: boolean;
+  forwarded?: boolean; // Message was forwarded from another conversation
   avatar?: string | null;
   avatarId?: string; // Reference to avatar in meta.avatars when normalized
   avatarUrl?: string; // Original HTTP URL (for ID extraction), removed before export

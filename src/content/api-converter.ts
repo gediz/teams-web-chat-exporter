@@ -205,16 +205,24 @@ function resolveForwardAuthor(properties: Record<string, unknown>, mriMap: Map<s
 }
 
 /**
- * Extract text from a forward blockquote.
- * Forward content uses `<blockquote itemtype="http://schema.skype.com/Forward">`.
+ * Extract forwarded content and any commentary from the forwarder.
+ * The API content has: [forwarder's comment] <blockquote itemtype="schema.skype.com/Forward">[original content]</blockquote>
  */
-function extractForwardContent(html: string): string | null {
+function extractForwardParts(html: string): { comment: string; forwardedText: string } | null {
   if (!html || !html.includes('schema.skype.com/Forward')) return null;
   const temp = document.createElement('div');
   temp.innerHTML = html;
   const bq = temp.querySelector('blockquote[itemtype*="Forward"]');
   if (!bq) return null;
-  return htmlToText(bq.innerHTML);
+
+  // Extract forwarded content
+  const forwardedText = htmlToText(bq.innerHTML);
+
+  // Remove the blockquote to get the forwarder's own comment
+  bq.remove();
+  const comment = htmlToText(temp.innerHTML);
+
+  return { comment, forwardedText };
 }
 
 // ── Reply-To Extraction ────────────────────────────────────────────────
@@ -390,20 +398,49 @@ function convertOneMessage(
 
   // Content + reply extraction
   const rawContent = msg.content || '';
-  let text: string;
+  let text = '';
   let replyTo: ReplyContext | null = null;
 
-  // For forwarded messages, resolve the original author from originalMessageContext
-  if (isForwarded && !author) {
-    const fwdAuthor = resolveForwardAuthor(properties, mriMap);
-    author = fwdAuthor ? `${fwdAuthor} [forwarded]` : '[forwarded]';
+  // For forwarded messages: author = forwarder, text = forwarded content,
+  // replyTo = attribution to original author
+  if (isForwarded) {
+    const originalAuthor = resolveForwardAuthor(properties, mriMap);
+    // Try to resolve forwarder name from gid: in `from` field via MRI map
+    if (!author && msg.from) {
+      author = mriMap.get(msg.from) || '';
+      // Try extracting UUID and looking up as 8:orgid:{uuid}
+      if (!author) {
+        const uuid = msg.from.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
+        if (uuid) author = mriMap.get(`8:orgid:${uuid[1]}`) || mriMap.get(`gid:${uuid[1]}`) || '';
+      }
+    }
+    if (!author) author = '[forwarded]';
+
+    // Separate forwarder's comment from forwarded content
+    const fwdParts = rawContent.includes('schema.skype.com/Forward')
+      ? extractForwardParts(rawContent)
+      : null;
+
+    if (fwdParts) {
+      text = fwdParts.comment; // Forwarder's own commentary (may be empty)
+      // Attribute the original author and include forwarded text in replyTo
+      replyTo = {
+        author: originalAuthor || '',
+        timestamp: '',
+        text: fwdParts.forwardedText,
+      };
+    } else {
+      text = htmlToText(rawContent);
+      if (originalAuthor) {
+        replyTo = { author: originalAuthor, timestamp: '', text: '' };
+      }
+    }
   }
 
-  if (isSystem) {
+  if (isForwarded) {
+    // Already handled above
+  } else if (isSystem) {
     text = parseSystemContent(rawContent, messageType, mriMap);
-  } else if (isForwarded && rawContent.includes('schema.skype.com/Forward')) {
-    // Forwarded messages: extract text from <blockquote itemtype="schema.skype.com/Forward">
-    text = extractForwardContent(rawContent) || htmlToText(rawContent);
   } else if (messageType === 'RichText/Html' || rawContent.startsWith('<')) {
     // Extract reply from blockquote if present
     if (opts.includeReplies !== false) {
@@ -446,6 +483,7 @@ function convertOneMessage(
     text,
     edited,
     system: isSystem,
+    forwarded: isForwarded || undefined,
     avatar: null,
     reactions,
     attachments,
