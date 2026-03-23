@@ -18,22 +18,35 @@ export type ReplyContext = {
   id?: string;
 };
 
+export type ForwardContext = {
+  originalAuthor?: string;      // Who wrote the original message
+  originalTimestamp?: string;    // When the original was sent
+  originalMessageId?: string;   // ID of the original message
+  originalThreadId?: string;    // Conversation the original came from
+  originalText?: string;        // Content of the original forwarded message
+};
+
 export type ExportMessage = {
   id?: string;
   threadId?: string | null;
   author?: string;
   timestamp?: string;
   text?: string;
+  contentHtml?: string;           // Raw HTML content (API mode only)
+  messageType?: string;           // e.g. "Text", "RichText/Html", "Event/Call"
   edited?: boolean;
   system?: boolean;
-  forwarded?: boolean; // Message was forwarded from another conversation
+  forwarded?: ForwardContext;     // Forward context with original author info
+  importance?: string;            // "normal", "urgent", etc.
+  subject?: string;               // Subject line (channel posts)
   avatar?: string | null;
-  avatarId?: string; // Reference to avatar in meta.avatars when normalized
-  avatarUrl?: string; // Original HTTP URL (for ID extraction), removed before export
+  avatarId?: string;
+  avatarUrl?: string;
   reactions?: Reaction[];
   attachments?: Attachment[];
   tables?: string[][][];
   replyTo?: ReplyContext | null;
+  mentions?: Array<{ name: string; mri?: string }>;  // @mentions in the message
 };
 
 export type ExportMeta = {
