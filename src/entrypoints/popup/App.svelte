@@ -116,6 +116,7 @@
   let statusText = t("status.ready", {}, currentLang());
   let statusBaseText = "";
   let statusCount = 0;
+  let statusCountLabel = '';
   let alive = true;
   let busy = false;
   let busyLabel = runLabel();
@@ -297,11 +298,13 @@
       startElapsedAt?: number | null;
       stopElapsed?: boolean;
       count?: number;
+      countLabel?: string;
     } = {},
   ) => {
     if (!alive) return;
     statusBaseText = text;
     if (typeof opts.count === "number") statusCount = opts.count;
+    statusCountLabel = opts.countLabel ?? '';
     if (
       typeof opts.startElapsedAt === "number" &&
       !Number.isNaN(opts.startElapsedAt)
@@ -469,7 +472,14 @@
       setStatus(t("status.running", {}, langNow));
     } else if (phase === "scrape:complete") {
       setBusy(true, busyBuildLabel());
-      setStatus(t("status.building", {}, langNow));
+      const count = msg.messages ?? 0;
+      setStatus(`Building export…`, { count });
+    } else if (phase === "build") {
+      setBusy(true, busyBuildLabel());
+      const count = msg.messages ?? 0;
+      const fname = msg.filename || '';
+      const isZip = fname.endsWith('.zip');
+      setStatus(isZip ? `Compressing…` : `Building…`, { count });
     } else if (phase === "empty") {
       const message = msg.message || emptyLabel();
       setBusy(false);
@@ -478,11 +488,15 @@
       void clearLastError(storage);
     } else if (phase === "complete") {
       setBusy(false);
-      if (msg.filename) {
-        setStatus(t("status.complete", {}, langNow), { stopElapsed: true });
-      } else {
-        setStatus(t("status.complete", {}, langNow), { stopElapsed: true });
+      const fname = msg.filename || '';
+      // Show truncated filename: "TeamsExport_Şampiyon Fe…23_22-12-18.zip"
+      let displayName = fname;
+      if (displayName.length > 40) {
+        const ext = displayName.match(/\.[^.]+$/)?.[0] || '';
+        const keep = 37 - ext.length;
+        displayName = displayName.slice(0, keep) + '…' + ext;
       }
+      setStatus(displayName ? `Saved: ${displayName}` : t("status.complete", {}, langNow), { stopElapsed: true });
       hideErrorBanner(true);
     } else if (phase === "error") {
       setBusy(false);
@@ -494,9 +508,9 @@
   };
 
   const onRuntimeMessage = (msg: any) => {
-    if (msg?.type === "SCRAPE_PROGRESS") {
+    if (msg?.type === "SCRAPE_PROGRESS" || msg?.type === "EXPORT_PROGRESS") {
       const langNow = currentLang();
-      const p = msg.payload || {};
+      const p = msg?.type === "EXPORT_PROGRESS" ? msg : (msg.payload || {});
       if (p.phase === "scroll") {
         const seen = p.seen ?? p.aggregated ?? p.messagesVisible ?? 0;
         setStatus(t("status.scroll", { pass: p.passes ?? 0, seen }, langNow), {
@@ -507,6 +521,19 @@
           t("status.extract", { count: p.messagesExtracted ?? 0 }, langNow),
           { count: p.messagesExtracted ?? 0 },
         );
+      } else if (p.phase === "api-fetch") {
+        const count = p.messagesVisible ?? p.messagesSoFar ?? 0;
+        setStatus(`Fetching messages…`, { count });
+      } else if (p.phase === "images") {
+        const done = p.imagesDone ?? 0;
+        const total = p.imagesTotal ?? 0;
+        if (total > 0) {
+          setStatus(`Downloading images…`, { countLabel: `${done}/${total}` });
+        } else {
+          setStatus(`Downloading images…`);
+        }
+      } else if (p.phase === "avatars") {
+        setStatus(`Fetching profile photos…`);
       }
     } else if (msg?.type === "EXPORT_STATUS") {
       handleExportStatus(msg);
@@ -606,9 +633,15 @@
       const persistedError = await loadPersistedError();
       if (!alive) return;
       if (persistedError?.message) {
-        showErrorBanner(persistedError.message, false);
-        if (!statusText) {
-          setStatus(persistedError.message);
+        // Only show errors less than 60 seconds old — stale errors from prior sessions are noise
+        const age = Date.now() - (persistedError.timestamp || 0);
+        if (age < 60_000) {
+          showErrorBanner(persistedError.message, false);
+          if (!statusText) {
+            setStatus(persistedError.message);
+          }
+        } else {
+          void clearLastError(storage);
         }
       }
       try {
@@ -744,6 +777,6 @@
     </div>
 
     <!-- Status Bar (Sticky Bottom) -->
-    <StatusBar status={statusText} count={statusCount} isBusy={busy} />
+    <StatusBar status={statusText} count={statusCount} countLabel={statusCountLabel} isBusy={busy} />
   {/if}
 </div>

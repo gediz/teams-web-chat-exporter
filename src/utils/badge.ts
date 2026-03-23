@@ -10,7 +10,7 @@ export const BADGE_COLORS = {
   progress: '#2563eb',
 } as const;
 
-export type BadgeProgress = { filteredSeen?: number; seen?: number; aggregated?: number; messagesVisible?: number };
+export type BadgeProgress = { filteredSeen?: number; seen?: number; aggregated?: number; messagesVisible?: number; phase?: string; imagesDone?: number; imagesTotal?: number };
 
 const ONE_THOUSAND = 1000;
 const ONE_MILLION = 1_000_000;
@@ -102,6 +102,16 @@ export const createBadgeManager = (action: BadgeAction) => {
 
   const updateForProgress = (progress: BadgeProgress) => {
     if (!progress) return;
+    // During image/avatar fetch phases, show phase indicator on badge
+    if (progress.phase === 'images' && typeof progress.imagesTotal === 'number') {
+      const pct = typeof progress.imagesDone === 'number' ? Math.round((progress.imagesDone / progress.imagesTotal) * 100) : 0;
+      set(`${pct}%`, BADGE_COLORS.progress);
+      return;
+    }
+    if (progress.phase === 'images' || progress.phase === 'avatars') {
+      set('…', BADGE_COLORS.progress);
+      return;
+    }
     const seen = progress.filteredSeen ?? progress.seen ?? progress.aggregated ?? progress.messagesVisible;
     if (typeof seen === 'number' && seen >= 0) {
       set(seen);

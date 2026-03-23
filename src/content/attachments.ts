@@ -107,7 +107,7 @@ export async function extractAttachments(item: Element, body: Element): Promise<
     const b64 = idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
     return b64.length < 4096;
   };
-  const ALLOWED_DOMAINS = ['.microsoft.com', '.skype.com', '.sharepoint.com', '.live.com', '.office.com', '.office365.com'];
+  const ALLOWED_DOMAINS = ['.microsoft.com', '.microsoft.us', '.skype.com', '.sharepoint.com', '.live.com', '.office.com', '.office365.com', '.office365.us'];
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
   const isAllowedDomain = (url: string) => {
     try {

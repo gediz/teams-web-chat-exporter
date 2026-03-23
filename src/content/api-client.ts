@@ -93,7 +93,11 @@ function findValidToken(scopePattern: string): string | null {
 
 /** Get a valid ic3 token for the message API. Re-reads localStorage each call. */
 export function getIc3Token(): string | null {
-  return findValidToken('ic3.teams.office.com');
+  // Standard commercial: ic3.teams.office.com
+  // GCC High: ic3.teams.office365.us or chatsvcagg
+  return findValidToken('ic3.teams.office.com')
+    || findValidToken('ic3.teams.office365.us')
+    || findValidToken('chatsvcagg');
 }
 
 /** Get a valid Skype API token for the authz discovery endpoint. */
@@ -103,7 +107,9 @@ export function getSkypeToken(): string | null {
 
 /** Get a valid Graph API token for user resolution. */
 export function getGraphToken(): string | null {
-  return findValidToken('graph.microsoft.com');
+  // Standard: graph.microsoft.com, GCC High: graph.microsoft.us
+  return findValidToken('graph.microsoft.com')
+    || findValidToken('graph.microsoft.us');
 }
 
 // ── User Resolution via Graph API ──────────────────────────────────────
@@ -223,11 +229,23 @@ export function collectUnresolvedMris(messages: TeamsApiMessage[]): string[] {
 // ── Service Discovery ──────────────────────────────────────────────────
 
 /**
+ * Detect the authz service base URL from the current Teams domain.
+ * GCC High uses teams.microsoft.us, all others use teams.microsoft.com.
+ */
+function getAuthzUrl(): string {
+  const host = location.hostname.toLowerCase();
+  if (host.includes('teams.microsoft.us')) {
+    return 'https://authsvc.teams.microsoft.us/v1.0/authz';
+  }
+  return 'https://authsvc.teams.microsoft.com/v1.0/authz';
+}
+
+/**
  * Discover the chat service URL and region via the authz endpoint.
  * This is the official Teams service discovery mechanism.
  */
 export async function discover(skypeToken: string): Promise<{ chatServiceUrl: string; userRegion: string }> {
-  const resp = await fetch('https://authsvc.teams.microsoft.com/v1.0/authz', {
+  const resp = await fetch(getAuthzUrl(), {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${skypeToken}`,
@@ -298,6 +316,8 @@ export async function extractConversationId(): Promise<string | null> {
 
 /** Look up which conversation owns the given message IDs via IndexedDB. */
 async function lookupConversationInIdb(mids: string[]): Promise<string | null> {
+  // indexedDB.databases() is not available in Firefox < 126
+  if (typeof indexedDB.databases !== 'function') return null;
   const databases = await indexedDB.databases();
   const rcDb = databases.find(d => d.name?.includes('replychain-manager:react-web-client'));
   if (!rcDb?.name) return null;

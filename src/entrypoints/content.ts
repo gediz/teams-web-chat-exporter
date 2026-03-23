@@ -12,7 +12,7 @@ import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scr
 import { extractChatTitle, extractChannelTitle } from '../content/title';
 import { extractAvatarId } from '../utils/avatars';
 import { TEAMS_MATCH_PATTERNS } from '../utils/teams-urls';
-import { apiScrape } from '../content/api-client';
+import { apiScrape, getGraphToken } from '../content/api-client';
 import { convertApiMessages, buildApiMeta } from '../content/api-converter';
 import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ReplyContext, ScrapeOptions } from '../types/shared';
 
@@ -354,21 +354,22 @@ export default defineContentScript({
         */
         async function embedAvatarsInContent(messages: ExtractedMessage[]): Promise<{ messages: ExtractedMessage[]; avatars: Record<string, string> }> {
             const uniqueUrls = new Set<string>();
+            // Collect data URL avatars from API mode (already fetched)
+            const dataUrlAvatars = new Map<string, string>(); // author → dataUrl
             for (const m of messages) {
-                if (m.avatar && !m.avatar.startsWith('data:')) {
+                if (m.avatar && m.avatar.startsWith('data:')) {
+                    if (m.author && !dataUrlAvatars.has(m.author)) {
+                        dataUrlAvatars.set(m.author, m.avatar);
+                    }
+                } else if (m.avatar) {
                     uniqueUrls.add(m.avatar);
                 }
             }
 
-            if (uniqueUrls.size === 0) {
-                return { messages, avatars: {} };
-            }
-
-            // Fetch unique avatars and build normalized map
+            // Fetch unique HTTP avatar URLs (DOM mode)
             const avatars: Record<string, string> = {};
             const urlToId = new Map<string, string>();
-            const urlsArray = Array.from(uniqueUrls);
-            for (const url of urlsArray) {
+            for (const url of uniqueUrls) {
                 const dataUrl = await fetchAvatarAsDataURL(url);
                 if (dataUrl) {
                     const id = extractAvatarId(url);
@@ -377,17 +378,170 @@ export default defineContentScript({
                 }
             }
 
-            // Replace avatar URLs with short avatarId references
+            // Normalize API-mode data URL avatars into the avatars map
+            let apiAvatarIdx = 0;
+            const authorToId = new Map<string, string>();
+            for (const [author, dataUrl] of dataUrlAvatars) {
+                const id = `api-avatar-${apiAvatarIdx++}`;
+                avatars[id] = dataUrl;
+                authorToId.set(author, id);
+            }
+
+            // Replace avatar URLs/data with short avatarId references
             const normalized = messages.map(m => {
-                if (!m.avatar || m.avatar.startsWith('data:')) return m;
-                const id = urlToId.get(m.avatar);
-                if (id) {
-                    return { ...m, avatar: null, avatarId: id };
+                if (!m.avatar) return m;
+                if (m.avatar.startsWith('data:')) {
+                    // API-mode: replace data URL with avatarId
+                    const id = m.author ? authorToId.get(m.author) : undefined;
+                    if (id) return { ...m, avatar: null, avatarId: id };
+                    return { ...m, avatar: null };
                 }
+                // DOM-mode: replace HTTP URL with avatarId
+                const id = urlToId.get(m.avatar);
+                if (id) return { ...m, avatar: null, avatarId: id };
                 return { ...m, avatar: null };
             });
 
             return { messages: normalized, avatars };
+        }
+
+        // ── Inline Image Fetching (API mode) ──────────────────────
+        const ALLOWED_IMAGE_DOMAINS = ['.microsoft.com', '.microsoft.us', '.skype.com', '.live.com', '.office.com', '.office365.com', '.office365.us'];
+        const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+        const MAX_CONCURRENT_FETCHES = 6;
+
+        function isAllowedImageDomain(url: string): boolean {
+            try {
+                const hostname = new URL(url).hostname.toLowerCase();
+                return ALLOWED_IMAGE_DOMAINS.some(d => hostname.endsWith(d));
+            } catch { return false; }
+        }
+
+        async function fetchImageAsDataUrl(url: string): Promise<string | null> {
+            // Public URLs (e.g. giphy.com GIFs) don't need auth or domain check
+            const isPublic = /giphy\.com/i.test(url);
+            if (!isPublic && !isAllowedImageDomain(url)) return null;
+            try {
+                const res = await fetch(url, isPublic ? {} : { credentials: 'include' });
+                if (!res.ok) return null;
+                const blob = await res.blob();
+                if (blob.size > MAX_IMAGE_BYTES || blob.size < 100) return null;
+                return new Promise<string | null>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.onerror = () => resolve(null);
+                    reader.readAsDataURL(blob);
+                });
+            } catch { return null; }
+        }
+
+        /**
+         * Fetch inline images for API-mode messages.
+         * Finds AMS image URLs in attachments and downloads them as data URLs.
+         */
+        async function fetchInlineImages(
+            messages: ExportMessage[],
+            onProgress?: (done: number, total: number) => void,
+        ): Promise<void> {
+            // Collect all image attachments that need fetching
+            const tasks: { att: { href?: string; dataUrl?: string }; url: string }[] = [];
+            for (const m of messages) {
+                if (!m.attachments) continue;
+                for (const att of m.attachments) {
+                    if (!att.href) continue;
+                    // Video: att.href is thumbnail URL (fetched as image by AMS filter below)
+                    // GIFs from Giphy (public URLs, no auth needed)
+                    if (att.type === 'gif' && /giphy\.com/i.test(att.href)) {
+                        tasks.push({ att, url: att.href });
+                        continue;
+                    }
+                    // AMS/Teams image URLs (inline images, file previews, link thumbnails, static icons)
+                    if (!/\/v1\/objects\/[^/]+\/views\//i.test(att.href) && !/\/urlp\//i.test(att.href)) continue;
+                    if (!isAllowedImageDomain(att.href)) continue;
+                    tasks.push({ att, url: att.href });
+                }
+            }
+
+            if (!tasks.length) return;
+            console.log(`[Teams Exporter] Fetching ${tasks.length} inline images…`);
+
+            let done = 0;
+            // Process in batches to limit concurrency
+            for (let i = 0; i < tasks.length; i += MAX_CONCURRENT_FETCHES) {
+                const batch = tasks.slice(i, i + MAX_CONCURRENT_FETCHES);
+                await Promise.all(
+                    batch.map(async ({ att, url }) => {
+                        const dataUrl = await fetchImageAsDataUrl(url);
+                        if (dataUrl) {
+                            att.dataUrl = dataUrl;
+                        } else if (/\/urlp\/v1\/url\/image\//i.test(url)) {
+                            // Thumbnail proxy failed (CORS/opaque) — clear href to avoid broken img
+                            att.href = undefined;
+                        }
+                        done++;
+                        onProgress?.(done, tasks.length);
+                    }),
+                );
+            }
+            console.log(`[Teams Exporter] Fetched ${done} images (${tasks.length} attempted)`);
+        }
+
+        // ── Avatar Fetching (API mode) ────────────────────────────
+        /**
+         * Fetch profile photos via Graph API for API-mode messages.
+         * Extracts unique author UUIDs, fetches photos, and sets avatar data URLs.
+         */
+        async function fetchApiAvatars(
+            messages: ExportMessage[],
+            rawMessages: Array<{ from?: string; imdisplayname?: string }>,
+        ): Promise<void> {
+            const graphToken = getGraphToken();
+            if (!graphToken) return;
+
+            // Build author → UUID map from raw API messages
+            const authorToUuid = new Map<string, string>();
+            for (const m of rawMessages) {
+                if (!m.from || !m.imdisplayname) continue;
+                const uuidMatch = m.from.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
+                if (uuidMatch) authorToUuid.set(m.imdisplayname, uuidMatch[1]);
+            }
+
+            if (!authorToUuid.size) return;
+
+            // Fetch profile photos (sequentially to avoid rate limits)
+            const uuidToDataUrl = new Map<string, string>();
+            for (const [, uuid] of authorToUuid) {
+                if (uuidToDataUrl.has(uuid)) continue;
+                try {
+                    const resp = await fetch(
+                        `https://graph.microsoft.com/v1.0/users/${uuid}/photo/$value`,
+                        { headers: { 'Authorization': `Bearer ${graphToken}` }, signal: AbortSignal.timeout(5_000) },
+                    );
+                    if (!resp.ok) continue;
+                    const blob = await resp.blob();
+                    if (blob.size > MAX_IMAGE_BYTES) continue;
+                    const dataUrl = await new Promise<string | null>((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result as string);
+                        reader.onerror = () => resolve(null);
+                        reader.readAsDataURL(blob);
+                    });
+                    if (dataUrl) uuidToDataUrl.set(uuid, dataUrl);
+                } catch { /* skip */ }
+            }
+
+            if (!uuidToDataUrl.size) return;
+            console.log(`[Teams Exporter] Fetched ${uuidToDataUrl.size} profile photos`);
+
+            // Set avatar on converted messages
+            for (const m of messages) {
+                if (!m.author || m.avatar) continue;
+                const uuid = authorToUuid.get(m.author);
+                if (uuid) {
+                    const dataUrl = uuidToDataUrl.get(uuid);
+                    if (dataUrl) m.avatar = dataUrl;
+                }
+            }
         }
 
         const extractCodeBlock = (el: Element) => {
@@ -1842,6 +1996,19 @@ export default defineContentScript({
                             if (apiResult) {
                                 const converted = convertApiMessages(apiResult.messages, scrapeOpts);
                                 if (converted.length > 0) {
+                                    // Fetch inline images (content script has auth cookies, URLs expire)
+                                    hud(`fetching inline images…`);
+                                    try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length } }); } catch {}
+                                    await fetchInlineImages(converted, (done, total) => {
+                                        hud(`images: ${done}/${total}`);
+                                        if (done % 10 === 0 || done === total) {
+                                            try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length, imagesDone: done, imagesTotal: total } }); } catch {}
+                                        }
+                                    });
+                                    // Fetch profile photos via Graph API
+                                    hud(`fetching avatars…`);
+                                    try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'avatars', messagesVisible: converted.length } }); } catch {}
+                                    await fetchApiAvatars(converted, apiResult.messages);
                                     messages = converted;
                                     title = target === 'team' ? extractChannelTitle() : extractChatTitle();
                                     console.log(`[Teams Exporter] API mode: ${converted.length} messages from ${apiResult.messages.length} raw`);

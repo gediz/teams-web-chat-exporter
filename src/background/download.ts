@@ -12,7 +12,7 @@ type InlineImage = { filename: string; dataUrl: string };
 type BuiltExport = {
   baseFolder: string;
   filename: string;
-  content: string;
+  content: string | string[];  // string[] for large HTML (chunked to avoid "Invalid string length")
   mime: string;
   inlineImages: InlineImage[];
 };
@@ -111,6 +111,10 @@ function applyInlineImages(messages: ExportMessage[], mode: ImageMode) {
     const dataUrl = att.dataUrl || (att.href && att.href.startsWith('data:') ? att.href : null);
     const base = stripAttachmentDataUrl(att);
     if (!dataUrl) return base;
+    // Keep audio data URLs inline (not as image files)
+    if (att.type === 'audio') {
+      return { ...base, dataUrl };
+    }
     if (mode === 'data-url') {
       return { ...base, href: dataUrl };
     }
@@ -119,9 +123,10 @@ function applyInlineImages(messages: ExportMessage[], mode: ImageMode) {
     if (!filename) {
       counter += 1;
       const parsed = parseDataUrl(dataUrl);
-      const ext = guessExtension(att.label) || (parsed ? mimeToExtension(parsed.mime) : 'png');
-      const labelBase = (att.label || '').replace(/\.[^.]+$/, '').trim();
-      const fallback = `image-${counter}`;
+      const isPreview = att.kind === 'preview';
+      const ext = (isPreview ? null : guessExtension(att.label)) || (parsed ? mimeToExtension(parsed.mime) : 'png');
+      const labelBase = isPreview ? '' : (att.label || '').replace(/\.[^.]+$/, '').trim();
+      const fallback = isPreview ? `preview-${counter}` : `image-${counter}`;
       const baseName = sanitizeBase(labelBase || fallback) || fallback;
       filename = ensureUniqueName(`${baseName}.${ext}`, usedNames);
       dataToName.set(dataUrl, filename);
@@ -151,16 +156,12 @@ function prepareMessages(messages: ExportMessage[], meta: ExportMeta, format: Bu
       // Just pass through — avatarId references and meta.avatars are already set
       processedMessages = messages;
     } else {
-      // HTML: expand avatarId back to inline data URL for <img src>
-      processedMessages = messages.map(m => {
-        if (m.avatarId && avatarMap[m.avatarId]) {
-          const { avatarId, ...rest } = m;
-          return { ...rest, avatar: avatarMap[avatarId] };
-        }
-        return m;
-      });
-      // Don't include avatar map in HTML meta (data is already inlined)
-      delete enrichedMeta.avatars;
+      // HTML: keep avatarId on messages — the avatar data URLs will be embedded
+      // via CSS background-image classes in the HTML head (much more efficient than
+      // duplicating a ~50KB data URL in every message's <img> tag).
+      // The toHTML function reads avatarId and applies the CSS class.
+      processedMessages = messages;
+      // Keep avatars map in meta for toHTML to generate CSS
     }
   } else if (!embedAvatars) {
     // Remove avatars entirely when option is disabled
@@ -185,7 +186,7 @@ function buildExportInternal(options: BuildExportOptions, imageMode: ImageMode):
 
   let filename = base;
   let mime = 'application/json';
-  let content = '';
+  let content: string | string[] = '';
   let inlineImages: InlineImage[] = [];
   let finalMessages = processedMessages;
 
@@ -196,7 +197,7 @@ function buildExportInternal(options: BuildExportOptions, imageMode: ImageMode):
     inlineImages = applied.inlineImages;
     filename = mode === 'files' ? 'index.html' : `${base}.html`;
     mime = 'text/html';
-    content = toHTML(finalMessages, { ...enrichedMeta, count: messages.length });
+    content = toHTML(finalMessages, { ...enrichedMeta, count: messages.length }); // returns string[]
   } else if (format === 'csv') {
     filename = `${base}.csv`;
     mime = 'text/csv';
@@ -223,6 +224,19 @@ export async function buildAndDownload(
   { messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false, downloadImages = false }: BuildExportOptions,
 ) {
   const { downloads, onStatus } = deps;
+
+  // Auto-upgrade to zip for large HTML exports to avoid "Invalid string length".
+  // Embedding many base64 images/avatars inline creates strings too large for V8.
+  if (format === 'html') {
+    let totalDataBytes = 0;
+    for (const m of messages) {
+      if (m.attachments) for (const a of m.attachments) { if (a.dataUrl) totalDataBytes += a.dataUrl.length; }
+    }
+    if (totalDataBytes > 5_000_000 || (downloadImages && messages.length > 500)) {
+      return buildAndDownloadZip(deps, { messages, meta, embedAvatars, downloadImages });
+    }
+  }
+
   const mode: ImageMode = format === 'html' && downloadImages ? 'data-url' : 'none';
   const built = buildExportInternal({ messages, meta, format, embedAvatars, downloadImages }, mode);
 
@@ -261,9 +275,19 @@ export async function buildAndDownloadZip(
 
   const encoder = new TextEncoder();
   const files: { path: string; data: Uint8Array }[] = [];
+  // Handle chunked HTML content (string[]) by encoding each chunk and concatenating
+  const contentParts = Array.isArray(built.content) ? built.content : [built.content];
+  const encodedParts = contentParts.map(part => encoder.encode(part));
+  const totalLen = encodedParts.reduce((sum, p) => sum + p.length, 0);
+  const contentBytes = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const part of encodedParts) {
+    contentBytes.set(part, offset);
+    offset += part.length;
+  }
   files.push({
     path: `${built.baseFolder}/index.html`,
-    data: encoder.encode(built.content),
+    data: contentBytes,
   });
 
   for (const img of built.inlineImages) {
@@ -295,15 +319,17 @@ function toPlainText(messages: ExportMessage[]) {
     const ts = m.timestamp || '';
     const author = m.author || '[unknown]';
     const text = (m.text || '').replace(/\r\n/g, '\n').replace(/\n{2,}/g, '\n\n');
-    let line = `[${ts}] ${author}: ${text}`;
+    const urgencyTag = m.importance === 'urgent' ? ' [!URGENT]' : m.importance === 'high' ? ' [!IMPORTANT]' : '';
+    const subjectLine = m.subject ? `[Subject: ${m.subject}] ` : '';
+    let line = `[${ts}] ${author}${urgencyTag}: ${subjectLine}${text}`;
 
     // Include forward/reply context
     if (m.forwarded?.originalAuthor) {
       const fwdFrom = `[forwarded from ${m.forwarded.originalAuthor}]`;
       const fwdText = m.forwarded.originalText ? m.forwarded.originalText.replace(/\n/g, ' ').slice(0, 300) : '';
       line = text
-        ? `[${ts}] ${author}: ${text}\n  ${fwdFrom}: ${fwdText}`
-        : `[${ts}] ${author} ${fwdFrom}: ${fwdText}`;
+        ? `[${ts}] ${author}${urgencyTag}: ${subjectLine}${text}\n  ${fwdFrom}: ${fwdText}`
+        : `[${ts}] ${author}${urgencyTag} ${fwdFrom}: ${subjectLine}${fwdText}`;
     }
     if (m.replyTo?.text) {
       const quotedText = m.replyTo.text.replace(/\n/g, ' ').slice(0, 200);
