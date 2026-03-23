@@ -5,7 +5,7 @@
  * used by the extension's builders (JSON, CSV, HTML, TXT).
  */
 
-import type { ExportMessage, ExportMeta, Reaction, Attachment, ReplyContext, ScrapeOptions } from '../types/shared';
+import type { ExportMessage, ExportMeta, ForwardContext, Reaction, Attachment, ReplyContext, ScrapeOptions } from '../types/shared';
 import type { TeamsApiMessage } from './api-client';
 
 // ── Reaction Emoji Map ─────────────────────────────────────────────────
@@ -380,12 +380,10 @@ function convertOneMessage(
   if (opts.startAtISO && timestamp < opts.startAtISO) return null;
   if (opts.endAtISO && timestamp >= opts.endAtISO) return null;
 
-  // Detect forwarded messages (gid: prefix + forwardTemplateId or originalMessageContext)
-  const isForwarded = !isSystem && (
-    !!properties.forwardTemplateId ||
-    !!properties.originalMessageContext ||
-    (msg.from?.includes('gid:') && !msg.imdisplayname)
-  );
+  // Detect forwarded messages — require forwardTemplateId (reliable indicator).
+  // Note: gid: prefix + no name also appears on Event/Call system messages, so
+  // we don't use that alone for forward detection.
+  const isForwarded = !isSystem && !!properties.forwardTemplateId;
 
   // Author — try multiple fields, fall back to constructing from given+family name.
   // For forwarded messages, try to extract original author from content HTML.
@@ -401,14 +399,13 @@ function convertOneMessage(
   let text = '';
   let replyTo: ReplyContext | null = null;
 
-  // For forwarded messages: author = forwarder, text = forwarded content,
-  // replyTo = attribution to original author
+  // Build forward context for forwarded messages
+  let forwardCtx: ForwardContext | undefined;
   if (isForwarded) {
     const originalAuthor = resolveForwardAuthor(properties, mriMap);
     // Try to resolve forwarder name from gid: in `from` field via MRI map
     if (!author && msg.from) {
       author = mriMap.get(msg.from) || '';
-      // Try extracting UUID and looking up as 8:orgid:{uuid}
       if (!author) {
         const uuid = msg.from.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
         if (uuid) author = mriMap.get(`8:orgid:${uuid[1]}`) || mriMap.get(`gid:${uuid[1]}`) || '';
@@ -416,25 +413,35 @@ function convertOneMessage(
     }
     if (!author) author = '[forwarded]';
 
+    // Parse originalMessageContext for forward metadata
+    let origTs = '';
+    let origMsgId = '';
+    let origThreadId = '';
+    try {
+      const ctx = typeof properties.originalMessageContext === 'string'
+        ? JSON.parse(properties.originalMessageContext as string)
+        : properties.originalMessageContext;
+      if (ctx) {
+        origTs = (ctx as Record<string, string>).originalSentTime || '';
+        origMsgId = String((ctx as Record<string, unknown>).messageId || '');
+        origThreadId = (ctx as Record<string, string>).originalThreadId || '';
+      }
+    } catch { /* ignore */ }
+
     // Separate forwarder's comment from forwarded content
     const fwdParts = rawContent.includes('schema.skype.com/Forward')
       ? extractForwardParts(rawContent)
       : null;
 
-    if (fwdParts) {
-      text = fwdParts.comment; // Forwarder's own commentary (may be empty)
-      // Attribute the original author and include forwarded text in replyTo
-      replyTo = {
-        author: originalAuthor || '',
-        timestamp: '',
-        text: fwdParts.forwardedText,
-      };
-    } else {
-      text = htmlToText(rawContent);
-      if (originalAuthor) {
-        replyTo = { author: originalAuthor, timestamp: '', text: '' };
-      }
-    }
+    forwardCtx = {
+      originalAuthor: originalAuthor || undefined,
+      originalTimestamp: origTs || undefined,
+      originalMessageId: origMsgId || undefined,
+      originalThreadId: origThreadId || undefined,
+      originalText: fwdParts?.forwardedText || undefined,
+    };
+
+    text = fwdParts ? fwdParts.comment : htmlToText(rawContent);
   }
 
   if (isForwarded) {
@@ -476,18 +483,47 @@ function convertOneMessage(
   // Edited
   const edited = Boolean(properties.edittime);
 
+  // Extract mentions from properties
+  let mentions: Array<{ name: string; mri?: string }> | undefined;
+  const rawMentions = properties.mentions;
+  if (rawMentions) {
+    try {
+      const parsed = typeof rawMentions === 'string' ? JSON.parse(rawMentions) : rawMentions;
+      if (Array.isArray(parsed)) {
+        mentions = parsed
+          .filter((m: Record<string, unknown>) => m.displayName)
+          .map((m: Record<string, unknown>) => ({
+            name: String(m.displayName),
+            mri: m.mri ? String(m.mri) : undefined,
+          }));
+        if (!mentions.length) mentions = undefined;
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Subject line (channel posts)
+  const subject = properties.subject ? String(properties.subject) : undefined;
+
+  // Importance
+  const importance = properties.importance ? String(properties.importance) : undefined;
+
   return {
     id: msg.id || msg.clientmessageid || '',
     author,
     timestamp,
     text,
+    contentHtml: rawContent || undefined,
+    messageType: messageType || undefined,
     edited,
     system: isSystem,
-    forwarded: isForwarded || undefined,
+    forwarded: forwardCtx,
+    importance,
+    subject,
     avatar: null,
     reactions,
     attachments,
     replyTo,
+    mentions,
   };
 }
 
@@ -510,8 +546,24 @@ export function convertApiMessages(
     for (const [mri, name] of graphResolved) mriMap.set(mri, name);
   }
 
+  // Deduplicate forwarded messages — Teams API sometimes returns two messages
+  // for a single forward (within seconds of each other, same originalMessageContext)
+  const seenForwards = new Set<string>();
+
   const result: ExportMessage[] = [];
   for (const msg of apiMessages) {
+    // Deduplicate forwards by originalMessageContext.messageId
+    if (msg.properties?.forwardTemplateId && msg.properties?.originalMessageContext) {
+      try {
+        const ctx = typeof msg.properties.originalMessageContext === 'string'
+          ? JSON.parse(msg.properties.originalMessageContext as string)
+          : msg.properties.originalMessageContext;
+        const origId = String((ctx as Record<string, unknown>).messageId || '');
+        if (origId && seenForwards.has(origId)) continue; // Skip duplicate
+        if (origId) seenForwards.add(origId);
+      } catch { /* proceed without dedup */ }
+    }
+
     const converted = convertOneMessage(msg, opts, mriMap);
     if (converted) result.push(converted);
   }
