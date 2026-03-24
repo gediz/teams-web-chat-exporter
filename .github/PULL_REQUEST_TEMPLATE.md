@@ -4,7 +4,7 @@
 
 ## How was it tested?
 
-<!-- Check all that apply. See the "Testing Checklist" section in docs/DEVELOPMENT.md for the full list. -->
+<!-- Check all that apply. See the "Quick test checklist" section in docs/DEVELOPMENT.md for the full list. -->
 
 - [ ] Tested in Chrome
 - [ ] Tested in Firefox
@@ -14,7 +14,7 @@
 ## Checklist
 
 - [ ] No new `any` types (use `unknown` if needed)
-- [ ] New UI strings added to all 14 locale files (if applicable)
+- [ ] New UI strings added to all 24 locale files (if applicable)
 - [ ] No console.log or debugging code left in
 
 ## Screenshots

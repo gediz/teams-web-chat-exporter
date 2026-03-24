@@ -9,9 +9,9 @@
 
 - TypeScript + Svelte 5
 - Components: PascalCase filenames
-- Utility modules: camelCase filenames
+- Utility/content modules: kebab-case filenames
 - Shared types: `src/types/`
-- UI text: locale keys in `src/i18n/locales/*.json`
+- UI text: locale keys in `src/i18n/locales/*.json` (24 locales)
 - Svelte components use mixed syntax:
   - Most components use legacy `export let` props and `createEventDispatcher`.
   - Only `StatusBar.svelte` uses `$props()` runes.
@@ -28,7 +28,7 @@
 ### Add a translation key
 
 1. Add the key in `src/i18n/locales/en.json`.
-2. Add the same key to every other locale file.
+2. Add the same key to every other locale file (24 total).
 3. Use `t('key', params, lang)` in UI code.
 
 ### Add an export format
@@ -41,8 +41,13 @@
 
 ### Change scraping logic
 
+API-based scraping (primary path):
+- API client: `src/content/api-client.ts`
+- API response conversion: `src/content/api-converter.ts`
+
+DOM scroll fallback:
 - Entry: `src/entrypoints/content.ts`
-- Helpers: `src/content/*.ts`
+- Helpers: `src/content/scroll.ts`, `src/content/text.ts`, `src/content/attachments.ts`, etc.
 
 Prefer stable selectors (for example `data-tid` when present).
 
@@ -60,7 +65,7 @@ Teams DOM structure changes without notice. Test scraping changes thoroughly.
 
 Workflow file: `.github/workflows/ci.yml`
 
-Current CI runs:
+CI runs on Node 22 with npm 11:
 
 - `npm run check`
 - `npm run build`
