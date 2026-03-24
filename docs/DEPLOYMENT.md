@@ -43,7 +43,10 @@ Build steps:
 2. npm run build:firefox
 3. Output: .output/firefox-mv2/
 
-Data collection: None. All exports are saved locally. No data is transmitted.
+Data collection: None. The extension reads messages from the Teams Chat Service
+API and Microsoft Graph API using the user's existing session tokens. All
+exported data is saved locally. No data is sent to any third-party server or
+to the extension developer.
 ```
 
 ## Release checklist

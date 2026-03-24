@@ -5,11 +5,12 @@ This file gives quick, accurate context for AI assistants working in this reposi
 ## Project Snapshot
 
 - Name: Teams Chat Exporter
-- Version: 1.3.1
+- Version: see `package.json` and `wxt.config.ts` (keep in sync)
 - Stack: WXT + TypeScript + Svelte 5
 - Browsers: Chrome, Edge, Firefox
-- Export formats: JSON, CSV, HTML, txt
+- Export formats: JSON, CSV, HTML, TXT
 - UI locales: 24 files in `src/i18n/locales/`
+- Scraping: API-based fetch (primary), DOM scroll (fallback)
 
 ## Source of Truth Files
 
@@ -18,6 +19,9 @@ This file gives quick, accurate context for AI assistants working in this reposi
 - Popup UI entry: [src/entrypoints/popup/App.svelte](src/entrypoints/popup/App.svelte)
 - Background entry: [src/entrypoints/background.ts](src/entrypoints/background.ts)
 - Content entry: [src/entrypoints/content.ts](src/entrypoints/content.ts)
+- API client: [src/content/api-client.ts](src/content/api-client.ts)
+- API message converter: [src/content/api-converter.ts](src/content/api-converter.ts)
+- Teams URL patterns: [src/utils/teams-urls.ts](src/utils/teams-urls.ts)
 
 ## Docs To Use
 
@@ -35,7 +39,3 @@ This file gives quick, accurate context for AI assistants working in this reposi
 2. Keep wording short and literal.
 3. Do not describe behavior that is not in the code.
 4. For commands, use scripts exactly as defined in `package.json`.
-
----
-
-Last verified against repository state on 2026-03-03.

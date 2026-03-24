@@ -12,10 +12,18 @@
 - [ ] Investigate PDF export options (library choice, layout fidelity, file size/performance, browser compatibility).
 - [ ] Investigate exporting multiple chats in one run.
 - [ ] Add README media (screenshots or GIF).
-- [ ] Add image-fetch allowlist settings.
-- [ ] Add configurable canvas size cap for embedded images.
+- [ ] Add user-configurable image-fetch domain allowlist (currently hardcoded in `src/content/attachments.ts`).
+- [ ] Add user-configurable canvas size cap for embedded images (currently hardcoded at 4096x4096 in `src/content/attachments.ts`).
 
 ## Done
 
-This section tracks work completed since the last major TODO reorganization.
 - [x] Deduplicated background export handlers.
+- [x] API-based message fetching with DOM scroll fallback.
+- [x] MCAS proxy URL support (`.mcas.ms` suffix).
+- [x] Forwarded message detection and rendering.
+- [x] Inline images, GIFs, audio, and video thumbnails in HTML export.
+- [x] Avatar embedding in HTML and JSON exports.
+- [x] Link preview extraction and rendering.
+- [x] Large export streaming to avoid 64 MiB message limit.
+- [x] Auto-upgrade to ZIP for large HTML exports.
+- [x] Extended ExportMessage with contentHtml, messageType, forwarded, importance, subject, mentions.

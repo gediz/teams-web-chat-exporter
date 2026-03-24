@@ -76,35 +76,40 @@ npm run build:firefox
 - [ ] Popup opens and displays correctly.
 - [ ] Theme toggle works.
 - [ ] Date range inputs work.
-- [ ] Export button triggers scraping.
-- [ ] Badge updates during scraping.
+- [ ] Export button triggers export.
+- [ ] Badge updates during export.
 - [ ] Empty chat shows banner.
 - [ ] Options persist across popup close/reopen.
+
+### Scraping modes
+- [ ] API mode fetches messages (check console for "API mode: N messages").
+- [ ] DOM scroll fallback works when API is unavailable.
 
 ### Export formats
 - [ ] JSON export downloads and contains correct data.
 - [ ] CSV export downloads and is formatted correctly.
 - [ ] HTML export downloads and renders correctly.
 - [ ] Text export downloads and reads correctly.
-- [ ] Avatar embedding works (HTML).
+- [ ] Avatar embedding works (HTML, JSON).
 
 ### Include toggles
 - [ ] Replies toggle works.
 - [ ] Reactions toggle works.
 - [ ] System messages toggle works.
 - [ ] Date range filter works.
+- [ ] Inline images toggle works (HTML format).
 
 ### Targets
 - [ ] Chat export works.
 - [ ] Team channel export works.
 
 ### Browser-specific
-- [ ] **Firefox**: Downloads work (uses blob URL fallback).
+- [ ] **Firefox**: Downloads work (uses blob URLs).
 - [ ] **Firefox**: Storage persistence works across restarts.
 
 ### Large exports (pre-release)
 - [ ] Export a chat with 5,000+ messages (all options enabled).
-- [ ] Export completes without 64MiB message errors.
+- [ ] Export completes without 64 MiB message errors.
 - [ ] JSON export file is valid and contains all messages.
 - [ ] HTML+images zip export renders correctly in browser.
 - [ ] Avatars appear correctly in HTML and JSON exports.
