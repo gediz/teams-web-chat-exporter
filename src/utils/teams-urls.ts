@@ -7,6 +7,13 @@
  *  - background.ts          (runtime URL check)
  *  - popup/App.svelte       (runtime URL check)
  *
+ * Two distinct concerns:
+ *  - {@link TEAMS_MATCH_PATTERNS}: web-app origins where the content script RUNS.
+ *  - {@link API_FETCH_PATTERNS}:  upstream service origins the extension FETCHES
+ *    from (Graph for users/photos, AMS for inline images). Required as
+ *    host_permissions in Firefox so content-script fetches aren't blocked by
+ *    the extension-origin CORS policy; harmless in Chrome.
+ *
  * To support a new domain or proxy suffix, add it to the arrays below.
  */
 
@@ -32,6 +39,17 @@ export const TEAMS_MATCH_PATTERNS: string[] = TEAMS_DOMAINS.flatMap(
       return `https://${host}/*`;
     }),
 );
+
+/**
+ * Upstream service origins the extension fetches from (NOT where it runs).
+ *  - graph.microsoft.com / .us : Graph API for user resolution and profile photos.
+ *  - *.asm.skype.com           : Skype AMS image CDN (inline images, link previews).
+ */
+export const API_FETCH_PATTERNS: string[] = [
+  'https://graph.microsoft.com/*',
+  'https://graph.microsoft.us/*',
+  'https://*.asm.skype.com/*',
+];
 
 /** Regex that matches any Teams web-app URL (including proxy suffixes). */
 const escapeDot = (s: string) => s.replace(/\./g, '\\.');

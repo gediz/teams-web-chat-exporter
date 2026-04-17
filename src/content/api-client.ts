@@ -75,16 +75,85 @@ export type FetchProgress = {
 
 // ── Token Extraction ───────────────────────────────────────────────────
 
+// MSAL Browser v4+ encrypts cache entries by default. Each entry is stored as
+// { id, nonce, data, lastUpdatedAt }. The session cookie msal.cache.encryption
+// holds the base key; per-entry AES-GCM keys are derived via HKDF-SHA256 with
+// salt=nonce and info=clientId. The IV is always 12 zero bytes (per-entry
+// uniqueness comes from the unique HKDF salt).
+// See: https://github.com/AzureAD/microsoft-authentication-library-for-js
+//      /blob/dev/lib/msal-browser/src/crypto/BrowserCrypto.ts
+
+type EncryptedEntry = { id?: string; nonce?: string; data?: string };
+type DecryptedAccessToken = { secret?: string; expiresOn?: string };
+
+const b64uToBytes = (b: string): Uint8Array<ArrayBuffer> => {
+  const s = b.replace(/-/g, '+').replace(/_/g, '/');
+  const p = s + '='.repeat((4 - s.length % 4) % 4);
+  const bin = atob(p);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+};
+
+let cachedBaseKey: { raw: string; key: CryptoKey } | null = null;
+
+async function getMsalBaseKey(): Promise<CryptoKey | null> {
+  const m = document.cookie.match(/msal\.cache\.encryption=([^;]+)/);
+  if (!m) return null;
+  let parsed: { key?: string };
+  try { parsed = JSON.parse(decodeURIComponent(m[1])); } catch { return null; }
+  if (!parsed.key) return null;
+  if (cachedBaseKey?.raw === parsed.key) return cachedBaseKey.key;
+  try {
+    const key = await crypto.subtle.importKey('raw', b64uToBytes(parsed.key), 'HKDF', false, ['deriveKey']);
+    cachedBaseKey = { raw: parsed.key, key };
+    return key;
+  } catch { return null; }
+}
+
+// MSAL key shape: msal.2|<accountId>|<env>|accesstoken|<clientId>|<realm>|<target>|
+// Context for HKDF info is the clientId for accesstoken entries, empty otherwise.
+function getEncryptionContext(lsKey: string): string {
+  const parts = lsKey.split('|');
+  return parts[3] === 'accesstoken' && parts[4] ? parts[4] : '';
+}
+
+async function decryptEntry(baseKey: CryptoKey, entry: EncryptedEntry, context: string): Promise<DecryptedAccessToken | null> {
+  if (!entry.nonce || !entry.data) return null;
+  try {
+    const derivedKey = await crypto.subtle.deriveKey(
+      { name: 'HKDF', hash: 'SHA-256', salt: b64uToBytes(entry.nonce), info: new TextEncoder().encode(context) },
+      baseKey,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['decrypt'],
+    );
+    const decrypted = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: new Uint8Array(12) },
+      derivedKey,
+      b64uToBytes(entry.data),
+    );
+    return JSON.parse(new TextDecoder().decode(decrypted));
+  } catch { return null; }
+}
+
 /** Find a valid (non-expired) MSAL access token matching the scope pattern. */
-function findValidToken(scopePattern: string): string | null {
+async function findValidToken(scopePattern: string): Promise<string | null> {
   const now = Math.floor(Date.now() / 1000);
+  let baseKey: CryptoKey | null = null;
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
     if (!key || !key.includes('accesstoken') || !key.includes(scopePattern)) continue;
     try {
       const entry = JSON.parse(localStorage.getItem(key) || '');
-      if (Number(entry.expiresOn) > now && entry.secret) {
-        return entry.secret;
+      // Plain entry (older MSAL or KMSI sessions)
+      if (entry.secret && Number(entry.expiresOn) > now) return entry.secret;
+      // Encrypted entry (MSAL Browser v4+ default)
+      if (entry.data && entry.nonce) {
+        if (!baseKey) baseKey = await getMsalBaseKey();
+        if (!baseKey) continue;
+        const decrypted = await decryptEntry(baseKey, entry, getEncryptionContext(key));
+        if (decrypted?.secret && Number(decrypted.expiresOn) > now) return decrypted.secret;
       }
     } catch { /* skip malformed entries */ }
   }
@@ -92,24 +161,49 @@ function findValidToken(scopePattern: string): string | null {
 }
 
 /** Get a valid ic3 token for the message API. Re-reads localStorage each call. */
-export function getIc3Token(): string | null {
+export async function getIc3Token(): Promise<string | null> {
   // Standard commercial: ic3.teams.office.com
   // GCC High: ic3.teams.office365.us or chatsvcagg
-  return findValidToken('ic3.teams.office.com')
-    || findValidToken('ic3.teams.office365.us')
-    || findValidToken('chatsvcagg');
+  return await findValidToken('ic3.teams.office.com')
+    || await findValidToken('ic3.teams.office365.us')
+    || await findValidToken('chatsvcagg');
 }
 
 /** Get a valid Skype API token for the authz discovery endpoint. */
-export function getSkypeToken(): string | null {
+export async function getSkypeToken(): Promise<string | null> {
   return findValidToken('api.spaces.skype');
 }
 
 /** Get a valid Graph API token for user resolution. */
-export function getGraphToken(): string | null {
+export async function getGraphToken(): Promise<string | null> {
   // Standard: graph.microsoft.com, GCC High: graph.microsoft.us
-  return findValidToken('graph.microsoft.com')
-    || findValidToken('graph.microsoft.us');
+  return await findValidToken('graph.microsoft.com')
+    || await findValidToken('graph.microsoft.us');
+}
+
+/**
+ * Extract the user's UUID from an MSAL access token cache key.
+ * Cache key format: msal.2|<userUuid>.<tenantId>|<env>|accesstoken|...
+ *
+ * In multi-account sessions MSAL may store tokens for multiple accounts; prefer
+ * entries for Teams-related scopes so we identify the account actually using
+ * the Teams page, not some other signed-in tenant.
+ */
+export function getCurrentUserUuid(): string | null {
+  const UUID_RE = /^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i;
+  const teamsScopes = ['ic3.teams.office.com', 'api.spaces.skype', 'graph.microsoft.com'];
+  const findWithFilter = (predicate: (k: string) => boolean): string | null => {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.includes('accesstoken') || !predicate(key)) continue;
+      const m = (key.split('|')[1] || '').match(UUID_RE);
+      if (m) return m[1];
+    }
+    return null;
+  };
+  // Prefer a Teams-scope access token; fall back to any access token.
+  return findWithFilter(k => teamsScopes.some(s => k.includes(s)))
+      ?? findWithFilter(() => true);
 }
 
 // ── User Resolution via Graph API ──────────────────────────────────────
@@ -146,6 +240,7 @@ export async function resolveUserNames(
   }
 
   // Resolve each UUID via Graph (sequentially to avoid rate limits)
+  let firstError: string | null = null;
   for (const [uuid, originalMris] of uuidToMris) {
     try {
       const resp = await fetch(
@@ -155,7 +250,10 @@ export async function resolveUserNames(
           signal: AbortSignal.timeout(5_000),
         },
       );
-      if (!resp.ok) continue;
+      if (!resp.ok) {
+        if (!firstError) firstError = `HTTP ${resp.status} ${resp.statusText}`;
+        continue;
+      }
       const data = await resp.json();
       const name = data.displayName;
       if (name) {
@@ -164,7 +262,12 @@ export async function resolveUserNames(
         result.set(`8:orgid:${uuid}`, name);
         result.set(`gid:${uuid}`, name);
       }
-    } catch { /* skip unresolvable */ }
+    } catch (e) {
+      if (!firstError) firstError = String(e);
+    }
+  }
+  if (firstError && result.size === 0) {
+    console.warn(`[API] Graph user resolution failed for all ${uuidToMris.size} users — first error: ${firstError}`);
   }
 
   return result;
@@ -319,7 +422,11 @@ async function lookupConversationInIdb(mids: string[]): Promise<string | null> {
   // indexedDB.databases() is not available in Firefox < 126
   if (typeof indexedDB.databases !== 'function') return null;
   const databases = await indexedDB.databases();
-  const rcDb = databases.find(d => d.name?.includes('replychain-manager:react-web-client'));
+  // The DB name carries tenant/user/locale suffixes; match the manager prefix and
+  // exclude streams-replychain-manager which is a different store.
+  const rcDb = databases.find(d =>
+    d.name?.includes('replychain-manager:react-web-client') && !d.name.includes('streams-')
+  );
   if (!rcDb?.name) return null;
 
   return new Promise((resolve) => {
@@ -333,20 +440,41 @@ async function lookupConversationInIdb(mids: string[]): Promise<string | null> {
         const getAll = store.getAll();
         getAll.onsuccess = () => {
           const midSet = new Set(mids);
-          const records: Array<{ conversationId: string; replyChainId: string; messageMap: Record<string, unknown> }> = getAll.result;
+          type MessageEntry = { id?: string };
+          const records: Array<{
+            conversationId?: string;
+            replyChainId?: string;
+            messageMap?: Record<string, MessageEntry>;
+          }> = getAll.result;
 
-          // Find conversations containing any of our visible message IDs
+          // Pass 1: top-level replyChainId matches a visible mid (parent message).
           for (const rec of records) {
-            if (midSet.has(rec.replyChainId)) {
+            if (rec.conversationId && rec.replyChainId && midSet.has(rec.replyChainId)) {
               db.close();
               resolve(rec.conversationId);
               return;
             }
           }
 
-          // Fallback: check inside messageMap keys (they contain the mid)
+          // Pass 2: messageMap entry's `id` matches (any message in the chain).
+          // In the new Teams, messageMap is keyed by "8:orgid:..._<clientMessageId>"
+          // which is unrelated to the visible data-mid; the actual mid is in v.id.
           for (const rec of records) {
-            for (const key of Object.keys(rec.messageMap || {})) {
+            if (!rec.conversationId || !rec.messageMap) continue;
+            for (const v of Object.values(rec.messageMap)) {
+              if (v?.id && midSet.has(v.id)) {
+                db.close();
+                resolve(rec.conversationId);
+                return;
+              }
+            }
+          }
+
+          // Pass 3 (legacy fallback): older Teams stored mids directly inside
+          // the messageMap key. Keep this so classic Teams keeps working.
+          for (const rec of records) {
+            if (!rec.conversationId || !rec.messageMap) continue;
+            for (const key of Object.keys(rec.messageMap)) {
               for (const mid of mids) {
                 if (key.includes(mid)) {
                   db.close();
@@ -425,7 +553,8 @@ async function fetchPageWithRetry(
 /**
  * Fetch all messages for a conversation using the Teams chat service API.
  *
- * Paginates via backwardLink until history is exhausted.
+ * Paginates via backwardLink (newest → oldest) until history is exhausted, or
+ * until the page crosses `startAtISO` (date-bound exports stop early).
  * Re-reads the ic3 token from localStorage before each page to handle refresh.
  * Retries on 429 with exponential backoff.
  */
@@ -434,7 +563,9 @@ export async function fetchAllMessages(
   conversationId: string,
   onProgress?: (p: FetchProgress) => void,
   signal?: AbortSignal,
+  startAtISO?: string | null,
 ): Promise<TeamsApiMessage[]> {
+  const startAtMs = startAtISO ? Date.parse(startAtISO) : NaN;
   const allMessages: TeamsApiMessage[] = [];
   const encodedConvId = encodeURIComponent(conversationId);
   let nextUrl: string | null =
@@ -447,7 +578,7 @@ export async function fetchAllMessages(
     page++;
 
     // Re-read token before each page (MSAL may have refreshed it)
-    const token = getIc3Token() || config.ic3Token;
+    const token = (await getIc3Token()) || config.ic3Token;
 
     const data = await fetchPageWithRetry(nextUrl, token, signal);
 
@@ -465,6 +596,17 @@ export async function fetchAllMessages(
       page,
       messagesSoFar: allMessages.length,
     });
+
+    // Early stop for date-bound exports: pagination walks newest → oldest, so
+    // once any message in this page is older than startAtMs, all subsequent
+    // pages are entirely older — no more in-range messages to fetch.
+    if (Number.isFinite(startAtMs) && messages.some(m => {
+      const ts = Date.parse(m.composetime || m.originalarrivaltime || '');
+      return Number.isFinite(ts) && ts < startAtMs;
+    })) {
+      console.log(`[API] Reached startAt boundary at page ${page}, stopping pagination (${allMessages.length} messages fetched)`);
+      break;
+    }
 
     nextUrl = data._metadata?.backwardLink || null;
 
@@ -486,16 +628,18 @@ export async function fetchAllMessages(
  */
 export async function apiScrape(
   onProgress?: (p: FetchProgress) => void,
-  signal?: AbortSignal,
-): Promise<{ messages: TeamsApiMessage[]; conversationId: string } | null> {
+  options?: { signal?: AbortSignal; startAtISO?: string | null },
+): Promise<{ messages: TeamsApiMessage[]; conversationId: string; userId: string | null; userRegion: string; ic3Token: string } | null> {
+  const signal = options?.signal;
+  const startAtISO = options?.startAtISO ?? null;
   try {
     // Step 1: Get tokens
-    const skypeToken = getSkypeToken();
+    const skypeToken = await getSkypeToken();
     if (!skypeToken) {
       console.log('[API] No valid Skype token found, falling back to DOM');
       return null;
     }
-    const ic3Token = getIc3Token();
+    const ic3Token = await getIc3Token();
     if (!ic3Token) {
       console.log('[API] No valid IC3 token found, falling back to DOM');
       return null;
@@ -516,11 +660,11 @@ export async function apiScrape(
 
     // Step 4: Fetch all messages
     const config: TeamsApiConfig = { chatServiceUrl, userRegion, ic3Token };
-    const messages = await fetchAllMessages(config, conversationId, onProgress, signal);
+    const messages = await fetchAllMessages(config, conversationId, onProgress, signal, startAtISO);
     console.log(`[API] Fetched ${messages.length} messages`);
 
     // Step 5: Resolve unresolved MRIs (forwarded senders, reactors) via Graph API
-    const graphToken = getGraphToken();
+    const graphToken = await getGraphToken();
     if (graphToken) {
       const unresolved = collectUnresolvedMris(messages);
       if (unresolved.length > 0) {
@@ -542,7 +686,8 @@ export async function apiScrape(
       }
     }
 
-    return { messages, conversationId };
+    const userId = getCurrentUserUuid();
+    return { messages, conversationId, userId, userRegion, ic3Token };
   } catch (err) {
     console.log('[API] API scrape failed, falling back to DOM:', err);
     return null;

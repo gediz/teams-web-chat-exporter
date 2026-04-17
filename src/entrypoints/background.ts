@@ -343,6 +343,85 @@ function handleStartExportZipMessage(msg: any, sendResponse: (res: any) => void)
     });
 }
 
+// Circuit breaker for sustained rate limits: after several consecutive exhausted
+// retries, skip further retries for a cool-off window. Prevents a rate-limited
+// export from stalling for minutes as each concurrent image burns its full retry
+// budget. Resets on any successful fetch.
+let rateLimitStreak = 0;
+let rateLimitCoolOffUntil = 0;
+const RATE_LIMIT_STREAK_THRESHOLD = 3;
+const RATE_LIMIT_COOL_OFF_MS = 20_000;
+
+// Background-mediated fetch for credentialed cross-origin requests (Firefox content
+// scripts can't send page cookies cross-origin, but background scripts can with
+// matching host_permissions). Retries transient errors (network, 429, 5xx) with
+// exponential backoff; treats 4xx (except 429) and size-rejects as permanent.
+async function handleFetchBlobMessage(
+    msg: { url: string; bearerToken?: string; maxBytes?: number; minBytes?: number },
+    sendResponse: (resp: unknown) => void,
+) {
+    const maxBytes = msg.maxBytes ?? 5 * 1024 * 1024;
+    const minBytes = msg.minBytes ?? 100;
+    const MAX_ATTEMPTS = 3;
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const backoffMs = (attempt: number) => Math.min(500 * 2 ** attempt, 8_000);
+    const init: RequestInit = msg.bearerToken
+        ? { headers: { 'Authorization': `Bearer ${msg.bearerToken}` } }
+        : { credentials: 'include' };
+    const inCoolOff = Date.now() < rateLimitCoolOffUntil;
+    const maxAttempts = inCoolOff ? 1 : MAX_ATTEMPTS;
+
+    let lastStatus: number | undefined;
+    let lastStatusText: string | undefined;
+    let lastError: string | undefined;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+            const resp = await fetch(msg.url, init);
+            if (resp.ok) {
+                const blob = await resp.blob();
+                if (blob.size > maxBytes || blob.size < minBytes) {
+                    sendResponse({ ok: false, sizeReason: blob.size });
+                    return;
+                }
+                const dataUrl = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.onerror = () => reject(reader.error);
+                    reader.readAsDataURL(blob);
+                });
+                rateLimitStreak = 0;
+                rateLimitCoolOffUntil = 0;
+                sendResponse({ ok: true, dataUrl, size: blob.size });
+                return;
+            }
+            lastStatus = resp.status;
+            lastStatusText = resp.statusText;
+            // Permanent: 4xx except 429 (rate-limit), no point retrying
+            const transient = resp.status === 429 || resp.status >= 500;
+            if (!transient) {
+                sendResponse({ ok: false, status: resp.status, statusText: resp.statusText });
+                return;
+            }
+            if (attempt < maxAttempts - 1) {
+                const retryAfter = resp.headers.get('Retry-After');
+                const waitMs = retryAfter ? Math.min(parseInt(retryAfter, 10) * 1000, 30_000) : backoffMs(attempt);
+                await sleep(waitMs);
+            }
+        } catch (e) {
+            lastError = String(e);
+            if (attempt < maxAttempts - 1) await sleep(backoffMs(attempt));
+        }
+    }
+    if (lastStatus === 429) {
+        rateLimitStreak++;
+        if (rateLimitStreak >= RATE_LIMIT_STREAK_THRESHOLD) {
+            rateLimitCoolOffUntil = Date.now() + RATE_LIMIT_COOL_OFF_MS;
+        }
+    }
+    sendResponse({ ok: false, status: lastStatus, statusText: lastStatusText, error: lastError });
+}
+
 resetBadge();
 
 runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendResponse) => {
@@ -387,6 +466,11 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
             if (fwd && fwd.catch) fwd.catch(() => {});
         } catch { /* popup may be closed */ }
         return;
+    }
+
+    if (msg.type === 'FETCH_BLOB') {
+        handleFetchBlobMessage(msg, sendResponse);
+        return true;
     }
 
     if (msg.type === 'GET_EXPORT_STATUS') {

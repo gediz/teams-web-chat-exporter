@@ -38,6 +38,20 @@ export type BuildAndDownloadRequest = {
   };
 };
 
+// Background-mediated fetch for credentialed cross-origin requests (Firefox content
+// scripts can't send page cookies cross-origin, but background scripts can with
+// matching host_permissions).
+export type FetchBlobRequest = {
+  type: 'FETCH_BLOB';
+  url: string;
+  bearerToken?: string;
+  maxBytes?: number;
+  minBytes?: number;
+};
+export type FetchBlobResponse =
+  | { ok: true; dataUrl: string; size: number }
+  | { ok: false; status?: number; statusText?: string; error?: string; sizeReason?: number };
+
 export type ScrapeProgressMessage = {
   type: 'SCRAPE_PROGRESS';
   payload: {
@@ -67,7 +81,8 @@ export type BackgroundIncomingMessage =
   | StartExportZipRequest
   | BuildAndDownloadRequest
   | ExportStatusUpdateMessage
-  | ScrapeProgressMessage;
+  | ScrapeProgressMessage
+  | FetchBlobRequest;
 export type PopupIncomingMessage = ExportStatusMessage | ScrapeProgressMessage;
 
 export type RuntimeResponse<T extends RuntimeRequest> =

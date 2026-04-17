@@ -15,12 +15,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
-      # Node 22 ships with npm 10.x; upgrade to npm 11 to match the
-      # version that generated package-lock.json (avoids "Missing from lock file" errors)
-      - run: npm install -g npm@11
+      # Node 24 LTS bundles npm 11 — matches the version that generated
+      # package-lock.json, no global upgrade needed.
+      - run: npm --version
       - run: npm ci
       - run: npm run check
       - run: npm run build

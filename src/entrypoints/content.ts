@@ -299,7 +299,40 @@ export default defineContentScript({
             }
             return false;
         }
-        function resolveAvatar(item: Element): string | null {
+        function imgToDataURL(img: HTMLImageElement): string | null {
+            try {
+                if (!img.complete || !img.naturalWidth || !img.naturalHeight) return null;
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return null;
+                ctx.drawImage(img, 0, 0);
+                return canvas.toDataURL('image/png');
+            } catch {
+                return null;
+            }
+        }
+
+        // The user's own messages don't include an avatar element in the DOM,
+        // so capture it once from the top-bar MeControl and patch it in by UUID identity.
+        function findSelfAvatar(): { dataUrl: string | null; name: string | null; uuid: string | null } {
+            const trigger = document.querySelector('[data-tid="me-control-avatar"]') as HTMLElement | null;
+            if (!trigger) return { dataUrl: null, name: null, uuid: null };
+            const aria = trigger.getAttribute('aria-label') || '';
+            const nameMatch = aria.match(/Profile picture of (.+?)\.?$/i);
+            const name = nameMatch?.[1]?.trim() || null;
+            const img = trigger.querySelector('img') as HTMLImageElement | null;
+            const dataUrl = img ? imgToDataURL(img) : null;
+            const uuid = extractUserUuidFromAvatarUrl(img?.src);
+            return { dataUrl, name, uuid };
+        }
+
+        // Returns both the original profile-picture URL (carries the user's UUID for
+        // identity) and a canvas-rendered data URL (the actual pixels we'll embed).
+        type ResolvedAvatar = { url: string; dataUrl: string | null };
+
+        function resolveAvatar(item: Element): ResolvedAvatar | null {
             // Try per-message avatar with various selectors
             const selectors = [
                 '[data-tid="message-avatar"] img',
@@ -309,19 +342,42 @@ export default defineContentScript({
                 'img[src*="profilepicture"]'
             ];
 
-            for (const selector of selectors) {
-                const img = $(selector, item) as HTMLImageElement | null;
-                if (img?.src && img.src.startsWith('http')) {
-                    // Only accept individual user avatars (profilepicturev2), not group avatars
-                    if (img.src.includes('/profilepicturev2/') || img.src.includes('/profilepicture/')) {
-                        // Found user avatar
-                        return img.src;
+            const searchIn = (root: Element): ResolvedAvatar | null => {
+                for (const selector of selectors) {
+                    const img = $(selector, root) as HTMLImageElement | null;
+                    if (img?.src && img.src.startsWith('http')) {
+                        // Only accept individual user avatars (profilepicturev2), not group avatars
+                        if (img.src.includes('/profilepicturev2/') || img.src.includes('/profilepicture/')) {
+                            // Read pixels from the already-rendered <img>: Firefox content scripts
+                            // can't send page cookies on fetch(), so the URL path 401s there.
+                            return { url: img.src, dataUrl: imgToDataURL(img) };
+                        }
                     }
                 }
-            }
+                return null;
+            };
+
+            const found = searchIn(item);
+            if (found) return found;
+
+            // In the new Teams DOM the avatar is a sibling of the message body, not inside it.
+            // extractOne narrows itemScope to the body; climb to the outer wrapper to find it.
+            const outer =
+                item.closest('[data-tid="chat-pane-item"]') ||
+                item.closest('li[role="none"]') ||
+                null;
+            if (outer && outer !== item) return searchIn(outer);
 
             // No per-message avatar found - return null (don't use group/header fallback)
             return null;
+        }
+
+        // Profile picture URLs embed the user's UUID at /users/<uuid>/profilepicturev2/.
+        // Use this UUID as a stable identity to disambiguate users with identical names.
+        function extractUserUuidFromAvatarUrl(url: string | null | undefined): string | null {
+            if (!url) return null;
+            const m = url.match(/\/users\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\//i);
+            return m?.[1] || null;
         }
 
         /**
@@ -406,34 +462,112 @@ export default defineContentScript({
         }
 
         // ── Inline Image Fetching (API mode) ──────────────────────
-        const ALLOWED_IMAGE_DOMAINS = ['.microsoft.com', '.microsoft.us', '.skype.com', '.live.com', '.office.com', '.office365.com', '.office365.us'];
         const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
         const MAX_CONCURRENT_FETCHES = 6;
 
-        function isAllowedImageDomain(url: string): boolean {
-            try {
-                const hostname = new URL(url).hostname.toLowerCase();
-                return ALLOWED_IMAGE_DOMAINS.some(d => hostname.endsWith(d));
-            } catch { return false; }
+        // userRegion comes from the chat-service discovery (e.g. "emea"); the proxy
+        // host uses a different naming convention. Fall back to "eu" if unmapped.
+        const USER_REGION_TO_PROXY_PREFIX: Record<string, string> = {
+            emea: 'eu', amer: 'na', apac: 'as', uk: 'uk', au: 'au', in: 'in', jp: 'jp',
+        };
+
+        // Teams's authenticated image proxy. AMS URLs in message HTML can't be fetched
+        // directly without per-domain Skype cookies; the proxy accepts our IC3 Bearer
+        // token (same one used for chat service) and returns the same image bytes.
+        function transformImageUrlToProxy(url: string, userId: string, userRegion: string): string | null {
+            const targetHost = `${USER_REGION_TO_PROXY_PREFIX[userRegion.toLowerCase()] || 'eu'}-prod.asyncgw.teams.microsoft.com`;
+            // AMS direct: https://[region]-api.asm.skype.com/v1/(objects/...)
+            // Transforms to: https://{targetHost}/v1/{userId}/(rest)?v=1
+            // [a-z0-9-]+ not just [a-z-]+: real region hostnames can contain digits
+            // (eu-api-0, amer-api-1, euno1-api-0, etc.).
+            const ams = url.match(/^https:\/\/[a-z0-9-]+\.asm\.skype\.com\/v1\/(.+)$/i);
+            if (ams) {
+                const sep = ams[1].includes('?') ? '&' : '?';
+                return `https://${targetHost}/v1/${userId}/${ams[1]}${sep}v=1`;
+            }
+            // Asyncgw URL: insert {userId} immediately after the "/v1/" segment, keeping
+            // any prefix path (like "urlp/") intact. Examples:
+            //   /v1/objects/...         → /v1/{userId}/objects/...
+            //   /urlp/v1/url/image/...  → /urlp/v1/{userId}/url/image/...
+            const asyncgw = url.match(/^https:\/\/[a-z0-9-]+\.asyncgw\.teams\.microsoft\.com\/(.*?)v1\/(.*)$/i);
+            if (asyncgw) {
+                const [, prefix, rest] = asyncgw;
+                // Skip if userId is already present immediately after /v1/.
+                if (/^[a-f0-9-]{36}\//i.test(rest)) {
+                    return `https://${targetHost}/${prefix}v1/${rest}`;
+                }
+                return `https://${targetHost}/${prefix}v1/${userId}/${rest}`;
+            }
+            // Any other http(s) URL — route through Teams' generic URL-image proxy.
+            // Avoids needing host_permissions for every third-party image CDN, and
+            // Teams's server validates the URL + shields the user's IP from the origin.
+            if (/^https?:\/\//i.test(url)) {
+                return `https://${targetHost}/urlp/v1/${userId}/url/image/Thumbnail?url=${encodeURIComponent(url)}`;
+            }
+            return null;
         }
 
+        // Set by fetchInlineImages before any concurrent fetches start, so the
+        // image fetcher can rewrite AMS/asyncgw URLs to the authenticated proxy form.
+        let imgFetchAuth: { userId: string; userRegion: string; ic3Token: string } | null = null;
+
         async function fetchImageAsDataUrl(url: string): Promise<string | null> {
-            // Public URLs (e.g. giphy.com GIFs) don't need auth or domain check
-            const isPublic = /giphy\.com/i.test(url);
-            if (!isPublic && !isAllowedImageDomain(url)) return null;
+            // All image fetches go through Teams' authenticated URL-image proxy:
+            //   - AMS object URLs and asyncgw proxy URLs get rewritten with {userId}
+            //   - Any other http(s) URL gets wrapped in /urlp/v1/{userId}/url/image/Thumbnail
+            // The Teams server validates + fetches the upstream, so we never touch
+            // third-party CDNs directly (no extra host_permissions, no CORS pitfalls).
+            if (!imgFetchAuth?.userId || !imgFetchAuth?.userRegion || !imgFetchAuth?.ic3Token) {
+                imgFetchStats.skippedDomain++;
+                return null;
+            }
+            const fetchUrl = transformImageUrlToProxy(url, imgFetchAuth.userId, imgFetchAuth.userRegion);
+            if (!fetchUrl) {
+                imgFetchStats.skippedDomain++;
+                return null;
+            }
             try {
-                const res = await fetch(url, isPublic ? {} : { credentials: 'include' });
-                if (!res.ok) return null;
-                const blob = await res.blob();
-                if (blob.size > MAX_IMAGE_BYTES || blob.size < 100) return null;
-                return new Promise<string | null>((resolve) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result as string);
-                    reader.onerror = () => resolve(null);
-                    reader.readAsDataURL(blob);
-                });
-            } catch { return null; }
+                const resp = await runtime.sendMessage({
+                    type: 'FETCH_BLOB',
+                    url: fetchUrl,
+                    bearerToken: imgFetchAuth.ic3Token,
+                    maxBytes: MAX_IMAGE_BYTES,
+                    minBytes: 100,
+                }) as { ok: boolean; dataUrl?: string; status?: number; statusText?: string; error?: string; sizeReason?: number };
+                if (resp?.ok && resp.dataUrl) return resp.dataUrl;
+                if (resp?.status) {
+                    imgFetchStats.httpError++;
+                    if (!imgFetchStats.firstHttpError) imgFetchStats.firstHttpError = `HTTP ${resp.status} ${resp.statusText || ''} for ${url.slice(0, 80)}`;
+                } else if (resp?.error) {
+                    imgFetchStats.threwError++;
+                    if (!imgFetchStats.firstThrow) imgFetchStats.firstThrow = `${resp.error.slice(0, 100)} for ${url.slice(0, 80)}`;
+                } else if (typeof resp?.sizeReason === 'number') {
+                    if (resp.sizeReason > MAX_IMAGE_BYTES) imgFetchStats.tooLarge++;
+                    else imgFetchStats.tooSmall++;
+                }
+                return null;
+            } catch (e) {
+                imgFetchStats.threwError++;
+                if (!imgFetchStats.firstThrow) imgFetchStats.firstThrow = `bg-fetch ${String(e).slice(0, 80)}`;
+                return null;
+            }
         }
+
+        // Per-export image fetch counters; reset at the start of each fetchInlineImages call.
+        const imgFetchStats = {
+            skippedDomain: 0, httpError: 0, threwError: 0, tooLarge: 0, tooSmall: 0,
+            firstHttpError: '' as string,
+            firstThrow: '' as string,
+        };
+        const resetImgFetchStats = () => {
+            imgFetchStats.skippedDomain = 0;
+            imgFetchStats.httpError = 0;
+            imgFetchStats.threwError = 0;
+            imgFetchStats.tooLarge = 0;
+            imgFetchStats.tooSmall = 0;
+            imgFetchStats.firstHttpError = '';
+            imgFetchStats.firstThrow = '';
+        };
 
         /**
          * Fetch inline images for API-mode messages.
@@ -442,22 +576,28 @@ export default defineContentScript({
         async function fetchInlineImages(
             messages: ExportMessage[],
             onProgress?: (done: number, total: number) => void,
+            auth?: { userId: string | null; userRegion: string; ic3Token: string },
         ): Promise<void> {
-            // Collect all image attachments that need fetching
+            resetImgFetchStats();
+            imgFetchAuth = (auth?.userId && auth.userRegion && auth.ic3Token)
+                ? { userId: auth.userId, userRegion: auth.userRegion, ic3Token: auth.ic3Token }
+                : null;
+            if (!imgFetchAuth) {
+                console.warn('[Teams Exporter] Image proxy auth missing — fetches will use raw URLs. ' +
+                    `userId=${auth?.userId ? 'ok' : 'null'} region=${auth?.userRegion ? 'ok' : 'null'} ic3=${auth?.ic3Token ? 'ok' : 'null'}`);
+            }
+            // Collect attachments whose href is an actual image (or routable through
+            // the Teams URL-image proxy). Skip file attachments like SharePoint docs,
+            // which have an http href but the proxy returns 415 for them.
             const tasks: { att: { href?: string; dataUrl?: string }; url: string }[] = [];
             for (const m of messages) {
                 if (!m.attachments) continue;
                 for (const att of m.attachments) {
-                    if (!att.href) continue;
-                    // Video: att.href is thumbnail URL (fetched as image by AMS filter below)
-                    // GIFs from Giphy (public URLs, no auth needed)
-                    if (att.type === 'gif' && /giphy\.com/i.test(att.href)) {
-                        tasks.push({ att, url: att.href });
-                        continue;
-                    }
-                    // AMS/Teams image URLs (inline images, file previews, link thumbnails, static icons)
-                    if (!/\/v1\/objects\/[^/]+\/views\//i.test(att.href) && !/\/urlp\//i.test(att.href)) continue;
-                    if (!isAllowedImageDomain(att.href)) continue;
+                    if (!att.href || !/^https?:\/\//i.test(att.href)) continue;
+                    const isAmsObject = /\/v1\/objects\/[^/]+\/views\//i.test(att.href);
+                    const isUrlp = /\/urlp\//i.test(att.href);
+                    const isImageish = att.type === 'gif' || att.type === 'video' || att.kind === 'preview';
+                    if (!isAmsObject && !isUrlp && !isImageish) continue;
                     tasks.push({ att, url: att.href });
                 }
             }
@@ -466,6 +606,7 @@ export default defineContentScript({
             console.log(`[Teams Exporter] Fetching ${tasks.length} inline images…`);
 
             let done = 0;
+            let succeeded = 0;
             // Process in batches to limit concurrency
             for (let i = 0; i < tasks.length; i += MAX_CONCURRENT_FETCHES) {
                 const batch = tasks.slice(i, i + MAX_CONCURRENT_FETCHES);
@@ -474,6 +615,7 @@ export default defineContentScript({
                         const dataUrl = await fetchImageAsDataUrl(url);
                         if (dataUrl) {
                             att.dataUrl = dataUrl;
+                            succeeded++;
                         } else if (/\/urlp\/v1\/url\/image\//i.test(url)) {
                             // Thumbnail proxy failed (CORS/opaque) — clear href to avoid broken img
                             att.href = undefined;
@@ -483,7 +625,20 @@ export default defineContentScript({
                     }),
                 );
             }
-            console.log(`[Teams Exporter] Fetched ${done} images (${tasks.length} attempted)`);
+            console.log(`[Teams Exporter] Image fetch: ${succeeded} succeeded, ${tasks.length - succeeded} failed (of ${tasks.length} attempted)`);
+            const failures = imgFetchStats.httpError + imgFetchStats.threwError + imgFetchStats.tooLarge + imgFetchStats.tooSmall + imgFetchStats.skippedDomain;
+            if (failures > 0) {
+                const detail = [
+                    imgFetchStats.httpError && `${imgFetchStats.httpError} http-error`,
+                    imgFetchStats.threwError && `${imgFetchStats.threwError} threw`,
+                    imgFetchStats.tooLarge && `${imgFetchStats.tooLarge} too-large`,
+                    imgFetchStats.tooSmall && `${imgFetchStats.tooSmall} too-small`,
+                    imgFetchStats.skippedDomain && `${imgFetchStats.skippedDomain} domain-blocked`,
+                ].filter(Boolean).join(', ');
+                console.warn(`[Teams Exporter] Image fetch failures — ${detail}`);
+                if (imgFetchStats.firstHttpError) console.warn(`[Teams Exporter] First http error: ${imgFetchStats.firstHttpError}`);
+                if (imgFetchStats.firstThrow) console.warn(`[Teams Exporter] First exception: ${imgFetchStats.firstThrow}`);
+            }
         }
 
         // ── Avatar Fetching (API mode) ────────────────────────────
@@ -495,7 +650,7 @@ export default defineContentScript({
             messages: ExportMessage[],
             rawMessages: Array<{ from?: string; imdisplayname?: string }>,
         ): Promise<void> {
-            const graphToken = getGraphToken();
+            const graphToken = await getGraphToken();
             if (!graphToken) return;
 
             // Build author → UUID map from raw API messages
@@ -508,26 +663,43 @@ export default defineContentScript({
 
             if (!authorToUuid.size) return;
 
-            // Fetch profile photos (sequentially to avoid rate limits)
+            // Fetch profile photos via background (same path used for images) so both
+            // browsers behave the same way; direct content-script fetch to Graph can
+            // fail sporadically in Firefox even with host_permissions.
             const uuidToDataUrl = new Map<string, string>();
+            let firstPhotoError: string | null = null;
+            let photo404 = 0;
             for (const [, uuid] of authorToUuid) {
                 if (uuidToDataUrl.has(uuid)) continue;
                 try {
-                    const resp = await fetch(
-                        `https://graph.microsoft.com/v1.0/users/${uuid}/photo/$value`,
-                        { headers: { 'Authorization': `Bearer ${graphToken}` }, signal: AbortSignal.timeout(5_000) },
-                    );
-                    if (!resp.ok) continue;
-                    const blob = await resp.blob();
-                    if (blob.size > MAX_IMAGE_BYTES) continue;
-                    const dataUrl = await new Promise<string | null>((resolve) => {
-                        const reader = new FileReader();
-                        reader.onloadend = () => resolve(reader.result as string);
-                        reader.onerror = () => resolve(null);
-                        reader.readAsDataURL(blob);
-                    });
-                    if (dataUrl) uuidToDataUrl.set(uuid, dataUrl);
-                } catch { /* skip */ }
+                    const resp = await runtime.sendMessage({
+                        type: 'FETCH_BLOB',
+                        url: `https://graph.microsoft.com/v1.0/users/${uuid}/photo/$value`,
+                        bearerToken: graphToken,
+                        maxBytes: MAX_IMAGE_BYTES,
+                        minBytes: 1,
+                    }) as { ok: boolean; dataUrl?: string; status?: number; statusText?: string; error?: string; sizeReason?: number };
+                    if (resp?.ok && resp.dataUrl) {
+                        uuidToDataUrl.set(uuid, resp.dataUrl);
+                    } else if (resp?.status === 404) {
+                        photo404++;
+                    } else if (!firstPhotoError) {
+                        firstPhotoError = resp?.status
+                            ? `HTTP ${resp.status} ${resp.statusText || ''}`
+                            : (resp?.error || 'unknown error');
+                    }
+                } catch (e) {
+                    if (!firstPhotoError) firstPhotoError = String(e);
+                }
+            }
+            const missing = authorToUuid.size - uuidToDataUrl.size;
+            if (missing > 0) {
+                const nonPhotoErrors = missing - photo404;
+                const parts: string[] = [];
+                if (photo404 > 0) parts.push(`${photo404} have no photo (404)`);
+                if (nonPhotoErrors > 0) parts.push(`${nonPhotoErrors} failed (${firstPhotoError || 'no error captured'})`);
+                const level = nonPhotoErrors > 0 ? 'warn' : 'log';
+                console[level](`[Teams Exporter] Graph photo: ${uuidToDataUrl.size}/${authorToUuid.size} fetched — ${parts.join(', ')}`);
             }
 
             if (!uuidToDataUrl.size) return;
@@ -1535,7 +1707,9 @@ export default defineContentScript({
             }
 
             const edited = resolveEdited(itemScope, body);
-            const avatar = resolveAvatar(itemScope);
+            const av = resolveAvatar(itemScope);
+            const avatar = av?.dataUrl ?? av?.url ?? null;
+            const avatarUrl = av?.url;
             const reactions = opts.includeReactions ? await extractReactions(itemScope) : [];
 
             await waitForPreviewImages(itemScope, 250);
@@ -1586,6 +1760,7 @@ export default defineContentScript({
                 attachments,
                 edited,
                 avatar,
+                avatarUrl,
                 replyTo,
                 tables,
                 system: false,
@@ -1991,7 +2166,7 @@ export default defineContentScript({
                                     const mp = runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'api-fetch', messagesVisible: p.messagesSoFar, passes: p.page } });
                                     if (mp && mp.catch) mp.catch(() => {});
                                 } catch { /* ignore */ }
-                            });
+                            }, { startAtISO: scrapeOpts.startAtISO });
 
                             if (apiResult) {
                                 const converted = convertApiMessages(apiResult.messages, scrapeOpts);
@@ -2004,7 +2179,7 @@ export default defineContentScript({
                                         if (done % 10 === 0 || done === total) {
                                             try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length, imagesDone: done, imagesTotal: total } }); } catch {}
                                         }
-                                    });
+                                    }, { userId: apiResult.userId, userRegion: apiResult.userRegion, ic3Token: apiResult.ic3Token });
                                     // Fetch profile photos via Graph API
                                     hud(`fetching avatars…`);
                                     try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'avatars', messagesVisible: converted.length } }); } catch {}
@@ -2076,6 +2251,60 @@ export default defineContentScript({
                             if (msgPromise && msgPromise.catch) msgPromise.catch(() => { });
                         } catch (e) { /* ignore */ }
                         hud(`extracted ${messages.length} messages`);
+
+                        // Patch missing avatars using UUID identity. This covers two cases:
+                        //   - Grouped message follow-ups (Teams omits the avatar <img> for consecutive
+                        //     messages from the same author, so resolveAvatar returns null for them)
+                        //   - The user's own messages (no avatar element in DOM; capture from MeControl)
+                        // We use UUID (from the profile-picture URL) as the identity key so two users
+                        // with the same display name don't get each other's avatars.
+                        {
+                            const uuidToAvatar = new Map<string, string>();      // identity → data URL
+                            const nameToUuids = new Map<string, Set<string>>();  // name → identities seen
+
+                            const observe = (name: string | undefined, uuid: string | null, dataUrl: string | null) => {
+                                if (uuid && dataUrl && !uuidToAvatar.has(uuid)) uuidToAvatar.set(uuid, dataUrl);
+                                if (name && uuid) {
+                                    let s = nameToUuids.get(name);
+                                    if (!s) { s = new Set(); nameToUuids.set(name, s); }
+                                    s.add(uuid);
+                                }
+                            };
+
+                            for (const m of messages) {
+                                const url = (m as ExportMessage).avatarUrl;
+                                const uuid = extractUserUuidFromAvatarUrl(url);
+                                const dataUrl = m.avatar && m.avatar.startsWith('data:') ? m.avatar : null;
+                                observe(m.author, uuid, dataUrl);
+                            }
+
+                            const self = findSelfAvatar();
+                            if (self.dataUrl && self.uuid) {
+                                observe(self.name || undefined, self.uuid, self.dataUrl);
+                            }
+
+                            let patched = 0, skippedAmbiguous = 0;
+                            for (const m of messages) {
+                                if (m.avatar) continue;
+                                const url = (m as ExportMessage).avatarUrl;
+                                const uuid = extractUserUuidFromAvatarUrl(url);
+                                if (uuid && uuidToAvatar.has(uuid)) {
+                                    m.avatar = uuidToAvatar.get(uuid)!;
+                                    patched++;
+                                    continue;
+                                }
+                                if (!m.author) continue;
+                                const ids = nameToUuids.get(m.author);
+                                if (ids?.size === 1) {
+                                    const av = uuidToAvatar.get([...ids][0]);
+                                    if (av) { m.avatar = av; patched++; }
+                                } else if (ids && ids.size > 1) {
+                                    skippedAmbiguous++;
+                                }
+                            }
+                            if (patched > 0) console.log(`[Teams Exporter] Avatar patch: ${patched} messages filled from identity map`);
+                            if (skippedAmbiguous > 0) console.log(`[Teams Exporter] Avatar patch: ${skippedAmbiguous} messages skipped (multiple users share the same display name)`);
+                        }
 
                         // Fetch avatars in content script context (has access to Teams cookies)
                         hud('fetching avatars...');
