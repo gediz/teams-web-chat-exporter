@@ -168,10 +168,39 @@ function htmlToText(html: string): string {
  * Parse system message XML content into readable text.
  * The API returns XML like <addmember>, <partlist>, <topicupdate> etc.
  */
+function formatSecondsDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  const parts: string[] = [];
+  if (h > 0) parts.push(`${h}h`);
+  if (m > 0) parts.push(`${m}m`);
+  if (s > 0 || parts.length === 0) parts.push(`${s}s`);
+  return parts.join(' ');
+}
+
 function parseSystemContent(content: string, messageType: string, mriMap: Map<string, string>): string {
   if (!content) return messageType.split('/').pop() || 'system event';
 
-  const resolveName = (mri: string) => mriMap.get(mri) || mri.replace(/^8:orgid:/, '');
+  // Resolve an MRI (8:orgid:UUID, gid:UUID, or bare UUID) to a display name.
+  // Fall back to "(unknown user)" rather than dumping a raw UUID — Graph
+  // doesn't return names for deleted/external users and the UUID isn't
+  // useful to anyone reading the export.
+  const resolveName = (mri: string) => {
+    if (!mri) return '(unknown user)';
+    const direct = mriMap.get(mri);
+    if (direct) return direct;
+    const uuidMatch = mri.match(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i);
+    if (uuidMatch) {
+      const uuid = uuidMatch[0];
+      for (const k of [`8:orgid:${uuid}`, `gid:${uuid}`, uuid]) {
+        const n = mriMap.get(k);
+        if (n) return n;
+      }
+    }
+    return '(unknown user)';
+  };
 
   // Helper: extract text content of an XML element
   const xmlText = (xml: string, tag: string): string => {
@@ -188,31 +217,55 @@ function parseSystemContent(content: string, messageType: string, mriMap: Map<st
     return results;
   };
 
+  // ThreadActivity/MemberJoined and MemberLeft use a JSON content body
+  // (initiator + members[]), not the XML form used by the other ThreadActivity
+  // types. Parse JSON and resolve member IDs through the same mriMap.
+  const parseJsonMembers = (): string[] => {
+    try {
+      const data = JSON.parse(content);
+      const ids = ((data.members || []) as Array<{ id?: string }>)
+        .map(m => m?.id).filter((s): s is string => !!s);
+      return ids.map(resolveName);
+    } catch { return []; }
+  };
+
   try {
     if (messageType === 'ThreadActivity/AddMember') {
-      const initiator = resolveName(xmlText(content, 'initiator'));
-      const targets = xmlTextAll(content, 'target').map(resolveName);
+      const initiatorMri = xmlText(content, 'initiator');
+      const targetMris = xmlTextAll(content, 'target');
+      const initiator = resolveName(initiatorMri);
+      const targets = targetMris.map(resolveName);
+      // Self-add (user added themselves to a chat) → "X joined"
+      if (targetMris.length === 1 && targetMris[0] === initiatorMri) {
+        return `${initiator} joined`;
+      }
       return targets.length
         ? `${initiator} added ${targets.join(', ')}`
         : `${initiator} added members`;
     }
 
     if (messageType === 'ThreadActivity/DeleteMember') {
-      const initiator = resolveName(xmlText(content, 'initiator'));
-      const targets = xmlTextAll(content, 'target').map(resolveName);
+      const initiatorMri = xmlText(content, 'initiator');
+      const targetMris = xmlTextAll(content, 'target');
+      const initiator = resolveName(initiatorMri);
+      const targets = targetMris.map(resolveName);
+      // Self-remove (user removed themselves) → "X left"
+      if (targetMris.length === 1 && targetMris[0] === initiatorMri) {
+        return `${initiator} left`;
+      }
       return targets.length
         ? `${initiator} removed ${targets.join(', ')}`
         : `${initiator} removed members`;
     }
 
     if (messageType === 'ThreadActivity/MemberJoined') {
-      const targets = xmlTextAll(content, 'target').map(resolveName);
-      return targets.length ? `${targets.join(', ')} joined` : 'A member joined';
+      const members = parseJsonMembers();
+      return members.length ? `${members.join(', ')} joined` : 'A member joined';
     }
 
     if (messageType === 'ThreadActivity/MemberLeft') {
-      const targets = xmlTextAll(content, 'target').map(resolveName);
-      return targets.length ? `${targets.join(', ')} left` : 'A member left';
+      const members = parseJsonMembers();
+      return members.length ? `${members.join(', ')} left` : 'A member left';
     }
 
     if (messageType === 'ThreadActivity/TopicUpdate') {
@@ -233,17 +286,20 @@ function parseSystemContent(content: string, messageType: string, mriMap: Map<st
     }
 
     if (messageType === 'Event/Call') {
-      const names = xmlTextAll(content, 'displayName').filter(Boolean);
       const isEnded = content.includes('<ended');
-      const isStarted = content.includes('callStarted');
-      if (names.length) {
-        return isEnded
-          ? `Call with ${names.join(', ')} ended`
-          : isStarted
-            ? `${names[0] || 'Someone'} started a call`
-            : `Call with ${names.join(', ')}`;
+      // Meeting events (recurring or scheduled) carry meeting metadata that
+      // ad-hoc calls don't. We label them "Meeting" instead of "Call". Names
+      // appear in END payloads for both, so we surface them via the message's
+      // systemAttendees field (rendered separately) rather than inlining
+      // them in the label, keeping the label consistent across event ages.
+      const isMeeting = /<(meetingType|iCalUid|organizerUpn)>/i.test(content);
+      const subject = isMeeting ? 'Meeting' : 'Call';
+      if (isEnded) {
+        // <duration> is in seconds (e.g. "8148" → 2h 15m 48s)
+        const dur = formatSecondsDuration(parseInt(xmlText(content, 'duration') || '0', 10));
+        return dur ? `${subject} ended — ${dur}` : `${subject} ended`;
       }
-      return isEnded ? 'Call ended' : 'Call started';
+      return `${subject} started`;
     }
 
     if (messageType === 'RichText/Media_CallRecording') {
@@ -840,10 +896,18 @@ function convertOneMessage(
     text = fwdParts ? fwdParts.comment : htmlToText(rawContent);
   }
 
+  let systemAttendees: string[] | undefined;
   if (isForwarded) {
     // Already handled above
   } else if (isSystem) {
     text = parseSystemContent(rawContent, messageType, mriMap);
+    // For Event/Call (meeting or call) events, surface the participant list
+    // as structured data so the renderer can show it consistently.
+    if (messageType === 'Event/Call') {
+      const names = rawContent.match(/<displayName>[^<]+<\/displayName>/g)
+        ?.map(s => s.replace(/<\/?displayName>/g, '')).filter(Boolean) || [];
+      if (names.length) systemAttendees = names;
+    }
   } else if (messageType === 'RichText/Html' || rawContent.startsWith('<')) {
     // Extract reply from blockquote if present
     if (opts.includeReplies !== false) {
@@ -942,6 +1006,7 @@ function convertOneMessage(
     attachments,
     replyTo,
     mentions,
+    systemAttendees,
   };
 }
 

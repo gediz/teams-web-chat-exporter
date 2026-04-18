@@ -289,7 +289,22 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     .chip.self{border-color:#2563eb; box-shadow:0 0 0 1px rgba(37,99,235,0.2) inset}
     .divider{display:flex; align-items:center; gap:10px; margin:18px 0}
     .divider:before, .divider:after{content:""; flex:1; height:1px; background:var(--border)}
-    .divider span{color:var(--muted); font-weight:600; white-space:nowrap; font-size:13px}
+    .divider > span{color:var(--muted); font-weight:600; white-space:nowrap; font-size:13px; display:inline-flex; gap:8px; align-items:baseline}
+    .divider-time{color:var(--muted); font-weight:400; font-size:12px; opacity:0.75}
+    /* Call/meeting system events: 3-column header (duration | label | timestamp)
+       between horizontal lines, with an optional attendees row below using
+       lighter hairlines. Same shape for start (no duration) and end. */
+    .divider-block{margin:18px 0}
+    .divider-row{display:flex; align-items:center; gap:10px}
+    .divider-row:before, .divider-row:after{content:""; flex:1; height:1px; background:var(--border)}
+    .divider-header{display:inline-flex; gap:16px; align-items:baseline; padding:0 8px}
+    .divider-h-left{color:var(--muted); font-weight:500; font-size:12px; opacity:0.85; min-width:80px; text-align:right}
+    .divider-h-center{color:var(--muted); font-weight:600; font-size:13px; white-space:nowrap}
+    .divider-h-right{color:var(--muted); font-weight:400; font-size:12px; opacity:0.85; min-width:160px}
+    .divider-att-row{display:flex; align-items:center; gap:10px; margin-top:4px}
+    .divider-att-row:before, .divider-att-row:after{content:""; flex:1; height:1px; background:var(--border); opacity:0.4}
+    .divider-att-row > span{color:var(--muted); font-weight:400; font-size:12px; opacity:0.85; max-width:65%; text-align:center; line-height:1.4}
+    .divider-icon{display:inline-block; opacity:0.65; font-size:12px; vertical-align:-1px}
     .compact .msg{padding:10px}
     .compact .reactions{display:none}
     .compact .reply{display:none}
@@ -589,8 +604,46 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     if (replyIndices.has(i)) continue;
     const m = rows[i];
     if (m.system) {
-      const label = escapeHtml(m.text || m.author || '[system]');
-      parts.push(`<div class="divider"><span>${label}</span></div>`);
+      const rawText = m.text || m.author || '[system]';
+      const ts = m.timestamp ? fmtTs(m.timestamp) : '';
+      const timeIso = m.timestamp || '';
+      const attendees = m.systemAttendees;
+
+      // Call/meeting events use the 3-column header: duration | label | timestamp.
+      // Other system events (member joined/left, recording, transcript, date dividers)
+      // keep the simple horizontal divider.
+      const callMatch = rawText.match(/^(Meeting|Call) (started|ended)(?: — (.+))?$/);
+      if (callMatch) {
+        const labelText = `${callMatch[1]} ${callMatch[2]}`;
+        const duration = callMatch[3] || '';
+        const isStarted = callMatch[2] === 'started';
+        const leftIcon = isStarted ? '▶' : '⏱';
+        const leftHtml = `<span class="divider-icon">${leftIcon}</span>${duration ? ' ' + escapeHtml(duration) : ''}`;
+        const rightHtml = ts
+          ? `${escapeHtml(ts)} <span class="divider-icon">🕒</span>`
+          : '';
+        const attRowHtml = attendees && attendees.length
+          ? `<div class="divider-att-row"><span>${escapeHtml(attendees.join(', '))}</span></div>`
+          : '';
+        parts.push(
+          `<div class="divider-block">` +
+          `<div class="divider-row">` +
+          `<div class="divider-header">` +
+          `<div class="divider-h-left">${leftHtml}</div>` +
+          `<div class="divider-h-center">${escapeHtml(labelText)}</div>` +
+          `<div class="divider-h-right" title="${escapeHtml(timeIso)}">${rightHtml}</div>` +
+          `</div>` +
+          `</div>` +
+          `${attRowHtml}` +
+          `</div>`,
+        );
+      } else {
+        const label = escapeHtml(rawText);
+        const timeHtml = ts
+          ? ` <span class="divider-time" title="${escapeHtml(timeIso)}">${escapeHtml(ts)}</span>`
+          : '';
+        parts.push(`<div class="divider"><span>${label}${timeHtml}</span></div>`);
+      }
       continue;
     }
 

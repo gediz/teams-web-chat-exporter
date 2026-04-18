@@ -47,6 +47,7 @@ export type ExportMessage = {
   tables?: string[][][];
   replyTo?: ReplyContext | null;
   mentions?: Array<{ name: string; mri?: string }>;  // @mentions in the message
+  systemAttendees?: string[];     // participant display names for call/meeting system messages
 };
 
 export type ExportMeta = {
