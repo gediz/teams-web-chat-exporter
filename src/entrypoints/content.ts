@@ -45,6 +45,10 @@ export default defineContentScript({
 
         let hudEnabled = true;
         let currentRunStartedAt: number | null = null;
+        // One scrape can be active per content script. Holding the controller
+        // here lets the STOP_SCRAPE handler abort whatever fetch loop is in
+        // flight (IC3 pagination, image fetches, Graph photo fetches).
+        let currentAbortController: AbortController | null = null;
 
         function isChatNavSelected() {
             return Boolean(document.querySelector('[data-tid="app-bar-wrapper"] button[aria-pressed="true"][aria-label^="Chat" i]'));
@@ -426,6 +430,7 @@ export default defineContentScript({
             const avatars: Record<string, string> = {};
             const urlToId = new Map<string, string>();
             for (const url of uniqueUrls) {
+                if (currentAbortController?.signal.aborted) break;
                 const dataUrl = await fetchAvatarAsDataURL(url);
                 if (dataUrl) {
                     const id = extractAvatarId(url);
@@ -615,9 +620,11 @@ export default defineContentScript({
             let succeeded = 0;
             // Process in batches to limit concurrency
             for (let i = 0; i < tasks.length; i += MAX_CONCURRENT_FETCHES) {
+                if (currentAbortController?.signal.aborted) break;
                 const batch = tasks.slice(i, i + MAX_CONCURRENT_FETCHES);
                 await Promise.all(
                     batch.map(async ({ att, url }) => {
+                        if (currentAbortController?.signal.aborted) return;
                         const dataUrl = await fetchImageAsDataUrl(url);
                         if (dataUrl) {
                             att.dataUrl = dataUrl;
@@ -680,7 +687,12 @@ export default defineContentScript({
             let firstPhotoError: string | null = null;
             let photo404 = 0;
             let nonPhotoFailures = 0;
+            // Pre-compute the deduplicated total so we can emit "x/total" progress.
+            // authorToUuid maps display names to UUIDs and the same UUID can repeat
+            // across many display names; a unique count is the meaningful one.
+            const totalAvatars = new Set(authorToUuid.values()).size;
             for (const [, uuid] of authorToUuid) {
+                if (currentAbortController?.signal.aborted) break;
                 if (attempted.has(uuid)) continue;
                 attempted.add(uuid);
                 try {
@@ -706,6 +718,16 @@ export default defineContentScript({
                 } catch (e) {
                     nonPhotoFailures++;
                     if (!firstPhotoError) firstPhotoError = String(e);
+                }
+                // Emit progress every few avatars (and on the last one) so the
+                // popup button can show "x/total" without spamming messages.
+                if (attempted.size % 5 === 0 || attempted.size === totalAvatars) {
+                    try {
+                        runtime.sendMessage({
+                            type: 'SCRAPE_PROGRESS',
+                            payload: { phase: 'avatars', avatarsDone: attempted.size, avatarsTotal: totalAvatars },
+                        });
+                    } catch { /* ignore */ }
                 }
             }
             const missing = attempted.size - uuidToDataUrl.size;
@@ -2166,6 +2188,17 @@ export default defineContentScript({
                 try {
                     if (msg.type === 'PING') { sendResponse({ ok: true }); return; }
                     if (msg.type === 'CHECK_CHAT_CONTEXT') { sendResponse(checkChatContext(msg.target)); return; }
+                    if (msg.type === 'STOP_SCRAPE') {
+                        if (currentAbortController) {
+                            console.log('[Teams Exporter] STOP_SCRAPE received — aborting active scrape');
+                            currentAbortController.abort();
+                            hud('cancelling…');
+                            sendResponse({ ok: true, cancelling: true });
+                        } else {
+                            sendResponse({ ok: false, reason: 'no-active-scrape' });
+                        }
+                        return;
+                    }
                     if (msg.type === 'SCRAPE_TEAMS') {
                         const { startAt, endAt, includeReactions, includeSystem, includeReplies, showHud, exportTarget } = msg.options || {};
                         const target = exportTarget === 'team' ? 'team' : 'chat';
@@ -2174,6 +2207,11 @@ export default defineContentScript({
                         const scrapeOpts = { startAtISO: startAt, endAtISO: endAt, includeSystem, includeReactions, includeReplies: includeReplies !== false };
                         console.debug('[Teams Exporter] SCRAPE_TEAMS', location.href, msg.options);
                         currentRunStartedAt = Date.now();
+                        // Fresh AbortController per scrape so a stop only affects the
+                        // current run and aborts the IC3 pagination loop, image fetches,
+                        // and Graph photo fetches via signal checks they share.
+                        currentAbortController = new AbortController();
+                        const abortSignal = currentAbortController.signal;
                         hud('starting…');
 
                         // ── API Mode (fast, no scrolling) ──────────────────
@@ -2193,7 +2231,7 @@ export default defineContentScript({
                                     const mp = runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'api-fetch', messagesVisible: p.messagesSoFar, passes: p.page } });
                                     if (mp && mp.catch) mp.catch(() => {});
                                 } catch { /* ignore */ }
-                            }, { startAtISO: scrapeOpts.startAtISO });
+                            }, { startAtISO: scrapeOpts.startAtISO, signal: abortSignal });
 
                             if (apiResult) {
                                 const converted = convertApiMessages(apiResult.messages, scrapeOpts);
@@ -2220,11 +2258,22 @@ export default defineContentScript({
                                 }
                             }
                         } catch (apiErr) {
+                            // An abort surfaces here as a fetch AbortError; treat
+                            // it as cancellation rather than as an API failure
+                            // worth falling back to DOM scroll for.
+                            if (abortSignal.aborted) throw apiErr;
                             console.log('[Teams Exporter] API mode failed, falling back to DOM scroll:', apiErr);
                         }
 
                         // ── DOM Scroll Fallback ────────────────────────────
                         if (!messages) {
+                            if (abortSignal.aborted) {
+                                currentRunStartedAt = null;
+                                currentAbortController = null;
+                                hud('cancelled');
+                                sendResponse({ ok: false, cancelled: true });
+                                return;
+                            }
                             hud('scrolling…');
                             const replyCollector = createReplyCollector();
                             const includeRepliesEnabled = includeReplies !== false;
@@ -2264,7 +2313,8 @@ export default defineContentScript({
                                     } : undefined,
                                 },
                                 scrapeOpts,
-                                currentRunStartedAt
+                                currentRunStartedAt,
+                                abortSignal,
                             );
                             if (target === 'team' && includeRepliesEnabled) {
                                 scrollMessages = mergeRepliesIntoMessages(scrollMessages as ExtractedMessage[], replyCollector.repliesByParent);
@@ -2350,6 +2400,24 @@ export default defineContentScript({
 
                         currentRunStartedAt = null;
 
+                        // If a stop arrived during the avatar/image phase, drop
+                        // everything we collected and report cancellation. We
+                        // explicitly null the working arrays so the GC can reclaim
+                        // potentially large data URLs and message buffers right
+                        // away instead of waiting for closure teardown. Check
+                        // BEFORE the streaming-prep work so we don't log a
+                        // misleading "Streaming N messages" line on a cancelled run.
+                        if (abortSignal.aborted) {
+                            messages = null;
+                            avatars = {};
+                            currentRunStartedAt = null;
+                            currentAbortController = null;
+                            hud('cancelled');
+                            console.log('[Teams Exporter] Scrape cancelled — discarded collected data');
+                            sendResponse({ ok: false, cancelled: true });
+                            return;
+                        }
+
                         const meta = { count: messages.length, title, startAt: startAt || null, endAt: endAt || null, avatars };
                         const requestId = msg.requestId || `${Date.now()}`;
 
@@ -2376,20 +2444,41 @@ export default defineContentScript({
                             port.postMessage({ type: 'meta', meta });
                             const BATCH = 100;
                             for (let i = 0; i < normalizedMessages.length; i += BATCH) {
+                                if (abortSignal.aborted) {
+                                    console.log('[Teams Exporter] Streaming aborted mid-flight');
+                                    break;
+                                }
                                 const batch = normalizedMessages.slice(i, i + BATCH);
                                 port.postMessage({ type: 'messages', messages: batch });
                                 console.debug(`[Teams Exporter] Sent batch ${Math.floor(i / BATCH) + 1}: messages ${i + 1}-${i + batch.length}`);
                             }
-                            port.postMessage({ type: 'done' });
-                            console.debug('[Teams Exporter] Streaming complete');
+                            if (abortSignal.aborted) {
+                                port.postMessage({ type: 'error', error: 'cancelled' });
+                            } else {
+                                port.postMessage({ type: 'done' });
+                                console.debug('[Teams Exporter] Streaming complete');
+                            }
                         } catch (streamErr: any) {
                             console.error('[Teams Exporter] Streaming error:', streamErr);
                             try { port.postMessage({ type: 'error', error: streamErr?.message || String(streamErr) }); } catch (_) { /* port may be dead */ }
                         } finally {
                             port.disconnect();
                         }
+                        currentAbortController = null;
                     }
                 } catch (e: any) {
+                    // Abort is an expected error path — surface it as cancellation
+                    // rather than a regular failure so the popup doesn't show a
+                    // red banner.
+                    if (currentAbortController?.signal.aborted) {
+                        currentRunStartedAt = null;
+                        currentAbortController = null;
+                        hud('cancelled');
+                        console.log('[Teams Exporter] Scrape cancelled');
+                        sendResponse({ ok: false, cancelled: true });
+                        return;
+                    }
+                    currentAbortController = null;
                     console.error('[Teams Exporter] Error:', e);
                     hud(`error: ${e?.message || e}`);
                     currentRunStartedAt = null;

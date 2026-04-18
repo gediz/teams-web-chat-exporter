@@ -50,7 +50,10 @@ export type FetchBlobRequest = {
 };
 export type FetchBlobResponse =
   | { ok: true; dataUrl: string; size: number }
-  | { ok: false; status?: number; statusText?: string; error?: string; sizeReason?: number };
+  | { ok: false; cancelled?: boolean; status?: number; statusText?: string; error?: string; sizeReason?: number };
+
+export type StopExportRequest = { type: 'STOP_EXPORT'; tabId?: number | null };
+export type StopExportResponse = { ok: boolean; error?: string };
 
 export type ScrapeProgressMessage = {
   type: 'SCRAPE_PROGRESS';
@@ -72,6 +75,7 @@ export type RuntimeRequest =
   | GetExportStatusRequest
   | StartExportRequest
   | StartExportZipRequest
+  | StopExportRequest
   | BuildAndDownloadRequest;
 
 export type BackgroundIncomingMessage =
@@ -79,6 +83,7 @@ export type BackgroundIncomingMessage =
   | GetExportStatusRequest
   | StartExportRequest
   | StartExportZipRequest
+  | StopExportRequest
   | BuildAndDownloadRequest
   | ExportStatusUpdateMessage
   | ScrapeProgressMessage
@@ -90,4 +95,5 @@ export type RuntimeResponse<T extends RuntimeRequest> =
   T extends GetExportStatusRequest ? GetExportStatusResponse :
   T extends StartExportRequest ? StartExportResponse :
   T extends StartExportZipRequest ? StartExportZipResponse :
+  T extends StopExportRequest ? StopExportResponse :
   unknown;

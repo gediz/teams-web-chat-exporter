@@ -55,8 +55,9 @@ tabs.onUpdated.addListener((tabId: number, changeInfo: chrome.tabs.TabChangeInfo
 });
 
 const activeExports = new Map<number, ActiveExportInfo>(); // tabId -> { startedAt, lastStatus }
-// TERMINAL_PHASES: 'complete' = success, 'error' = failure, 'empty' = no data found (not a failure)
-const TERMINAL_PHASES = new Set(['complete', 'error', 'empty']);
+// TERMINAL_PHASES: 'complete' = success, 'error' = failure, 'empty' = no data found (not a failure),
+// 'cancelled' = user-stopped (not a failure)
+const TERMINAL_PHASES = new Set(['complete', 'error', 'empty', 'cancelled']);
 
 function updateActiveExport(tabId: number, patch: Partial<ActiveExportInfo> = {}) {
     if (tabId == null) return;
@@ -146,6 +147,12 @@ async function requestScrape(tabId: number, options: ScrapeOptions): Promise<Scr
         streamResolve = resolve;
         streamReject = reject;
     });
+    // Attach a no-op catch so an early rejection (e.g. STOP_EXPORT firing
+    // before the content script even responds, while we're still in the
+    // non-streaming branch and never await streamPromise) doesn't surface as
+    // an "Uncaught (in promise)" in the service worker. The downstream `await`
+    // in the streaming branch still observes the rejection normally.
+    streamPromise.catch(() => { /* noop */ });
     pendingScrapes.set(requestId, { resolve: streamResolve!, reject: streamReject! });
 
     try {
@@ -157,6 +164,14 @@ async function requestScrape(tabId: number, options: ScrapeOptions): Promise<Scr
         if (res.error) {
             pendingScrapes.delete(requestId);
             throw new Error(res.error);
+        }
+        // Content script aborted before it had results to stream. Surface this
+        // as a 'cancelled' rejection so handleExportWithScrape's catch can
+        // distinguish it from a normal "0 messages found" outcome (which would
+        // wrongly show the EMPTY_RESULTS error in the popup).
+        if (res.cancelled) {
+            pendingScrapes.delete(requestId);
+            throw new Error('cancelled');
         }
 
         if (res.streaming) {
@@ -291,8 +306,15 @@ function handleExportWithScrape(
             sendResponse({ ok: true, filename: buildRes.filename, downloadId: buildRes.id });
         } catch (err: any) {
             const message = err?.message || String(err);
-            broadcastStatus({ tabId, phase: 'error', error: message });
-            sendResponse({ error: message });
+            // Cancellation flows here as a rejection of the streaming promise
+            // with message 'cancelled'. Treat it as a successful stop so the
+            // popup doesn't show a red error banner.
+            if (message === 'cancelled') {
+                sendResponse({ cancelled: true });
+            } else {
+                broadcastStatus({ tabId, phase: 'error', error: message });
+                sendResponse({ error: message });
+            }
         } finally {
             activeExports.delete(tabId);
         }
@@ -352,6 +374,43 @@ let rateLimitCoolOffUntil = 0;
 const RATE_LIMIT_STREAK_THRESHOLD = 3;
 const RATE_LIMIT_COOL_OFF_MS = 20_000;
 
+// In-flight FETCH_BLOB controllers grouped by tabId. STOP_EXPORT aborts every
+// fetch in the group so a stop frees connections + memory immediately rather
+// than waiting up to ~30s per pending image for the request to time out on
+// its own.
+const inFlightFetchesByTab = new Map<number, Set<AbortController>>();
+
+// Tabs whose export was cancelled. Used to drop late SCRAPE_PROGRESS events
+// (e.g. the result of an image fetch that was already in flight when the
+// user pressed stop) so they don't repaint the badge after we cleared it.
+const cancelledTabs = new Set<number>();
+
+function trackFetch(tabId: number | undefined, controller: AbortController) {
+    if (tabId == null) return;
+    let set = inFlightFetchesByTab.get(tabId);
+    if (!set) { set = new Set(); inFlightFetchesByTab.set(tabId, set); }
+    set.add(controller);
+}
+
+function untrackFetch(tabId: number | undefined, controller: AbortController) {
+    if (tabId == null) return;
+    const set = inFlightFetchesByTab.get(tabId);
+    if (!set) return;
+    set.delete(controller);
+    if (set.size === 0) inFlightFetchesByTab.delete(tabId);
+}
+
+function abortFetchesForTab(tabId: number): number {
+    const set = inFlightFetchesByTab.get(tabId);
+    if (!set) return 0;
+    let n = 0;
+    for (const c of set) {
+        try { c.abort(); n++; } catch { /* noop */ }
+    }
+    inFlightFetchesByTab.delete(tabId);
+    return n;
+}
+
 // Background-mediated fetch for credentialed cross-origin requests (Firefox content
 // scripts can't send page cookies cross-origin, but background scripts can with
 // matching host_permissions). Retries transient errors (network, 429, 5xx) with
@@ -359,15 +418,20 @@ const RATE_LIMIT_COOL_OFF_MS = 20_000;
 async function handleFetchBlobMessage(
     msg: { url: string; bearerToken?: string; maxBytes?: number; minBytes?: number },
     sendResponse: (resp: unknown) => void,
+    tabId?: number,
 ) {
     const maxBytes = msg.maxBytes ?? 5 * 1024 * 1024;
     const minBytes = msg.minBytes ?? 100;
     const MAX_ATTEMPTS = 3;
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
     const backoffMs = (attempt: number) => Math.min(500 * 2 ** attempt, 8_000);
+    // One controller per FETCH_BLOB call. Registered with the tab's group so
+    // STOP_EXPORT can abort every in-flight fetch for that tab at once.
+    const controller = new AbortController();
+    trackFetch(tabId, controller);
     const init: RequestInit = msg.bearerToken
-        ? { headers: { 'Authorization': `Bearer ${msg.bearerToken}` } }
-        : { credentials: 'include' };
+        ? { headers: { 'Authorization': `Bearer ${msg.bearerToken}` }, signal: controller.signal }
+        : { credentials: 'include', signal: controller.signal };
     const inCoolOff = Date.now() < rateLimitCoolOffUntil;
     const maxAttempts = inCoolOff ? 1 : MAX_ATTEMPTS;
 
@@ -375,54 +439,66 @@ async function handleFetchBlobMessage(
     let lastStatusText: string | undefined;
     let lastError: string | undefined;
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-            const resp = await fetch(msg.url, init);
-            if (resp.ok) {
-                const blob = await resp.blob();
-                if (blob.size > maxBytes || blob.size < minBytes) {
-                    sendResponse({ ok: false, sizeReason: blob.size });
+    try {
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            if (controller.signal.aborted) {
+                sendResponse({ ok: false, cancelled: true });
+                return;
+            }
+            try {
+                const resp = await fetch(msg.url, init);
+                if (resp.ok) {
+                    const blob = await resp.blob();
+                    if (blob.size > maxBytes || blob.size < minBytes) {
+                        sendResponse({ ok: false, sizeReason: blob.size });
+                        return;
+                    }
+                    const dataUrl = await new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result as string);
+                        reader.onerror = () => reject(reader.error);
+                        reader.readAsDataURL(blob);
+                    });
+                    rateLimitStreak = 0;
+                    rateLimitCoolOffUntil = 0;
+                    sendResponse({ ok: true, dataUrl, size: blob.size });
                     return;
                 }
-                const dataUrl = await new Promise<string>((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result as string);
-                    reader.onerror = () => reject(reader.error);
-                    reader.readAsDataURL(blob);
-                });
-                rateLimitStreak = 0;
-                rateLimitCoolOffUntil = 0;
-                sendResponse({ ok: true, dataUrl, size: blob.size });
-                return;
+                lastStatus = resp.status;
+                lastStatusText = resp.statusText;
+                // Retry 429 (rate-limit), 408 (timeout), 410 (the Teams URL-image
+                // proxy returns 410 for transient upstream failures, not just
+                // permanent gone), and any 5xx. All other 4xx stay permanent.
+                const transient = resp.status === 429 || resp.status === 408
+                    || resp.status === 410 || resp.status >= 500;
+                if (!transient) {
+                    sendResponse({ ok: false, status: resp.status, statusText: resp.statusText });
+                    return;
+                }
+                if (attempt < maxAttempts - 1) {
+                    const retryAfter = resp.headers.get('Retry-After');
+                    const waitMs = retryAfter ? Math.min(parseInt(retryAfter, 10) * 1000, 30_000) : backoffMs(attempt);
+                    await sleep(waitMs);
+                }
+            } catch (e) {
+                if (controller.signal.aborted) {
+                    sendResponse({ ok: false, cancelled: true });
+                    return;
+                }
+                lastError = String(e);
+                if (attempt < maxAttempts - 1) await sleep(backoffMs(attempt));
             }
-            lastStatus = resp.status;
-            lastStatusText = resp.statusText;
-            // Retry 429 (rate-limit), 408 (timeout), 410 (the Teams URL-image
-            // proxy returns 410 for transient upstream failures, not just
-            // permanent gone), and any 5xx. All other 4xx stay permanent.
-            const transient = resp.status === 429 || resp.status === 408
-                || resp.status === 410 || resp.status >= 500;
-            if (!transient) {
-                sendResponse({ ok: false, status: resp.status, statusText: resp.statusText });
-                return;
-            }
-            if (attempt < maxAttempts - 1) {
-                const retryAfter = resp.headers.get('Retry-After');
-                const waitMs = retryAfter ? Math.min(parseInt(retryAfter, 10) * 1000, 30_000) : backoffMs(attempt);
-                await sleep(waitMs);
-            }
-        } catch (e) {
-            lastError = String(e);
-            if (attempt < maxAttempts - 1) await sleep(backoffMs(attempt));
         }
-    }
-    if (lastStatus === 429) {
-        rateLimitStreak++;
-        if (rateLimitStreak >= RATE_LIMIT_STREAK_THRESHOLD) {
-            rateLimitCoolOffUntil = Date.now() + RATE_LIMIT_COOL_OFF_MS;
+        if (lastStatus === 429) {
+            rateLimitStreak++;
+            if (rateLimitStreak >= RATE_LIMIT_STREAK_THRESHOLD) {
+                rateLimitCoolOffUntil = Date.now() + RATE_LIMIT_COOL_OFF_MS;
+            }
         }
+        sendResponse({ ok: false, status: lastStatus, statusText: lastStatusText, error: lastError });
+    } finally {
+        untrackFetch(tabId, controller);
     }
-    sendResponse({ ok: false, status: lastStatus, statusText: lastStatusText, error: lastError });
 }
 
 resetBadge();
@@ -462,6 +538,13 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
 
     if (msg.type === 'SCRAPE_PROGRESS') {
         const payload = msg.payload || msg;
+        const senderTabId = sender?.tab?.id;
+        // Drop late progress from a tab whose export was just cancelled — the
+        // event was already in flight when stop ran and would otherwise repaint
+        // the badge / popup with stale numbers.
+        if (typeof senderTabId === 'number' && cancelledTabs.has(senderTabId)) {
+            return;
+        }
         updateBadgeForProgress(payload);
         // Forward progress to popup for detailed status display
         try {
@@ -472,7 +555,19 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
     }
 
     if (msg.type === 'FETCH_BLOB') {
-        handleFetchBlobMessage(msg, sendResponse);
+        // sender.tab.id groups in-flight fetches under the originating tab so
+        // STOP_EXPORT can abort them all at once.
+        handleFetchBlobMessage(msg, sendResponse, sender?.tab?.id);
+        return true;
+    }
+
+    if (msg.type === 'STOP_EXPORT') {
+        const tabId = typeof msg.tabId === 'number' ? msg.tabId : sender?.tab?.id;
+        if (typeof tabId !== 'number') {
+            sendResponse({ ok: false, error: 'no-tab-id' });
+            return;
+        }
+        handleStopExportMessage(tabId, sendResponse);
         return true;
     }
 
@@ -487,5 +582,49 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
         return;
     }
 });
+
+async function handleStopExportMessage(tabId: number, sendResponse: (resp: unknown) => void) {
+    log('STOP_EXPORT for tab', tabId);
+    // Tell the popup right away — the actual teardown takes a beat as the
+    // content script unwinds, but the user gets feedback immediately.
+    broadcastStatus({ tabId, phase: 'cancelling' });
+
+    // Forward to the content script so it aborts its IC3 pagination loop
+    // (or whichever phase it's in) and discards collected data.
+    try {
+        await sendMessageToTab(tabId, { type: 'STOP_SCRAPE' });
+    } catch (e) {
+        log('failed to forward STOP_SCRAPE:', e);
+    }
+
+    // Cancel any in-flight FETCH_BLOB calls for this tab — without this,
+    // up to ~30s of pending image fetches can keep sockets and buffers alive
+    // after the user already pressed Stop.
+    const aborted = abortFetchesForTab(tabId);
+    if (aborted > 0) log(`aborted ${aborted} in-flight fetches for tab ${tabId}`);
+
+    // Reject any pending streaming-scrape promises for this tab and clear the
+    // buffered messages array so the data doesn't sit in memory waiting for
+    // the closure to be GC'd.
+    for (const [requestId, pending] of pendingScrapes) {
+        if (requestId.startsWith(`${tabId}-`)) {
+            pendingScrapes.delete(requestId);
+            pending.reject(new Error('cancelled'));
+        }
+    }
+
+    activeExports.delete(tabId);
+    // Mark the tab as cancelled so any late SCRAPE_PROGRESS events that were
+    // already in flight don't repaint the badge with stale numbers. The mark
+    // is cleared after a few seconds — long enough for the in-flight events
+    // to drain, short enough not to leak across a future export.
+    cancelledTabs.add(tabId);
+    setTimeout(() => cancelledTabs.delete(tabId), 5_000);
+    // Clear the toolbar badge so the partial message count doesn't linger
+    // after the user pressed Stop.
+    resetBadge();
+    broadcastStatus({ tabId, phase: 'cancelled' });
+    sendResponse({ ok: true });
+}
 
 }); // End of defineBackground

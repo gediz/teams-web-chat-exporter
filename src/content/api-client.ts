@@ -688,7 +688,11 @@ export async function apiScrape(
 
     const userId = getCurrentUserUuid();
     return { messages, conversationId, userId, userRegion, ic3Token };
-  } catch (err) {
+  } catch (err: any) {
+    // Re-throw an abort so the caller's try/catch can branch on cancellation
+    // instead of treating it as a normal API failure (and triggering DOM
+    // fallback or noisy logs).
+    if (signal?.aborted || err?.name === 'AbortError') throw err;
     console.log('[API] API scrape failed, falling back to DOM:', err);
     return null;
   }

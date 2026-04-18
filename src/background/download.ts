@@ -20,7 +20,7 @@ type BuiltExport = {
 export type BuildDownloadDeps = {
   downloads: DownloadsApi;
   isFirefox: boolean;
-  onStatus?: (payload: { phase?: string; message?: string; filename?: string; messages?: number }) => void;
+  onStatus?: (payload: { phase?: string; message?: string; filename?: string; messages?: number; messagesBuilt?: number; messagesTotal?: number }) => void;
 };
 
 type BuildExportOptions = {
@@ -238,9 +238,14 @@ export async function buildAndDownload(
   }
 
   const mode: ImageMode = format === 'html' && downloadImages ? 'data-url' : 'none';
+  // Surface the build phase to the popup BEFORE the synchronous serialization
+  // runs, then yield once so the popup's render tick fires and the segment-4
+  // stripe becomes visible. For JSON/CSV/TXT this flashes briefly; for HTML
+  // with large embedded data, the stripe stays visible for the full build.
+  onStatus?.({ phase: 'build', messages: messages.length });
+  await Promise.resolve();
   const built = buildExportInternal({ messages, meta, format, embedAvatars, downloadImages }, mode);
-
-  onStatus?.({ phase: 'build', filename: built.filename, messages: messages.length });
+  onStatus?.({ phase: 'build', filename: built.filename, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
 
   const url = textToDownloadUrl(built.content, built.mime);
   try {
@@ -266,12 +271,16 @@ export async function buildAndDownloadZip(
   { messages = [], meta = {}, embedAvatars = false, downloadImages = false }: BuildExportOptions,
 ) {
   const { downloads, onStatus } = deps;
+  // Show segment 4 active before the synchronous build/zip work begins so the
+  // popup has a render tick to paint the indeterminate stripe.
+  onStatus?.({ phase: 'build', messages: messages.length });
+  await Promise.resolve();
   const built = buildExportInternal(
     { messages, meta, format: 'html', embedAvatars, downloadImages },
     downloadImages ? 'files' : 'none',
   );
 
-  onStatus?.({ phase: 'build', filename: `${built.baseFolder}.zip`, messages: messages.length });
+  onStatus?.({ phase: 'build', filename: `${built.baseFolder}.zip`, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
 
   const encoder = new TextEncoder();
   const files: { path: string; data: Uint8Array }[] = [];

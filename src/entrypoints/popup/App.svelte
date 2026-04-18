@@ -34,6 +34,7 @@
     StartExportResponse,
     StartExportZipRequest,
     StartExportZipResponse,
+    StopExportRequest,
   } from "../../types/messaging";
   import ExportButton from "./components/ExportButton.svelte";
   import FormatSection from "./components/FormatSection.svelte";
@@ -42,7 +43,6 @@
     type QuickRange,
   } from "./components/DateRangeSection.svelte";
   import IncludeSection from "./components/IncludeSection.svelte";
-  import StatusBar from "./components/StatusBar.svelte";
   import HeaderActions from "./components/HeaderActions.svelte";
   import SettingsPage from "./components/SettingsPage.svelte";
   import { t, setLanguage, getLanguage } from "../../i18n/i18n";
@@ -124,6 +124,60 @@
   let startedAtMs: number | null = null;
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
   let exportSummary = "";
+
+  // Phase-tracker state for the W1 split button. The 4 segments map to
+  // (messages · images · people · file). A segment value of `null` means
+  // "not started yet" (dim), `-1` means "active, indeterminate" (animated
+  // stripe), and 0..100 means a determinate fill percentage.
+  type SegState = number | null;
+  let phaseLabel = '';
+  let phaseBaseLabel = '';
+  let counterValue = '—';
+  let counterLabel = '';
+  let segments: SegState[] = [null, null, null, null];
+  let outcome: null | {
+    kind: 'success' | 'cancelled';
+    primary: string;
+    secondary: string;
+  } = null;
+
+  const resetPhaseTracker = () => {
+    phaseLabel = '';
+    phaseBaseLabel = '';
+    counterValue = '—';
+    counterLabel = '';
+    segments = [null, null, null, null];
+    outcome = null;
+  };
+
+  const elapsedNow = () =>
+    startedAtMs != null ? formatElapsed(Date.now() - startedAtMs) : '';
+
+  const refreshPhaseLabel = () => {
+    if (!phaseBaseLabel) return;
+    const elapsed = elapsedNow();
+    phaseLabel = elapsed ? `${phaseBaseLabel} · ${elapsed}` : phaseBaseLabel;
+  };
+
+  const setPhase = (
+    idx: 0 | 1 | 2 | 3,
+    activeProgress: SegState,
+    label: string,
+    value: string,
+    valueLabel: string,
+  ) => {
+    const next: SegState[] = [...segments];
+    for (let i = 0; i < 4; i++) {
+      if (i < idx) next[i] = 100;
+      else if (i === idx) next[i] = activeProgress;
+      else next[i] = null;
+    }
+    segments = next;
+    phaseBaseLabel = label;
+    refreshPhaseLabel();
+    counterValue = value;
+    counterLabel = valueLabel;
+  };
 
   const formatElapsedSuffix = (ms: number) =>
     ` — ${t("status.elapsed", {}, currentLang())}: ${formatElapsed(ms)}`;
@@ -207,6 +261,9 @@
       text += formatElapsedSuffix(Date.now() - startedAtMs);
     }
     statusText = text;
+    // Also refresh the export-button's phase label so its " · 0:12" suffix
+    // ticks every second (the same elapsedTimer drives both surfaces).
+    refreshPhaseLabel();
   };
 
   const computeSummary = () => {
@@ -487,16 +544,21 @@
       showErrorBanner(message, false);
       void clearLastError(storage);
     } else if (phase === "complete") {
+      const elapsedStr = elapsedNow();
+      const messageCount = (msg as { messages?: number }).messages ?? 0;
       setBusy(false);
-      const fname = msg.filename || '';
-      // Show truncated filename: "TeamsExport_Şampiyon Fe…23_22-12-18.zip"
-      let displayName = fname;
-      if (displayName.length > 40) {
-        const ext = displayName.match(/\.[^.]+$/)?.[0] || '';
-        const keep = 37 - ext.length;
-        displayName = displayName.slice(0, keep) + '…' + ext;
-      }
-      setStatus(displayName ? `Saved: ${displayName}` : t("status.complete", {}, langNow), { stopElapsed: true });
+      // Sticky outcome on the button — replaces the verbose filename status
+      // with a compact "✓ N saved · 0:48" tile that the user can read at a
+      // glance. The filename itself goes to the Downloads folder where the
+      // browser already shows it.
+      const savedLabel = t("phase.outcome.saved", {}, langNow);
+      outcome = {
+        kind: 'success',
+        primary: messageCount > 0 ? `✓ ${messageCount.toLocaleString()}` : '✓',
+        secondary: elapsedStr ? `${savedLabel} · ${elapsedStr}` : savedLabel,
+      };
+      segments = [100, 100, 100, 100];
+      setStatus(t("status.complete", {}, langNow), { stopElapsed: true });
       hideErrorBanner(true);
     } else if (phase === "error") {
       setBusy(false);
@@ -504,6 +566,28 @@
         stopElapsed: true,
       });
       showErrorBanner(msg.error || t("status.error", {}, langNow));
+    } else if (phase === "cancelling") {
+      // Background acknowledged the stop; show feedback while teardown runs.
+      setStatus(
+        t("status.cancelling", {}, langNow) || "Cancelling…",
+        { stopElapsed: true },
+      );
+    } else if (phase === "cancelled") {
+      const elapsedStr = elapsedNow();
+      setBusy(false);
+      // Sticky outcome — same shape as complete but cancelled-flavored.
+      outcome = {
+        kind: 'cancelled',
+        primary: elapsedStr ? `✕ ${elapsedStr}` : '✕',
+        secondary: t("phase.outcome.cancelled", {}, langNow),
+      };
+      // Freeze segments in place (faded) — informative about how far we got.
+      segments = segments.map(s => (s == null ? null : s === -1 ? 0 : s));
+      setStatus(
+        t("status.cancelled", {}, langNow) || "Cancelled",
+        { stopElapsed: true },
+      );
+      hideErrorBanner(true);
     }
   };
 
@@ -523,20 +607,69 @@
         );
       } else if (p.phase === "api-fetch") {
         const count = p.messagesVisible ?? p.messagesSoFar ?? 0;
-        setStatus(`Fetching messages…`, { count });
+        const label = t("phase.messages", {}, langNow);
+        setStatus(`${label}…`, { count });
+        // Pagination has no known total — drive segment 0 with the
+        // indeterminate stripe (-1) and show the running count on the right.
+        setPhase(0, -1, label, count.toLocaleString(), t("phase.label.messages", {}, langNow));
       } else if (p.phase === "images") {
         const done = p.imagesDone ?? 0;
         const total = p.imagesTotal ?? 0;
+        const label = t("phase.images", {}, langNow);
+        const lbl = t("phase.label.images", {}, langNow);
         if (total > 0) {
-          setStatus(`Downloading images…`, { countLabel: `${done}/${total}` });
+          setStatus(`${label}…`, { countLabel: `${done}/${total}` });
+          setPhase(1, Math.round((done / total) * 100), label, `${done} / ${total}`, lbl);
         } else {
-          setStatus(`Downloading images…`);
+          setStatus(`${label}…`);
+          setPhase(1, -1, label, '—', lbl);
         }
       } else if (p.phase === "avatars") {
-        setStatus(`Fetching profile photos…`);
+        const done = p.avatarsDone ?? 0;
+        const total = p.avatarsTotal ?? 0;
+        const label = t("phase.avatars", {}, langNow);
+        const lbl = t("phase.label.people", {}, langNow);
+        if (total > 0) {
+          setStatus(`${label}…`, { countLabel: `${done}/${total}` });
+          setPhase(2, Math.round((done / total) * 100), label, `${done} / ${total}`, lbl);
+        } else {
+          setStatus(`${label}…`);
+          setPhase(2, -1, label, '—', lbl);
+        }
+      } else if (p.phase === "build") {
+        const done = p.messagesBuilt ?? 0;
+        const total = p.messagesTotal ?? 0;
+        const label = t("phase.build", {}, langNow);
+        const lbl = t("phase.label.written", {}, langNow);
+        if (total > 0) {
+          setStatus(`${label}…`, { countLabel: `${done}/${total}` });
+          setPhase(3, Math.round((done / total) * 100), label, `${done} / ${total}`, lbl);
+        } else {
+          setStatus(`${label}…`);
+          setPhase(3, -1, label, '—', lbl);
+        }
       }
     } else if (msg?.type === "EXPORT_STATUS") {
       handleExportStatus(msg);
+    }
+  };
+
+  const stopExport = async () => {
+    if (!busy || !alive) return;
+    const tabId = currentTabId;
+    if (typeof tabId !== "number") return;
+    setStatus(
+      t("status.cancelling", {}, currentLang()) || "Cancelling…",
+      { stopElapsed: true },
+    );
+    try {
+      await runtimeSend<StopExportRequest>(runtime, {
+        type: "STOP_EXPORT",
+        tabId,
+      });
+    } catch {
+      // Even if the message round-trip fails, the export's own teardown
+      // path will still run when the content script catches the abort.
     }
   };
 
@@ -544,6 +677,9 @@
     if (busy || !alive) return;
     try {
       hideErrorBanner(true);
+      // Clear any sticky outcome from a previous run so the user sees a
+      // clean "starting…" state rather than the prior result.
+      resetPhaseTracker();
       setBusy(true, busyExportLabel());
       setStatus(t("status.preparing", {}, currentLang()));
       const tab = await getActiveTeamsTab();
@@ -592,6 +728,16 @@
         setStatus(message, { stopElapsed: true });
         showErrorBanner(message, false);
         await clearLastError(storage);
+        return;
+      }
+      // User pressed Stop while the export was running. The background already
+      // broadcast a 'cancelled' status and tore down everything; here we just
+      // show a clean message and skip the error banner.
+      if ((response as { cancelled?: boolean })?.cancelled) {
+        setStatus(
+          t("status.cancelled", {}, currentLang()) || "Cancelled",
+          { stopElapsed: true },
+        );
         return;
       }
       if (!response || response.error) {
@@ -715,14 +861,19 @@
         </div>
       {/if}
 
-      <!-- Export Button -->
+      <!-- Export Button (single status surface — see ExportButton.svelte) -->
       <ExportButton
         disabled={false}
         {busy}
-        {busyLabel}
         summary={exportSummary}
+        {phaseLabel}
+        {counterValue}
+        {counterLabel}
+        {segments}
+        {outcome}
         lang={options.lang || "en"}
         on:run={startExport}
+        on:stop={stopExport}
       />
 
       <TargetSection
@@ -775,8 +926,5 @@
         />
       </div>
     </div>
-
-    <!-- Status Bar (Sticky Bottom) -->
-    <StatusBar status={statusText} count={statusCount} countLabel={statusCountLabel} isBusy={busy} />
   {/if}
 </div>

@@ -238,78 +238,38 @@ body {
   opacity: 0.8;
 }
 
-/* === EXPORT BUTTON === */
+/* === EXPORT BUTTON ===
+   Layout (split + 4-segment phase tracker) lives inside the Svelte
+   ExportButton component. Only theme-driven background colors and hover
+   shadows stay here so they can switch with the data-theme attribute. */
 .export-primary {
   background: var(--color-accent);
-  border: none;
   border-radius: var(--radius-lg);
-  padding: 14px;
-  margin-bottom: 12px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  width: 100%;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
 }
-
-.export-primary:hover:not(:disabled) {
+.export-primary:hover:not(:disabled):not(.busy) {
   background: var(--color-accent-hover);
-  transform: translateY(-1px);
   box-shadow: 0 10px 20px -6px rgba(37, 99, 235, 0.5);
 }
-
-body[data-theme='dark'] .export-primary:hover:not(:disabled) {
+body[data-theme='dark'] .export-primary:hover:not(:disabled):not(.busy) {
   box-shadow: 0 10px 20px -6px rgba(96, 165, 250, 0.4);
 }
 
-.export-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+/* Stop mode: tinted red so it's visually distinct from the export action.
+   The button stays interactive (not :disabled) so the user can click to abort. */
+.export-primary.busy {
+  background: #dc2626;
 }
-
-.export-btn-content {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: #fff;
+.export-primary.busy:hover {
+  background: #b91c1c;
+  box-shadow: 0 10px 20px -6px rgba(220, 38, 38, 0.5);
 }
-
-.export-icon {
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+body[data-theme='dark'] .export-primary.busy {
+  background: #ef4444;
 }
-
-.export-icon svg {
-  width: 22px;
-  height: 22px;
-  stroke: #fff;
-  fill: none;
-  stroke-width: 2;
-}
-
-.export-text {
-  flex: 1;
-  text-align: left;
-  min-width: 0;
-}
-
-.export-title {
-  font-size: 14px;
-  font-weight: 600;
-  display: block;
-  margin-bottom: 2px;
-}
-
-.export-summary {
-  font-size: 11px;
-  opacity: 0.9;
-  font-weight: 400;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: block;
+body[data-theme='dark'] .export-primary.busy:hover {
+  background: #dc2626;
+  box-shadow: 0 10px 20px -6px rgba(239, 68, 68, 0.4);
 }
 
 /* === CARD STYLES === */

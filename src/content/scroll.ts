@@ -49,6 +49,7 @@ export async function autoScrollAggregate<M extends ExportMessage>(
   deps: ScrollDeps<M>,
   { startAtISO, endAtISO, includeSystem, includeReactions, includeReplies = true }: ScrapeOptions & { includeReplies?: boolean },
   currentRunStartedAt: number | null,
+  signal?: AbortSignal,
 ): Promise<M[]> {
   const { hud, runtime, extractOne, hydrateSparseMessages, getScroller } = deps;
   const getItems = deps.getItems || defaultGetItems;
@@ -168,6 +169,9 @@ const forceScrollUp = (el: HTMLElement, multiplier = 2) => {
 
   try {
     while (true) {
+      // Honor an external abort (user pressed Stop). Bail before scrolling
+      // again — the caller will discard whatever's been collected.
+      if (signal?.aborted) break;
       passes++;
       scroller = ensureScroller();
       if (observer && (!topSentinel || !(topSentinel as Element).isConnected)) {
