@@ -5,7 +5,7 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import { Calendar } from "lucide-svelte";
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { t } from "../../../i18n/i18n";
 
   export let startAt = "";
@@ -26,6 +26,24 @@
   let startCalendar: any = null;
   let endCalendar: any = null;
   let validationErrorTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Build the calendar's selectedDates/Month/Year from any date-bearing string.
+  // Returns null when the value is empty or unparseable. Accepts both the raw
+  // calendar format ("YYYY-MM-DD") and the stored local form ("YYYY-MM-DD HH:MM"
+  // produced by isoToLocalInput) — extracts the date portion regardless.
+  // Typed `any` because the library's `selectedMonth` is a strict Range<12>
+  // tuple, which a runtime Date.getMonth() can't be statically narrowed to.
+  function dateParts(input: string): any {
+    if (!input) return null;
+    const m = input.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    const iso = `${m[1]}-${m[2]}-${m[3]}`;
+    return {
+      selectedDates: [iso],
+      selectedMonth: Number(m[2]) - 1,
+      selectedYear: Number(m[1]),
+    };
+  }
 
   function showValidationError(inputEl: HTMLInputElement) {
     // Add error class for visual feedback
@@ -67,16 +85,20 @@
 
   async function initCalendars() {
     const { Calendar } = await import("vanilla-calendar-pro");
-    const isDark = document.body.dataset.theme === "dark";
 
     // Map lang to calendar locale
     const calendarLocale = lang === "zh-CN" ? "zh" : lang.split("-")[0];
 
+    // themeAttrDetect runs an internal MutationObserver on the given selector,
+    // so the calendar tracks app theme toggles automatically — no manual sync.
+    const themeAttrDetect = "body[data-theme]";
+
     if (startInputEl) {
       startCalendar = new Calendar(startInputEl, {
         inputMode: true,
-        selectedTheme: isDark ? "dark" : "light",
+        themeAttrDetect,
         locale: calendarLocale,
+        ...(dateParts(startAt) || {}),
         onClickDate(self: any) {
           const selectedDate = self.context.selectedDates?.[0];
           if (selectedDate) {
@@ -97,8 +119,9 @@
     if (endInputEl) {
       endCalendar = new Calendar(endInputEl, {
         inputMode: true,
-        selectedTheme: isDark ? "dark" : "light",
+        themeAttrDetect,
         locale: calendarLocale,
+        ...(dateParts(endAt) || {}),
         onClickDate(self: any) {
           const selectedDate = self.context.selectedDates?.[0];
           if (selectedDate) {
@@ -121,7 +144,38 @@
     initCalendars();
   });
 
-  // Update date displays when dates or language change
+  // Tear down calendar instances when the component unmounts. The library
+  // keeps a static memoizedElements map keyed by the input element; if we
+  // don't destroy on unmount, remounting the section (e.g. after the user
+  // visits the settings page) leaves a stale binding that prevents the
+  // freshly-constructed Calendar from picking up our seeded selectedDates.
+  onDestroy(() => {
+    try { startCalendar?.destroy(); } catch { /* noop */ }
+    try { endCalendar?.destroy(); } catch { /* noop */ }
+    startCalendar = null;
+    endCalendar = null;
+  });
+
+  // Reposition a calendar to match the given ISO date (or today when empty).
+  // The library's option-level selectedDates is only set at init; manual
+  // user picks live in context, not options. So any later update() that
+  // doesn't re-push the option-level value would wipe the visible selection.
+  function syncCalendar(cal: any, iso: string) {
+    if (!cal) return;
+    const p = dateParts(iso);
+    if (p) {
+      cal.selectedDates = p.selectedDates;
+      cal.selectedMonth = p.selectedMonth;
+      cal.selectedYear = p.selectedYear;
+    } else {
+      cal.selectedDates = [];
+      cal.selectedMonth = new Date().getMonth();
+      cal.selectedYear = new Date().getFullYear();
+    }
+    cal.update({ dates: true, month: true, year: true });
+  }
+
+  // Update date displays + calendar selection when dates or language change
   $: {
     // Track all dependencies explicitly
     const _startAt = startAt;
@@ -135,6 +189,11 @@
     if (endInputEl) {
       endInputEl.value = formatDateForDisplay(_endAt);
     }
+
+    // Keep the calendars' own selectedDates in sync so reopening lands on
+    // the saved date and theme switches don't clear manual picks.
+    syncCalendar(startCalendar, _startAt);
+    syncCalendar(endCalendar, _endAt);
   }
 </script>
 
