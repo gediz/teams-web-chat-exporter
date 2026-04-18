@@ -1411,7 +1411,12 @@ export default defineContentScript({
 
             return null;
         }
-        const controlTimeRe = /(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i;
+        // Teams system messages emit timestamps as "MM/DD HH:MM AM/PM" or
+        // "MM/DD/YY HH:MM AM/PM" (the year-bearing form appears on older
+        // messages, notably "Meeting ended" controls). Without the year capture,
+        // the parse failed and the message fell back to lastTimeMs at discovery,
+        // landing it at the wrong place in the timeline (often at the very end).
+        const controlTimeRe = /(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i;
 
         function parseControlTimestamp(text: string, yearHint?: number | null): number | null {
             if (!text) return null;
@@ -1419,14 +1424,21 @@ export default defineContentScript({
             if (!match) return null;
             const month = Number(match[1]);
             const day = Number(match[2]);
-            let hour = Number(match[3]);
-            const minute = Number(match[4]);
-            const period = match[5];
+            const yearStr = match[3];
+            let hour = Number(match[4]);
+            const minute = Number(match[5]);
+            const period = match[6];
             if (!Number.isFinite(month) || !Number.isFinite(day) || !Number.isFinite(hour) || !Number.isFinite(minute)) return null;
             if (period?.toUpperCase() === 'PM' && hour < 12) hour += 12;
             if (period?.toUpperCase() === 'AM' && hour === 12) hour = 0;
-            const baseYear = typeof yearHint === 'number' ? yearHint : new Date().getFullYear();
-            const date = new Date(baseYear, month - 1, day, hour, minute, 0, 0);
+            let year: number;
+            if (yearStr) {
+                const n = Number(yearStr);
+                year = n < 100 ? 2000 + n : n;
+            } else {
+                year = typeof yearHint === 'number' ? yearHint : new Date().getFullYear();
+            }
+            const date = new Date(year, month - 1, day, hour, minute, 0, 0);
             return Number.isNaN(date.getTime()) ? null : date.getTime();
         }
 
