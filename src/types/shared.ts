@@ -26,6 +26,25 @@ export type ForwardContext = {
   originalText?: string;        // Content of the original forwarded message
 };
 
+/** Aggregated metadata for a meeting recording artifact. */
+export type RecordingDetails = {
+  title?: string;
+  callId?: string;
+  amsDocumentId?: string;
+  thumbnailUrl?: string;        // initially the asyncgw URL; becomes data: URL after fetch
+  playUrl?: string;             // SharePoint share link
+  transcriptUrl?: string;       // asyncgw transcript view (needs Bearer)
+  videoUrl?: string;            // asyncgw video view (needs Bearer)
+  rosterUrl?: string;           // asyncgw rosterevents view (needs Bearer)
+  meetingStart?: string;        // ISO — paired Meeting-started event composetime
+  meetingEnd?: string;          // ISO — paired Meeting-ended event composetime
+  durationSec?: number;         // duration in seconds (from paired meeting-ended <duration>)
+  organizerUpn?: string;        // organizer email (from paired meeting events)
+  meetingType?: string;         // Recurring / Scheduled (from paired meeting events)
+  meetingSubject?: string;      // subject (from paired meeting events)
+  attendees?: string[];         // attendees (from paired meeting-ended event)
+};
+
 export type ExportMessage = {
   id?: string;
   threadId?: string | null;
@@ -48,6 +67,7 @@ export type ExportMessage = {
   replyTo?: ReplyContext | null;
   mentions?: Array<{ name: string; mri?: string }>;  // @mentions in the message
   systemAttendees?: string[];     // participant display names for call/meeting system messages
+  recordingDetails?: RecordingDetails; // populated for RichText/Media_CallRecording messages
 };
 
 export type ExportMeta = {

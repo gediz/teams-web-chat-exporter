@@ -112,6 +112,17 @@ export function toCSV(messages: ExportMessage[]) {
 
 export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
   // Restore the richer HTML layout (avatars, replies, attachment grid, divider, compact mode)
+  const formatRecDuration = (seconds: number) => {
+    if (!Number.isFinite(seconds) || seconds <= 0) return '';
+    const h = Math.floor(seconds / 3600);
+    const mi = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    const out: string[] = [];
+    if (h > 0) out.push(`${h}h`);
+    if (mi > 0) out.push(`${mi}m`);
+    if (s > 0 || out.length === 0) out.push(`${s}s`);
+    return out.join(' ');
+  };
   const fmtTs = (s: string | number) => {
     if (!s) return '';
     const d = new Date(s);
@@ -608,6 +619,50 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
       const ts = m.timestamp ? fmtTs(m.timestamp) : '';
       const timeIso = m.timestamp || '';
       const attendees = m.systemAttendees;
+
+      // CallRecording messages re-use the same 3-column divider layout as the
+      // Meeting started/ended events: ⏱ duration on the left, "Recording —
+      // {title}" in the center, timestamp 🕒 on the right; organizer + attendees
+      // appear as below-divider rows. The recording's playable artifacts on
+      // asyncgw / SharePoint require auth that a static export can't supply,
+      // so we don't render any links — just the metadata we have.
+      const rec = m.recordingDetails;
+      if (rec) {
+        const title = rec.title || rec.meetingSubject || 'Meeting recording';
+        const dur = rec.durationSec ? formatRecDuration(rec.durationSec) : '';
+        // Right-side timestamp: prefer the meeting's actual start (when the
+        // call began) over the recording-message composetime.
+        const rightTs = rec.meetingStart || rec.meetingEnd || timeIso;
+        const rightDisplay = rightTs ? fmtTs(rightTs) : '';
+        const leftHtml = `<span class="divider-icon">⏱</span>${dur ? ' ' + escapeHtml(dur) : ''}`;
+        const rightHtml = rightDisplay
+          ? `${escapeHtml(rightDisplay)} <span class="divider-icon">🕒</span>`
+          : '';
+        const detailRows: string[] = [];
+        if (rec.organizerUpn) {
+          detailRows.push(
+            `<div class="divider-att-row"><span>organized by ${escapeHtml(rec.organizerUpn)}</span></div>`,
+          );
+        }
+        if (rec.attendees && rec.attendees.length) {
+          detailRows.push(
+            `<div class="divider-att-row"><span>${escapeHtml(rec.attendees.join(', '))}</span></div>`,
+          );
+        }
+        parts.push(
+          `<div class="divider-block">` +
+          `<div class="divider-row">` +
+          `<div class="divider-header">` +
+          `<div class="divider-h-left">${leftHtml}</div>` +
+          `<div class="divider-h-center">Recording — ${escapeHtml(title)}</div>` +
+          `<div class="divider-h-right" title="${escapeHtml(rightTs || '')}">${rightHtml}</div>` +
+          `</div>` +
+          `</div>` +
+          detailRows.join('') +
+          `</div>`,
+        );
+        continue;
+      }
 
       // Call/meeting events use the 3-column header: duration | label | timestamp.
       // Other system events (member joined/left, recording, transcript, date dividers)

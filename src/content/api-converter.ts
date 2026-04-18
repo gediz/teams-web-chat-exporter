@@ -5,7 +5,7 @@
  * used by the extension's builders (JSON, CSV, HTML, TXT).
  */
 
-import type { ExportMessage, ExportMeta, ForwardContext, Reaction, Attachment, ReplyContext, ScrapeOptions } from '../types/shared';
+import type { ExportMessage, ExportMeta, ForwardContext, Reaction, Attachment, ReplyContext, ScrapeOptions, RecordingDetails } from '../types/shared';
 import type { TeamsApiMessage } from './api-client';
 
 // ── Reaction Emoji Map ─────────────────────────────────────────────────
@@ -168,6 +168,30 @@ function htmlToText(html: string): string {
  * Parse system message XML content into readable text.
  * The API returns XML like <addmember>, <partlist>, <topicupdate> etc.
  */
+/**
+ * Parse a `RichText/Media_CallRecording` URIObject body into a RecordingDetails
+ * struct. Pulls title, thumbnail URL, SharePoint play link, transcript URL,
+ * video URL and roster URL out of the inline XML.
+ */
+function parseRecordingDetails(content: string): RecordingDetails | undefined {
+  if (!content || !content.includes('Video.2/CallRecording')) return undefined;
+  const get = (re: RegExp) => (content.match(re) || [])[1] || undefined;
+  const recordingContent = get(/<RecordingContent[^>]*>([\s\S]*?)<\/RecordingContent>/) || '';
+  const transcriptUrl = (recordingContent.match(/<item\s+type="amsTranscript"\s+uri="([^"]+)"/i) || [])[1];
+  const videoUrl     = (recordingContent.match(/<item\s+type="amsVideo"\s+uri="([^"]+)"/i)      || [])[1];
+  const rosterUrl    = (recordingContent.match(/<item\s+type="amsRosterEvents"\s+uri="([^"]+)"/i) || [])[1];
+  return {
+    title:         get(/<Title>([^<]+)<\/Title>/),
+    callId:        get(/<Id\s+type="callId"\s+value="([^"]+)"/i),
+    amsDocumentId: get(/<Id\s+type="AMSDocumentID"\s+value="([^"]+)"/i),
+    thumbnailUrl:  get(/<URIObject[^>]*\burl_thumbnail="([^"]+)"/),
+    playUrl:       get(/<a\s+href="([^"]+)"/),
+    transcriptUrl,
+    videoUrl,
+    rosterUrl,
+  };
+}
+
 function formatSecondsDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return '';
   const h = Math.floor(seconds / 3600);
@@ -897,6 +921,7 @@ function convertOneMessage(
   }
 
   let systemAttendees: string[] | undefined;
+  let recordingDetails: RecordingDetails | undefined;
   if (isForwarded) {
     // Already handled above
   } else if (isSystem) {
@@ -907,6 +932,12 @@ function convertOneMessage(
       const names = rawContent.match(/<displayName>[^<]+<\/displayName>/g)
         ?.map(s => s.replace(/<\/?displayName>/g, '')).filter(Boolean) || [];
       if (names.length) systemAttendees = names;
+    }
+    // For CallRecording messages, parse the URIObject structure to extract
+    // title + thumbnail + transcript + play link. Pairing with the matching
+    // meeting events (by callId) happens in a post-pass below.
+    if (messageType === 'RichText/Media_CallRecording') {
+      recordingDetails = parseRecordingDetails(rawContent);
     }
   } else if (messageType === 'RichText/Html' || rawContent.startsWith('<')) {
     // Extract reply from blockquote if present
@@ -1007,6 +1038,7 @@ function convertOneMessage(
     replyTo,
     mentions,
     systemAttendees,
+    recordingDetails,
   };
 }
 
@@ -1054,7 +1086,78 @@ export function convertApiMessages(
   // API returns newest-first; reverse to oldest-first for export
   result.reverse();
 
-  return result;
+  // Pair each CallRecording message with its matching Meeting started/ended events
+  // (same callId in the Event/Call XML) so the recording card can show the
+  // meeting's actual duration, attendees, organizer, and subject.
+  pairRecordingsWithMeetings(result, apiMessages);
+
+  // Teams emits two CallRecording messages per recording (initial empty state +
+  // final state with Play link). Collapse to one entry per AMSDocumentID,
+  // preferring the one with a SharePoint Play URL.
+  return dedupRecordings(result);
+}
+
+function dedupRecordings(messages: ExportMessage[]): ExportMessage[] {
+  // Group by amsDocumentId, find the best message in each group, keep only that one
+  const bestByDoc = new Map<string, number>(); // amsDocumentId → index of best message
+  for (let i = 0; i < messages.length; i++) {
+    const r = messages[i].recordingDetails;
+    if (!r?.amsDocumentId) continue;
+    const existingIdx = bestByDoc.get(r.amsDocumentId);
+    if (existingIdx === undefined) {
+      bestByDoc.set(r.amsDocumentId, i);
+      continue;
+    }
+    const existing = messages[existingIdx].recordingDetails!;
+    // Prefer the one with playUrl; if both/neither, prefer the later message
+    const candidateBetter = (!existing.playUrl && r.playUrl)
+      || (existing.playUrl === r.playUrl && i > existingIdx);
+    if (candidateBetter) bestByDoc.set(r.amsDocumentId, i);
+  }
+  const keepers = new Set(bestByDoc.values());
+  return messages.filter((m, i) => !m.recordingDetails?.amsDocumentId || keepers.has(i));
+}
+
+function pairRecordingsWithMeetings(messages: ExportMessage[], apiMessages: TeamsApiMessage[]): void {
+  // Build callId → meeting metadata from the raw Event/Call messages
+  type MeetingMeta = { startTs?: string; endTs?: string; durationSec?: number; organizer?: string; subject?: string; type?: string; attendees?: string[] };
+  const byCallId = new Map<string, MeetingMeta>();
+  const get = (s: string, re: RegExp) => (s.match(re) || [])[1];
+  const getAll = (s: string, re: RegExp) => [...s.matchAll(re)].map(m => m[1]);
+  for (const m of apiMessages) {
+    if (m.messagetype !== 'Event/Call') continue;
+    const c = m.content || '';
+    const callId = get(c, /<callId>([^<]+)/i) || get(c, /<Id\s+type="callId"\s+value="([^"]+)"/i);
+    if (!callId) continue;
+    const meta = byCallId.get(callId) || {};
+    const ts = m.composetime || m.originalarrivaltime;
+    if (c.includes('<ended')) {
+      meta.endTs = ts;
+      meta.durationSec = parseInt(get(c, /<duration>([^<]+)<\/duration>/) || '0', 10) || meta.durationSec;
+      const names = getAll(c, /<displayName>([^<]+)<\/displayName>/g);
+      if (names.length) meta.attendees = names;
+    } else {
+      meta.startTs = ts;
+    }
+    meta.organizer = meta.organizer || get(c, /<organizerUpn>([^<]+)<\/organizerUpn>/);
+    meta.subject = meta.subject || get(c, /<subject>([^<]+)<\/subject>/);
+    meta.type = meta.type || get(c, /<meetingType>([^<]+)<\/meetingType>/);
+    byCallId.set(callId, meta);
+  }
+  // Attach metadata to recording messages
+  for (const m of messages) {
+    const r = m.recordingDetails;
+    if (!r?.callId) continue;
+    const meta = byCallId.get(r.callId);
+    if (!meta) continue;
+    if (meta.startTs)     r.meetingStart = meta.startTs;
+    if (meta.endTs)       r.meetingEnd = meta.endTs;
+    if (meta.durationSec) r.durationSec = meta.durationSec;
+    if (meta.organizer)   r.organizerUpn = meta.organizer;
+    if (meta.subject)     r.meetingSubject = meta.subject;
+    if (meta.type)        r.meetingType = meta.type;
+    if (meta.attendees)   r.attendees = meta.attendees;
+  }
 }
 
 /**
