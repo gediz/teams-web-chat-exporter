@@ -397,8 +397,11 @@ async function handleFetchBlobMessage(
             }
             lastStatus = resp.status;
             lastStatusText = resp.statusText;
-            // Permanent: 4xx except 429 (rate-limit), no point retrying
-            const transient = resp.status === 429 || resp.status >= 500;
+            // Retry 429 (rate-limit), 408 (timeout), 410 (the Teams URL-image
+            // proxy returns 410 for transient upstream failures, not just
+            // permanent gone), and any 5xx. All other 4xx stay permanent.
+            const transient = resp.status === 429 || resp.status === 408
+                || resp.status === 410 || resp.status >= 500;
             if (!transient) {
                 sendResponse({ ok: false, status: resp.status, statusText: resp.statusText });
                 return;

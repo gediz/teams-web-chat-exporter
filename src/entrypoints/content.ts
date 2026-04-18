@@ -537,7 +537,13 @@ export default defineContentScript({
                 if (resp?.ok && resp.dataUrl) return resp.dataUrl;
                 if (resp?.status) {
                     imgFetchStats.httpError++;
-                    if (!imgFetchStats.firstHttpError) imgFetchStats.firstHttpError = `HTTP ${resp.status} ${resp.statusText || ''} for ${url.slice(0, 80)}`;
+                    if (!imgFetchStats.firstHttpError) {
+                        // For the urlp thumbnail proxy, the useful identifier is the
+                        // wrapped external URL in the `?url=` param, not our proxy URL.
+                        const m = url.match(/[?&]url=([^&]+)/);
+                        const label = m ? decodeURIComponent(m[1]).slice(0, 200) : url.slice(0, 200);
+                        imgFetchStats.firstHttpError = `HTTP ${resp.status} ${resp.statusText || ''} for ${label}`;
+                    }
                 } else if (resp?.error) {
                     imgFetchStats.threwError++;
                     if (!imgFetchStats.firstThrow) imgFetchStats.firstThrow = `${resp.error.slice(0, 100)} for ${url.slice(0, 80)}`;
@@ -666,11 +672,17 @@ export default defineContentScript({
             // Fetch profile photos via background (same path used for images) so both
             // browsers behave the same way; direct content-script fetch to Graph can
             // fail sporadically in Firefox even with host_permissions.
+            // Track UNIQUE attempts and explicit failures separately. authorToUuid
+            // can have multiple display names mapping to the same UUID, so comparing
+            // "authors" to "successes" inflated the failure count by the duplicates.
             const uuidToDataUrl = new Map<string, string>();
+            const attempted = new Set<string>();
             let firstPhotoError: string | null = null;
             let photo404 = 0;
+            let nonPhotoFailures = 0;
             for (const [, uuid] of authorToUuid) {
-                if (uuidToDataUrl.has(uuid)) continue;
+                if (attempted.has(uuid)) continue;
+                attempted.add(uuid);
                 try {
                     const resp = await runtime.sendMessage({
                         type: 'FETCH_BLOB',
@@ -683,23 +695,26 @@ export default defineContentScript({
                         uuidToDataUrl.set(uuid, resp.dataUrl);
                     } else if (resp?.status === 404) {
                         photo404++;
-                    } else if (!firstPhotoError) {
-                        firstPhotoError = resp?.status
-                            ? `HTTP ${resp.status} ${resp.statusText || ''}`
-                            : (resp?.error || 'unknown error');
+                    } else {
+                        nonPhotoFailures++;
+                        if (!firstPhotoError) {
+                            firstPhotoError = resp?.status
+                                ? `HTTP ${resp.status} ${resp.statusText || ''}`
+                                : (resp?.error || 'unknown error');
+                        }
                     }
                 } catch (e) {
+                    nonPhotoFailures++;
                     if (!firstPhotoError) firstPhotoError = String(e);
                 }
             }
-            const missing = authorToUuid.size - uuidToDataUrl.size;
+            const missing = attempted.size - uuidToDataUrl.size;
             if (missing > 0) {
-                const nonPhotoErrors = missing - photo404;
                 const parts: string[] = [];
                 if (photo404 > 0) parts.push(`${photo404} have no photo (404)`);
-                if (nonPhotoErrors > 0) parts.push(`${nonPhotoErrors} failed (${firstPhotoError || 'no error captured'})`);
-                const level = nonPhotoErrors > 0 ? 'warn' : 'log';
-                console[level](`[Teams Exporter] Graph photo: ${uuidToDataUrl.size}/${authorToUuid.size} fetched — ${parts.join(', ')}`);
+                if (nonPhotoFailures > 0) parts.push(`${nonPhotoFailures} failed (${firstPhotoError || 'no error captured'})`);
+                const level = nonPhotoFailures > 0 ? 'warn' : 'log';
+                console[level](`[Teams Exporter] Graph photo: ${uuidToDataUrl.size}/${attempted.size} unique users fetched — ${parts.join(', ')}`);
             }
 
             if (!uuidToDataUrl.size) return;

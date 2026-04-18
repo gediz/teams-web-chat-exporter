@@ -84,7 +84,7 @@ src/
    - Discovers the chat service endpoint via the Teams authz API.
    - Fetches messages page by page from the chat service `/messages` endpoint (max 500 pages, retries on 429 with exponential backoff).
    - Converts API response objects to ExportMessage format.
-   - Fetches inline image/audio data from AMS URLs (max 5 MB per file, 6 concurrent fetches, Microsoft domains only).
+   - Fetches inline image/audio data from AMS URLs (max 5 MB per file, 6 concurrent fetches, retries 408/410/429/5xx with exponential backoff).
    - Fetches avatar photos via Microsoft Graph API.
 5. If API fails at any step, content script falls back to DOM scroll mode:
    - Scrolls through the message list to load history.
