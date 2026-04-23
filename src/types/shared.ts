@@ -1,4 +1,16 @@
-export type Reaction = { emoji: string; count: number; reactors?: string[]; self?: boolean };
+// One reactor of a given emoji. `name` is the resolved display name
+// (falls back to MRI fragment if resolution failed). `avatarId` is set
+// when we already have the reactor's profile photo — it points into
+// meta.avatars so the HTML builder can render the dot stack without
+// re-fetching. `self` marks the current user so the chip can highlight
+// "You" differently.
+export type ReactorInfo = { name: string; avatarId?: string; self?: boolean };
+
+// A single emoji reaction on a message. `reactors` now carries rich
+// per-reactor info for the v9 reactor chip (avatar stack + popover).
+// Legacy data on disk that stored `reactors: string[]` is still
+// readable — the HTML builder defensively handles both shapes.
+export type Reaction = { emoji: string; count: number; reactors?: ReactorInfo[]; self?: boolean };
 
 export type Attachment = {
   href?: string;
@@ -58,6 +70,10 @@ export type ExportMessage = {
   forwarded?: ForwardContext;     // Forward context with original author info
   importance?: string;            // "normal", "urgent", etc.
   subject?: string;               // Subject line (channel posts)
+  // True when this message was authored by the current Teams user. The
+  // HTML builder styles own-messages with a distinct accent so scanning
+  // a conversation visually separates "me" from "them" (issue #20).
+  isOwn?: boolean;
   avatar?: string | null;
   avatarId?: string;
   avatarUrl?: string;
@@ -94,20 +110,32 @@ export type ScrapeOptions = {
   showHud?: boolean;
   exportTarget?: 'chat' | 'team';
   // Downstream build options surfaced to the scraper so it can skip
-  // expensive fetches the target format won't actually use:
-  //   format=txt/csv never renders images or avatars
+  // expensive fetches none of the selected formats will actually use:
+  //   txt/csv never render images or avatars
   //   json/html without embedAvatars don't need avatar photos
   //   html without downloadImages doesn't need inline image blobs
-  format?: 'json' | 'csv' | 'html' | 'txt';
+  // The union across `formats` decides — fetch when ANY selected format wants it.
+  formats?: ('json' | 'csv' | 'html' | 'txt' | 'pdf')[];
   embedAvatars?: boolean;
   downloadImages?: boolean;
 };
 
 export type BuildOptions = {
-  format?: 'json' | 'csv' | 'html' | 'txt';
+  // Selected output formats. 1 -> single file (or HTML.zip when html + downloadImages).
+  // 2+ -> all built and packaged together as bundle.zip.
+  formats?: ('json' | 'csv' | 'html' | 'txt' | 'pdf')[];
   saveAs?: boolean;
   embedAvatars?: boolean;
   downloadImages?: boolean;
+  // 'files' forces HTML-only exports to zip so the avatars/ folder can
+  // sit alongside the HTML. 'inline' keeps avatars as base64 in the
+  // HTML (single self-contained file).
+  avatarMode?: 'inline' | 'files';
+  // PDF layout preferences — only read when 'pdf' is in formats.
+  pdfPageSize?: 'a4' | 'letter';
+  pdfBodyFontSize?: number;
+  pdfShowPageNumbers?: boolean;
+  pdfIncludeAvatars?: boolean;
   // User's "After export" preference. Drives auto-open / auto-show on success.
   afterExport?: 'manual' | 'show';
 };
@@ -167,8 +195,12 @@ export type HistoryEntry = {
   // Chat / channel display name from the scrape meta. Shown in the row's
   // secondary line so users can tell entries apart at a glance.
   title?: string;
-  // Selected build format. Drives the colored badge.
-  format?: 'json' | 'csv' | 'html' | 'txt';
+  // Selected build format(s). `formats` is the source of truth for new
+  // entries; `format` is preserved for back-compat with rows already on
+  // disk (pre-multi-format release). HistoryPage prefers `formats` then
+  // falls back to `format`.
+  formats?: ('json' | 'csv' | 'html' | 'txt' | 'pdf')[];
+  format?: 'json' | 'csv' | 'html' | 'txt' | 'pdf';
   isZip?: boolean;
   messageCount?: number;
   elapsedMs?: number;

@@ -1,4 +1,5 @@
 import { binaryToDownloadUrl, removeAvatars, revokeDownloadUrl, textToDownloadUrl, toCSV, toHTML } from './builders';
+import { buildPdf } from './pdf';
 import { formatRangeLabel, sanitizeBase } from '../utils/messages';
 import { buildZip } from './zip';
 import type { Attachment, ExportMessage, ExportMeta } from '../types/shared';
@@ -23,14 +24,63 @@ export type BuildDownloadDeps = {
   onStatus?: (payload: { phase?: string; message?: string; filename?: string; messages?: number; messagesBuilt?: number; messagesTotal?: number }) => void;
 };
 
+type SingleFormat = 'json' | 'csv' | 'html' | 'txt' | 'pdf';
+type AvatarMode = 'inline' | 'files';
+
+// Subset of PdfOptions we pass through from popup to pdf.ts. Mirrors
+// PdfOptions in src/background/pdf.ts — kept structural (not imported)
+// because download.ts doesn't otherwise depend on pdf.ts's types.
+type PdfKnobs = {
+  pdfPageSize?: 'a4' | 'letter';
+  pdfBodyFontSize?: number;
+  pdfShowPageNumbers?: boolean;
+  pdfIncludeAvatars?: boolean;
+};
+
 type BuildExportOptions = {
   messages?: ExportMessage[];
   meta?: ExportMeta;
-  format?: 'json' | 'csv' | 'html' | 'txt';
+  format?: SingleFormat;
   saveAs?: boolean;
   embedAvatars?: boolean;
   downloadImages?: boolean;
-};
+  // Only read by the zip paths; single-file HTML always inlines avatars
+  // because one loose .html file can't reference a sibling folder.
+  avatarMode?: AvatarMode;
+} & PdfKnobs;
+
+type BuildBundleOptions = {
+  messages?: ExportMessage[];
+  meta?: ExportMeta;
+  formats: SingleFormat[];
+  embedAvatars?: boolean;
+  downloadImages?: boolean;
+  avatarMode?: AvatarMode;
+} & PdfKnobs;
+
+// Translate PdfKnobs -> buildPdf's PdfOptions shape. The property rename
+// keeps buildPdf's public surface narrow (it doesn't know about the
+// outer "pdf*" prefix we use to distinguish these in BuildOptions).
+function toPdfOptions(knobs: PdfKnobs) {
+  return {
+    pageSize: knobs.pdfPageSize,
+    bodyFontSize: knobs.pdfBodyFontSize,
+    showPageNumbers: knobs.pdfShowPageNumbers,
+    includeAvatars: knobs.pdfIncludeAvatars,
+  };
+}
+
+// Compute the canonical `TeamsExport_<chat>_<stamp>` base name. Shared
+// between buildExportInternal (text formats) and the PDF path so a
+// single-format PDF export and a bundle containing PDF use the same
+// filename scheme. The stamp collapses to second resolution; within a
+// single export call all builders see the same value as long as they
+// share this helper's result.
+function computeBaseName(meta: ExportMeta): string {
+  const baseTitle = sanitizeBase(meta.title || 'UnknownChat');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19).replace('T', '_');
+  return `TeamsExport_${baseTitle}_${stamp}`;
+}
 
 const DATA_URL_RE = /^data:([^;]+);base64,(.*)$/i;
 
@@ -81,6 +131,42 @@ function ensureUniqueName(name: string, used: Set<string>) {
   }
   used.add(candidate.toLowerCase());
   return candidate;
+}
+
+// Split the embedded-avatar map out of the HTML export meta into a set
+// of `avatars/<id>.<ext>` files. Used only on zip paths (HTML.zip,
+// bundle.zip) so the HTML stays small and extractors see a
+// human-browsable avatars folder.
+//
+// Returns:
+//   - files: list of { path, data } entries ready to drop into the zip
+//   - meta:  a shallow clone with `_avatarsAsFiles` + `_avatarFileMap`
+//            set so toHTML knows to emit `url("avatars/<file>")`
+//            instead of inlining base64
+// If no avatars are present we return an empty list and a pass-through
+// meta (toHTML still renders just fine with no avatar map at all).
+function collectAvatarFiles(meta: ExportMeta): { files: InlineImage[]; meta: ExportMeta } {
+  const avatars = meta.avatars;
+  if (!avatars || !Object.keys(avatars).length) return { files: [], meta };
+  const files: InlineImage[] = [];
+  const fileMap: Record<string, string> = {};
+  for (const [id, dataUrl] of Object.entries(avatars)) {
+    const parsed = parseDataUrl(dataUrl);
+    if (!parsed) continue;
+    const ext = mimeToExtension(parsed.mime);
+    const filename = `${id}.${ext}`;
+    fileMap[id] = filename;
+    files.push({ filename: `avatars/${filename}`, dataUrl });
+  }
+  // Mutate-free: fresh meta with the two routing flags set. Keeping the
+  // original avatars map on the side (untouched) means JSON co-outputs
+  // in a bundle still see the inline form if they want it.
+  const nextMeta: ExportMeta = {
+    ...meta,
+    _avatarsAsFiles: true,
+    _avatarFileMap: fileMap,
+  } as ExportMeta;
+  return { files, meta: nextMeta };
 }
 
 function stripAttachmentDataUrl(att: Attachment) {
@@ -179,9 +265,7 @@ function buildExportInternal(options: BuildExportOptions, imageMode: ImageMode):
   const rangeLabel = formatRangeLabel(meta.startAt, meta.endAt);
   if (rangeLabel) enrichedMeta.timeRange = rangeLabel;
 
-  const baseTitle = sanitizeBase(enrichedMeta.title || 'UnknownChat');
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19).replace('T', '_');
-  const base = `TeamsExport_${baseTitle}_${stamp}`;
+  const base = computeBaseName(enrichedMeta);
   const baseFolder = base;
 
   let filename = base;
@@ -221,9 +305,34 @@ function buildExportInternal(options: BuildExportOptions, imageMode: ImageMode):
 
 export async function buildAndDownload(
   deps: BuildDownloadDeps,
-  { messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false, downloadImages = false }: BuildExportOptions,
+  options: BuildExportOptions,
 ) {
+  const { messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false, downloadImages = false } = options;
   const { downloads, onStatus } = deps;
+
+  // PDF is fundamentally different from the text formats — it produces
+  // binary bytes via pdf-lib, not a string, and its builder is async
+  // because it fetches the embedded font. Route it entirely outside of
+  // buildExportInternal.
+  if (format === 'pdf') {
+    onStatus?.({ phase: 'build', messages: messages.length });
+    await Promise.resolve();
+    const base = computeBaseName(meta);
+    const filename = `${base}.pdf`;
+    const bytes = await buildPdf(messages, meta, (done, total) => {
+      onStatus?.({ phase: 'build', filename, messages: messages.length, messagesBuilt: done, messagesTotal: total });
+    }, toPdfOptions(options));
+    onStatus?.({ phase: 'build', filename, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
+    const url = binaryToDownloadUrl(bytes, 'application/pdf');
+    try {
+      const id = await downloads.download({ url, filename, saveAs });
+      setTimeout(() => revokeDownloadUrl(url), 60_000);
+      return { ok: true, filename, id };
+    } catch (e: any) {
+      revokeDownloadUrl(url);
+      throw new Error(e?.message || String(e));
+    }
+  }
 
   // Auto-upgrade to zip for large HTML exports to avoid "Invalid string length".
   // Embedding many base64 images/avatars inline creates strings too large for V8.
@@ -268,15 +377,22 @@ export async function buildAndDownload(
 
 export async function buildAndDownloadZip(
   deps: BuildDownloadDeps,
-  { messages = [], meta = {}, embedAvatars = false, downloadImages = false }: BuildExportOptions,
+  { messages = [], meta = {}, embedAvatars = false, downloadImages = false, avatarMode = 'inline' }: BuildExportOptions,
 ) {
   const { downloads, onStatus } = deps;
   // Show segment 4 active before the synchronous build/zip work begins so the
   // popup has a render tick to paint the indeterminate stripe.
   onStatus?.({ phase: 'build', messages: messages.length });
   await Promise.resolve();
+
+  // Extract avatars into files when embedAvatars is on AND the user
+  // opted into files mode. If either is off, `collectAvatarFiles`
+  // effectively no-ops (empty list + pass-through meta) and avatars
+  // stay inline in the HTML's style block.
+  const avatarCollect = embedAvatars && avatarMode === 'files' ? collectAvatarFiles(meta) : { files: [], meta };
+
   const built = buildExportInternal(
-    { messages, meta, format: 'html', embedAvatars, downloadImages },
+    { messages, meta: avatarCollect.meta, format: 'html', embedAvatars, downloadImages },
     downloadImages ? 'files' : 'none',
   );
 
@@ -284,6 +400,13 @@ export async function buildAndDownloadZip(
 
   const encoder = new TextEncoder();
   const files: { path: string; data: Uint8Array }[] = [];
+
+  // Place avatar files first so they group together in the zip listing.
+  for (const a of avatarCollect.files) {
+    const bytes = dataUrlToBytes(a.dataUrl);
+    if (!bytes) continue;
+    files.push({ path: `${built.baseFolder}/${a.filename}`, data: bytes });
+  }
   // Handle chunked HTML content (string[]) by encoding each chunk and concatenating
   const contentParts = Array.isArray(built.content) ? built.content : [built.content];
   const encodedParts = contentParts.map(part => encoder.encode(part));
@@ -312,6 +435,128 @@ export async function buildAndDownloadZip(
   const mime = 'application/zip';
   const zipName = `${built.baseFolder}.zip`;
   const url = binaryToDownloadUrl(zipBytes, mime);
+  try {
+    const id = await downloads.download({ url, filename: zipName, saveAs: true });
+    setTimeout(() => revokeDownloadUrl(url), 60_000);
+    return { ok: true, filename: zipName, id };
+  } catch (e: any) {
+    revokeDownloadUrl(url);
+    throw new Error(e?.message || String(e));
+  }
+}
+
+// Build every requested format and pack them into a single bundle.zip.
+// Used when the user has 2+ formats selected. The HTML build (if present
+// and downloadImages=true) contributes its inline images to a shared
+// images/ folder; other formats are dropped in alongside as standalone
+// files. The bundle uses the same `TeamsExport_<chat>_<stamp>/` folder
+// inside the zip as buildAndDownloadZip, so extraction behaviour is
+// uniform regardless of which path produced the .zip.
+export async function buildAndDownloadBundle(
+  deps: BuildDownloadDeps,
+  options: BuildBundleOptions,
+) {
+  const { messages = [], meta = {}, formats, embedAvatars = false, downloadImages = false, avatarMode = 'inline' } = options;
+  const { downloads, onStatus } = deps;
+  if (!formats.length) throw new Error('buildAndDownloadBundle: formats is empty');
+
+  onStatus?.({ phase: 'build', messages: messages.length });
+  await Promise.resolve();
+
+  // Pre-compute the bundle's canonical folder name so PDF (async) and the
+  // text builders (sync) share the same stamp. buildExportInternal also
+  // calls computeBaseName, but its result for the FIRST text format is
+  // only used as a tiebreaker — for PDF we must have the name up front
+  // because the PDF builder never touches buildExportInternal.
+  let baseFolder = computeBaseName(meta);
+
+  // HTML-in-bundle gets the avatars-as-files treatment when avatars
+  // are enabled, HTML is selected, AND the user chose 'files' mode.
+  // Otherwise it's a no-op that returns the input meta.
+  const needAvatarsAsFiles = embedAvatars && formats.includes('html') && avatarMode === 'files';
+  const avatarCollect = needAvatarsAsFiles ? collectAvatarFiles(meta) : { files: [], meta };
+  const htmlMeta = avatarCollect.meta;
+
+  // Each text format runs through buildExportInternal independently. HTML
+  // uses 'files' image mode when downloadImages is on (so its <img src>
+  // point at images/foo.png and the data URLs come back as inlineImages
+  // we can place into the zip); other formats use 'none' to strip data
+  // URLs from the JSON payload (otherwise base64 blobs would inflate it).
+  // PDF takes a separate async path below.
+  const htmlImageMode: ImageMode = downloadImages ? 'files' : 'none';
+  const files: { path: string; data: Uint8Array }[] = [];
+  const imagePaths = new Set<string>();
+  const encoder = new TextEncoder();
+
+  // Avatar files — one per unique avatarId, PNG/JPEG bytes. Written to
+  // <baseFolder>/avatars/<id>.<ext>. HTML references them via CSS urls.
+  for (const a of avatarCollect.files) {
+    const bytes = dataUrlToBytes(a.dataUrl);
+    if (!bytes) continue;
+    files.push({ path: `${baseFolder}/${a.filename}`, data: bytes });
+  }
+
+  for (const format of formats) {
+    if (format === 'pdf') {
+      // PDF: async bytes straight from pdf-lib. Named <baseFolder>.pdf so
+      // it matches the other file naming inside the bundle. PDF gets
+      // the original meta (with inline avatars) because pdf-lib embeds
+      // its own copies — the avatars/ folder is HTML-only. Progress
+      // callbacks flow through to the popup so the "building" segment
+      // actually ticks during the (potentially long) PDF phase.
+      const bytes = await buildPdf(
+        messages,
+        meta,
+        (done, total) => {
+          onStatus?.({ phase: 'build', filename: `${baseFolder}.zip`, messages: messages.length, messagesBuilt: done, messagesTotal: total });
+        },
+        toPdfOptions(options),
+      );
+      files.push({ path: `${baseFolder}/${baseFolder}.pdf`, data: bytes });
+      continue;
+    }
+
+    const mode: ImageMode = format === 'html' ? htmlImageMode : 'none';
+    // HTML uses the meta that routes avatars to files; other formats
+    // get the original inline-avatars meta (they don't read the flag,
+    // but the JSON path emits the avatars map either way).
+    const formatMeta = format === 'html' ? htmlMeta : meta;
+    const built = buildExportInternal({ messages, meta: formatMeta, format, embedAvatars, downloadImages }, mode);
+
+    // Always rename to <baseFolder>.<ext> rather than reusing built.filename:
+    //   - HTML in 'files' mode produces 'index.html' (only meaningful when
+    //     HTML is the sole occupant of the zip)
+    //   - Other formats use their own (possibly drift-affected) timestamp
+    // Forcing the extension keeps every file name in the bundle consistent.
+    const perFormatName = `${baseFolder}.${format}`;
+    const contentParts = Array.isArray(built.content) ? built.content : [built.content];
+    const encodedParts = contentParts.map(part => encoder.encode(part));
+    const totalLen = encodedParts.reduce((sum, p) => sum + p.length, 0);
+    const contentBytes = new Uint8Array(totalLen);
+    let offset = 0;
+    for (const part of encodedParts) {
+      contentBytes.set(part, offset);
+      offset += part.length;
+    }
+    files.push({ path: `${baseFolder}/${perFormatName}`, data: contentBytes });
+
+    // Inline images only come from the HTML+files build. Dedupe in case
+    // some hypothetical future format also produces them.
+    for (const img of built.inlineImages) {
+      const path = `${baseFolder}/${img.filename}`;
+      if (imagePaths.has(path)) continue;
+      const bytes = dataUrlToBytes(img.dataUrl);
+      if (!bytes) continue;
+      imagePaths.add(path);
+      files.push({ path, data: bytes });
+    }
+  }
+
+  onStatus?.({ phase: 'build', filename: `${baseFolder}.zip`, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
+
+  const zipBytes = buildZip(files);
+  const zipName = `${baseFolder}.zip`;
+  const url = binaryToDownloadUrl(zipBytes, 'application/zip');
   try {
     const id = await downloads.download({ url, filename: zipName, saveAs: true });
     setTimeout(() => revokeDownloadUrl(url), 60_000);

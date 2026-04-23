@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "Teks",
+  "format.pdf": "PDF",
   "options.replies": "Sertakan balasan berbenang",
   "options.reactions": "Sertakan reaksi",
   "options.system": "Sertakan mesej sistem",

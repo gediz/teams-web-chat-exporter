@@ -292,8 +292,14 @@
     return entry.title || entry.filename || '(untitled export)';
   };
 
+  // Badge text. Bundle exports (2+ formats packaged into one .zip) get a
+  // dedicated "BUNDLE" badge instead of any single format name. For older
+  // entries that pre-date the `formats` array, fall back to the singular
+  // `format` field, then to the file extension.
   const formatLabel = (entry: HistoryEntry): string => {
-    if (entry.format) return entry.format.toUpperCase();
+    if (entry.formats && entry.formats.length >= 2) return 'BUNDLE';
+    const single = entry.formats?.[0] || entry.format;
+    if (single) return single.toUpperCase();
     if (entry.filename) {
       const ext = entry.filename.match(/\.([a-z0-9]+)$/i)?.[1];
       if (ext) return ext.toUpperCase();
@@ -306,8 +312,16 @@
     if (label === 'json') return 'json';
     if (label === 'csv') return 'csv';
     if (label === 'txt') return 'txt';
+    if (label === 'pdf') return 'pdf';
     if (label === 'zip') return 'zip';
+    if (label === 'bundle') return 'bundle';
     return 'html';
+  };
+  // Tooltip showing the bundle's contents (e.g. "HTML, JSON, CSV").
+  // Empty for non-bundle entries — let the badge speak for itself.
+  const formatBadgeTooltip = (entry: HistoryEntry): string => {
+    if (!entry.formats || entry.formats.length < 2) return '';
+    return entry.formats.map(f => f.toUpperCase()).join(', ');
   };
 </script>
 
@@ -351,7 +365,12 @@
           class:missing={isMissing}
           on:mouseenter={() => verifyOne(entry)}
         >
-          <div class="badge badge-{formatClass(entry)}" class:badge-cancelled={entry.kind === 'cancelled'} class:badge-missing={isMissing}>
+          <div
+            class="badge badge-{formatClass(entry)}"
+            class:badge-cancelled={entry.kind === 'cancelled'}
+            class:badge-missing={isMissing}
+            title={formatBadgeTooltip(entry)}
+          >
             {entry.kind === 'cancelled' ? '✕' : formatLabel(entry)}
           </div>
           <div class="body">
@@ -476,7 +495,16 @@
   .badge-json { background: rgba(217, 119, 6, 0.10); color: #d97706; }
   .badge-csv  { background: rgba(22, 163, 74, 0.10); color: #16a34a; }
   .badge-txt  { background: rgba(124, 58, 237, 0.10); color: #7c3aed; }
+  /* PDF gets a red family to read as "document/print" — distinct enough
+     from HTML's blue and BUNDLE's purple that the badge identifies format
+     at a glance. */
+  .badge-pdf  { background: rgba(220, 38, 38, 0.10); color: #dc2626; }
   .badge-zip  { background: rgba(124, 58, 237, 0.10); color: #7c3aed; }
+  /* Bundle = 2+ formats packed into one .zip. Same purple family as
+     .zip but darker/saturated so it reads as "this is a multi-file
+     archive" at a glance. Kept narrower-feeling via slightly tighter
+     letter-spacing to fit "BUNDLE" without growing the badge. */
+  .badge-bundle { background: rgba(109, 40, 217, 0.14); color: #6d28d9; letter-spacing: 0.02em; }
   .badge-cancelled { background: rgba(220, 38, 38, 0.10); color: #dc2626; font-size: 14px; }
   .badge-missing { background: rgba(0, 0, 0, 0.05); color: var(--color-text-muted); }
 

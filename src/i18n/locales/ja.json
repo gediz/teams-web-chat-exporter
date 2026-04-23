@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "プレーンテキスト",
+  "format.pdf": "PDF",
   "options.replies": "スレッドの返信を含める",
   "options.reactions": "リアクションを含める",
   "options.system": "システムメッセージを含める",

@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "टेक्स्ट",
+  "format.pdf": "PDF",
   "options.replies": "थ्रेडेड उत्तर शामिल करें",
   "options.reactions": "प्रतिक्रियाएँ शामिल करें",
   "options.system": "सिस्टम संदेश शामिल करें",

@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "ข้อความ",
+  "format.pdf": "PDF",
   "options.replies": "รวมการตอบกลับในเธรด",
   "options.reactions": "รวมปฏิกิริยา",
   "options.system": "รวมข้อความระบบ",

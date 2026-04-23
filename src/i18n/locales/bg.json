@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "Текст",
+  "format.pdf": "PDF",
   "options.replies": "Включи отговори в нишки",
   "options.reactions": "Включи реакции",
   "options.system": "Включи системни съобщения",

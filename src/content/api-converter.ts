@@ -5,7 +5,7 @@
  * used by the extension's builders (JSON, CSV, HTML, TXT).
  */
 
-import type { ExportMessage, ExportMeta, ForwardContext, Reaction, Attachment, ReplyContext, ScrapeOptions, RecordingDetails } from '../types/shared';
+import type { ExportMessage, ExportMeta, ForwardContext, Reaction, ReactorInfo, Attachment, ReplyContext, ScrapeOptions, RecordingDetails } from '../types/shared';
 import type { TeamsApiMessage } from './api-client';
 
 // ── Reaction Emoji Map ─────────────────────────────────────────────────
@@ -423,7 +423,12 @@ function extractReplyFromHtml(html: string): { replyTo: ReplyContext; cleanHtml:
 
 // ── Reactions Conversion ───────────────────────────────────────────────
 
-function convertReactions(properties: Record<string, unknown>): Reaction[] {
+// Intermediate shape carrying raw MRIs; later decorated into ReactorInfo
+// after name resolution + self-UUID match happen in convertOneMessage.
+type RawReactor = { mri: string };
+type RawReaction = { emoji: string; count: number; rawReactors?: RawReactor[] };
+
+function convertReactions(properties: Record<string, unknown>): RawReaction[] {
   const rawEmotions = properties.emotions;
   if (!rawEmotions) return [];
 
@@ -443,8 +448,47 @@ function convertReactions(properties: Record<string, unknown>): Reaction[] {
     return {
       emoji,
       count: users.length || 1, // Self-chat reactions have empty users array
-      reactors: users.length > 0 ? users.map(u => u.mri) : undefined,
+      rawReactors: users.length > 0 ? users.map(u => ({ mri: u.mri })) : undefined,
     };
+  });
+}
+
+// Shared UUID extractor — matches the one in api-client but kept here so
+// converter stays independent of that module (avoids a cross-file import
+// cycle through the module-loading graph).
+const REACTOR_UUID_RE = /([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i;
+function extractReactorUuid(mri: string): string | null {
+  const m = mri.match(REACTOR_UUID_RE);
+  return m ? m[1].toLowerCase() : null;
+}
+
+// Turn RawReaction[] into Reaction[] by resolving MRIs to display names,
+// computing the self flag per-reactor and at the reaction level, and
+// wiring avatarId from the meta.avatars map when available.
+function decorateReactions(
+  raw: RawReaction[],
+  mriMap: Map<string, string>,
+  selfUserId: string | null | undefined,
+  avatarIds: Map<string, string> | null,
+): Reaction[] {
+  const selfUuid = selfUserId ? selfUserId.toLowerCase() : null;
+  return raw.map(r => {
+    let anySelf = false;
+    const reactors = r.rawReactors?.map(rr => {
+      const uuid = extractReactorUuid(rr.mri);
+      const isSelf = !!(uuid && selfUuid && uuid === selfUuid);
+      if (isSelf) anySelf = true;
+      const name = mriMap.get(rr.mri) || (uuid ? uuid.slice(0, 8) : rr.mri);
+      const avatarId = uuid && avatarIds ? avatarIds.get(uuid) : undefined;
+      const info: ReactorInfo = { name };
+      if (avatarId) info.avatarId = avatarId;
+      if (isSelf) info.self = true;
+      return info;
+    });
+    const out: Reaction = { emoji: r.emoji, count: r.count };
+    if (reactors) out.reactors = reactors;
+    if (anySelf) out.self = true;
+    return out;
   });
 }
 
@@ -838,6 +882,7 @@ function convertOneMessage(
   msg: TeamsApiMessage,
   opts: ScrapeOptions,
   mriMap: Map<string, string>,
+  selfUserId?: string | null,
 ): ExportMessage | null {
   const messageType = msg.messagetype || '';
   const isSystem = SYSTEM_MESSAGE_TYPES.has(messageType);
@@ -956,16 +1001,15 @@ function convertOneMessage(
     text = rawContent;
   }
 
-  // Reactions
+  // Reactions. Build raw (MRIs) then decorate into full ReactorInfo.
+  // avatarId isn't available here — it's populated later in the content
+  // script by embedAvatarsInContent, after Graph photo fetches complete.
+  // The HTML chip renders initials for reactors that never get an
+  // avatarId attached.
   let reactions: Reaction[] = [];
   if (opts.includeReactions !== false) {
-    reactions = convertReactions(properties);
-    // Resolve MRI → display names for reactors
-    for (const r of reactions) {
-      if (r.reactors) {
-        r.reactors = r.reactors.map(mri => mriMap.get(mri) || mri);
-      }
-    }
+    const raw = convertReactions(properties);
+    reactions = decorateReactions(raw, mriMap, selfUserId, null);
   }
 
   // Attachments (file attachments + inline images + link previews)
@@ -1020,6 +1064,17 @@ function convertOneMessage(
   // Importance
   const importance = properties.importance ? String(properties.importance) : undefined;
 
+  // "Own message" detection. Teams' msg.from is a full MRI URL ending in
+  // an "8:orgid:<uuid>" segment; selfUserId is just the uuid. Extract and
+  // compare. System messages don't get flagged — they're not "from" anyone.
+  let isOwn: boolean | undefined;
+  if (!isSystem && selfUserId && msg.from) {
+    const uuidMatch = msg.from.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
+    if (uuidMatch && uuidMatch[1].toLowerCase() === selfUserId.toLowerCase()) {
+      isOwn = true;
+    }
+  }
+
   return {
     id: msg.id || msg.clientmessageid || '',
     author,
@@ -1032,6 +1087,7 @@ function convertOneMessage(
     forwarded: forwardCtx,
     importance,
     subject,
+    isOwn,
     avatar: null,
     reactions,
     attachments,
@@ -1051,6 +1107,7 @@ function convertOneMessage(
 export function convertApiMessages(
   apiMessages: TeamsApiMessage[],
   opts: ScrapeOptions,
+  selfUserId?: string | null,
 ): ExportMessage[] {
   // Build MRI → name map for reactor/forward author resolution
   const mriMap = buildMentionMap(apiMessages);
@@ -1079,7 +1136,7 @@ export function convertApiMessages(
       } catch { /* proceed without dedup */ }
     }
 
-    const converted = convertOneMessage(msg, opts, mriMap);
+    const converted = convertOneMessage(msg, opts, mriMap, selfUserId);
     if (converted) result.push(converted);
   }
 

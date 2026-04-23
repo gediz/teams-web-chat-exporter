@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "텍스트",
+  "format.pdf": "PDF",
   "options.replies": "스레드 답글 포함",
   "options.reactions": "반응 포함",
   "options.system": "시스템 메시지 포함",

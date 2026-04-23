@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "Texte brut",
+  "format.pdf": "PDF",
   "options.replies": "Inclure les réponses de fil",
   "options.reactions": "Inclure les réactions",
   "options.system": "Inclure les messages système",

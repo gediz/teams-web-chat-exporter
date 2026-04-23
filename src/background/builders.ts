@@ -1,4 +1,4 @@
-import type { ExportMessage, ExportMeta } from '../types/shared';
+import type { ExportMessage, ExportMeta, Reaction } from '../types/shared';
 import { extractAvatarId } from '../utils/avatars';
 
 /**
@@ -234,6 +234,11 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     .toolbar button{border:1px solid var(--border); background:#f9fafb; color:#111; padding:6px 10px; border-radius:6px; cursor:pointer; font:13px system-ui}
     .toolbar button:hover{background:#eef2f7}
     .msg{position:relative; display:flex; gap:10px; margin:12px 0; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--bg)}
+    /* Issue #20: highlight messages authored by the current Teams user.
+       Uses a tinted background + accent-colored left rail to match the
+       "it's me" affordance from the Teams UI without overpowering the
+       document. Inherits radius + borders from .msg above. */
+    .own-msg{background:rgba(37,99,235,0.06); border-color:rgba(37,99,235,0.25); border-left:4px solid #2563eb; padding-left:9px}
     .avt{flex:0 0 36px; width:36px; height:36px; border-radius:50%; background:#eef2f7; overflow:hidden; display:flex; align-items:center; justify-content:center; font-weight:600; color:#334155}
     .avt img{width:36px; height:36px; border-radius:50%; display:block}
     .avt-img{width:36px; height:36px; border-radius:50%; display:block; background-size:cover; background-position:center}
@@ -298,8 +303,23 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     .badge-important{display:inline-block; background:#d97706; color:#fff; font-size:11px; font-weight:600; padding:1px 6px; border-radius:4px; margin-left:6px; vertical-align:middle}
     .mention{background:#dbeafe; padding:0 3px; border-radius:3px; color:#1d4ed8; font-weight:500}
     .reactions{margin-top:6px; font-size:12px; color:#374151}
-    .chip{display:inline-flex; gap:6px; align-items:center; padding:2px 8px; border-radius:999px; background:#f3f4f6; border:1px solid transparent}
+    .chip{display:inline-flex; gap:6px; align-items:center; padding:2px 8px; border-radius:999px; background:#f3f4f6; border:1px solid transparent; position:relative; cursor:default}
     .chip.self{border-color:#2563eb; box-shadow:0 0 0 1px rgba(37,99,235,0.2) inset}
+    /* Reactor chip v9 (issue #17/#28).
+       - avatar dot stack: up to 3 overlapping circles (+N overflow badge)
+       - inline names: adaptive (1 / 2-3 / 4+)
+       - popover on hover / :focus-within (keyboard + mobile tap) */
+    .chip-emoji{font-size:14px; line-height:1}
+    .chip-avatars{display:inline-flex; align-items:center}
+    .chip-avatars .avt-dot{width:16px; height:16px; border-radius:50%; background-size:cover; background-position:center; background-color:#e5e7eb; color:#374151; font-size:8px; font-weight:600; display:inline-flex; align-items:center; justify-content:center; box-shadow:0 0 0 2px var(--bg, #ffffff)}
+    .chip-avatars .avt-dot + .avt-dot, .chip-avatars .avt-dot + .avt-more{margin-left:-5px}
+    .chip-avatars .avt-more{min-width:16px; height:16px; padding:0 3px; border-radius:10px; background:#9ca3af; color:#fff; font-size:9px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; box-shadow:0 0 0 2px var(--bg, #ffffff)}
+    .chip-names{font-size:11px; color:#4b5563}
+    .chip-popover{position:absolute; bottom:calc(100% + 6px); left:0; background:var(--bg, #fff); color:var(--text, #111827); border:1px solid var(--border, #e5e7eb); border-radius:8px; padding:8px 10px; box-shadow:0 8px 24px -8px rgba(0,0,0,0.25); min-width:180px; max-width:280px; z-index:10; display:none; pointer-events:none}
+    .chip:hover .chip-popover, .chip:focus-within .chip-popover{display:block}
+    .chip-pop-row{display:flex; align-items:center; gap:8px; padding:3px 0; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+    .chip-pop-row .avt-dot{width:18px; height:18px; flex-shrink:0; border-radius:50%; background-size:cover; background-position:center; background-color:#e5e7eb; box-shadow:none}
+    .chip-pop-self{font-weight:600; color:#2563eb}
     .divider{display:flex; align-items:center; gap:10px; margin:18px 0}
     .divider:before, .divider:after{content:""; flex:1; height:1px; background:var(--border)}
     .divider > span{color:var(--muted); font-weight:600; white-space:nowrap; font-size:13px; display:inline-flex; gap:8px; align-items:baseline}
@@ -334,7 +354,26 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     .compact .thread-replies{padding-left:12px}
     .compact .msg.reply-msg:before{left:-15px; top:24px; width:8px; height:8px}
     .main > div{word-break:break-word; overflow-wrap:anywhere}
-    ${Object.entries(avatarMap).map(([id, dataUrl]) => `.avt-${safeCssId(id)}{background-image:url("${dataUrl.replace(/["\\]/g, '')}")}`).join('\n    ')}
+    ${(() => {
+      // Avatar CSS source selection.
+      //   Default (inline): generate `url("data:...")` with the base64
+      //   avatar inline — works for standalone HTML.
+      //   Zip-mode (`_avatarsAsFiles`): reference `avatars/<file>` files
+      //   that the zip builder will drop in alongside the HTML. Keeps
+      //   the HTML payload small when many avatars are present.
+      const asFiles = (meta as { _avatarsAsFiles?: boolean })._avatarsAsFiles === true;
+      const fileMap = (meta as { _avatarFileMap?: Record<string, string> })._avatarFileMap || {};
+      return Object.entries(avatarMap).map(([id, dataUrl]) => {
+        if (asFiles) {
+          const file = fileMap[id];
+          // Fall back to inline if, for some reason, the file map
+          // missed this id — keeps the export from rendering blank.
+          if (!file) return `.avt-${safeCssId(id)}{background-image:url("${dataUrl.replace(/["\\]/g, '')}")}`;
+          return `.avt-${safeCssId(id)}{background-image:url("avatars/${file}")}`;
+        }
+        return `.avt-${safeCssId(id)}{background-image:url("${dataUrl.replace(/["\\]/g, '')}")}`;
+      }).join('\n    ');
+    })()}
   </style>`;
 
   const metaParts = [];
@@ -345,6 +384,76 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
   const head = `<h1>${escapeHtml(meta.title || 'Teams Chat Export')}</h1>
     ${metaLine}
     <div class="toolbar"><button type="button" data-toggle-compact>Toggle compact view</button></div><hr/>`;
+
+  // Reactor chip (v9 spec, issue #17/#28). Renders emoji + avatar dot
+  // stack (up to 3 + "+N" overflow) + adaptive inline names + popover.
+  // Back-compat: if `reactors` is an older string[] shape, treat each
+  // entry as a name-only reactor.
+  function renderReactorChip(r: Reaction, avatars: Record<string, string>): string {
+    const emoji = escapeHtml(r.emoji || '');
+    const self = r.self ? ' self' : '';
+    const reactorsList = Array.isArray(r.reactors) ? r.reactors : [];
+    // Normalize to ReactorInfo shape (handles legacy string[] gracefully).
+    const normalized = reactorsList.map(x => {
+      if (typeof x === 'string') return { name: x } as { name: string; avatarId?: string; self?: boolean };
+      return x as { name: string; avatarId?: string; self?: boolean };
+    });
+    // No reactors resolved (e.g. self-chat reaction): fall back to the
+    // compact emoji + count format — keeps old exports' look.
+    if (!normalized.length) {
+      return `<span class="chip${self}"><span class="chip-emoji">${emoji}</span> ${r.count}</span>`;
+    }
+
+    // Avatar stack: up to 3 circles, "+N" badge if more. Avatars use the
+    // same CSS classes as message avatars (same keys in avatarMap); for
+    // reactors without a resolved avatarId we render initials.
+    const MAX_DOTS = 3;
+    const dots = normalized.slice(0, MAX_DOTS).map(reactor => {
+      if (reactor.avatarId && avatars[reactor.avatarId]) {
+        return `<span class="avt-dot avt-${safeCssId(reactor.avatarId)}"></span>`;
+      }
+      const initials = (reactor.name || '').split(/\s+/).map(p => p[0] || '').join('').slice(0, 2).toUpperCase() || '?';
+      return `<span class="avt-dot">${escapeHtml(initials)}</span>`;
+    }).join('');
+    const overflow = normalized.length > MAX_DOTS
+      ? `<span class="avt-more">+${normalized.length - MAX_DOTS}</span>`
+      : '';
+
+    // Adaptive inline names:
+    //   1 reactor      → "Name" (or "You" for self)
+    //   2-3 reactors   → "Name1, Name2, Name3"
+    //   4+ reactors    → "First & N" (where N = total - 1)
+    const nameFor = (reactor: { name: string; self?: boolean }) => reactor.self ? 'You' : reactor.name;
+    let inlineNames: string;
+    if (normalized.length === 1) {
+      inlineNames = nameFor(normalized[0]);
+    } else if (normalized.length <= 3) {
+      inlineNames = normalized.map(nameFor).join(', ');
+    } else {
+      inlineNames = `${nameFor(normalized[0])} & ${normalized.length - 1}`;
+    }
+
+    // Popover: full list, one row per reactor. Avatar dot + name. Shown
+    // on :hover and :focus-within via CSS.
+    const popoverRows = normalized.map(reactor => {
+      let dot: string;
+      if (reactor.avatarId && avatars[reactor.avatarId]) {
+        dot = `<span class="avt-dot avt-${safeCssId(reactor.avatarId)}"></span>`;
+      } else {
+        const init = (reactor.name || '').split(/\s+/).map(p => p[0] || '').join('').slice(0, 2).toUpperCase() || '?';
+        dot = `<span class="avt-dot">${escapeHtml(init)}</span>`;
+      }
+      const nameHtml = escapeHtml(reactor.self ? 'You' : reactor.name);
+      return `<span class="chip-pop-row${reactor.self ? ' chip-pop-self' : ''}">${dot}${nameHtml}</span>`;
+    }).join('');
+
+    return `<span class="chip${self}" tabindex="0">
+      <span class="chip-emoji">${emoji}</span>
+      <span class="chip-avatars">${dots}${overflow}</span>
+      <span class="chip-names">${escapeHtml(inlineNames)}</span>
+      <span class="chip-popover" role="tooltip">${popoverRows}</span>
+    </span>`;
+  }
 
   let msgIndex = 0;
   const renderMessage = (m: ExportMessage, opts: { isReply?: boolean } = {}) => {
@@ -367,7 +476,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
         : escapeHtml((m.author || '').split(' ').map(p => p[0]).join('').slice(0, 2) || '?');
 
     const reactHtml = reactions
-      .map(r => `<span class="chip${r.self ? ' self' : ''}">${escapeHtml(r.emoji || '')} ${r.count}${r.reactors ? ` · ${escapeHtml(r.reactors.join(', '))}` : ''}</span>`)
+      .map(r => renderReactorChip(r, avatarMap))
       .join(' ');
 
     const attsHtml = atts
@@ -471,7 +580,10 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
       ? `<div class="reply"><div class="reply-meta">↩︎ <strong>${escapeHtml(replyTo!.author || '')}</strong>${replyTo!.timestamp ? `<span>• ${escapeHtml(replyTo!.timestamp)}</span>` : ''}</div><blockquote>${escapeHtml(replyTo!.text || '')}</blockquote></div>`
       : '';
 
-    const msgClass = `msg${opts.isReply ? ' reply-msg' : ''}`;
+    // Own-message CSS hook (issue #20). Lets a single rule paint the
+     // viewer's own messages with a distinct accent without needing to
+     // rebuild the whole message markup per-author.
+     const msgClass = `msg${opts.isReply ? ' reply-msg' : ''}${m.isOwn ? ' own-msg' : ''}`;
     return `<div class="${msgClass}" id="msg-${idx}">
       <div class="avt">${avatar}</div>
       <div class="main">

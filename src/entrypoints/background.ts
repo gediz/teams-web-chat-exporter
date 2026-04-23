@@ -1,7 +1,7 @@
 import { defineBackground } from 'wxt/sandbox';
 import { createBadgeManager } from '../utils/badge';
 import { isTeamsUrl } from '../utils/teams-urls';
-import { buildAndDownload, buildAndDownloadZip } from '../background/download';
+import { buildAndDownload, buildAndDownloadBundle, buildAndDownloadZip } from '../background/download';
 import { formatDayLabelForExport, parseTimeStamp } from '../utils/time';
 import { appendHistoryEntry } from '../utils/options';
 import type { BackgroundIncomingMessage } from '../types/messaging';
@@ -425,6 +425,13 @@ function handleExportWithScrape(
             const completeTitle = typeof scrapeRes.meta?.title === 'string'
                 ? scrapeRes.meta.title
                 : undefined;
+            // Write both `formats` (canonical, multi) and `format` (singular,
+            // back-compat for code paths still reading the old field). The
+            // singular value reflects "what the badge should show" — for
+            // bundle exports it's left undefined so the History badge can
+            // pick the bundle treatment instead.
+            const completeFormats = Array.isArray(buildOptions?.formats) ? buildOptions.formats : undefined;
+            const singleFormat = completeFormats && completeFormats.length === 1 ? completeFormats[0] : undefined;
             await persistHistoryEntry({
                 id: makeEntryId(),
                 tabId,
@@ -433,7 +440,8 @@ function handleExportWithScrape(
                 downloadId: buildRes.id,
                 filename: completeFname || undefined,
                 title: completeTitle,
-                format: buildOptions?.format,
+                formats: completeFormats,
+                format: singleFormat,
                 isZip: completeFname.toLowerCase().endsWith('.zip'),
                 messageCount: totalMessages,
                 elapsedMs: completeElapsedMs,
@@ -478,45 +486,56 @@ function handleExportWithScrape(
 
 function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
     handleExportWithScrape(msg, sendResponse, async (scrapeRes, buildOptions, tabId) => {
-        const format = buildOptions.format || 'json';
+        // Sanitize the formats array. The popup always sends one, but be
+        // defensive — a corrupt/legacy payload reaching the SW would
+        // otherwise crash the build switch below.
+        const validFormats = ['json', 'csv', 'html', 'txt', 'pdf'] as const;
+        const formats = (buildOptions.formats || []).filter((f): f is typeof validFormats[number] =>
+            (validFormats as readonly string[]).includes(f),
+        );
+        if (!formats.length) formats.push('json');
         const downloadImages = Boolean(buildOptions.downloadImages);
         const deps = {
             downloads,
             isFirefox,
             onStatus: (payload: Record<string, unknown>) => broadcastStatus({ ...payload, tabId }),
         };
+        // PDF knobs — plumb through to every build path that might
+        // produce a PDF. Safe to pass even when PDF isn't selected;
+        // the builders ignore them.
+        const pdfKnobs = {
+            pdfPageSize: buildOptions.pdfPageSize,
+            pdfBodyFontSize: buildOptions.pdfBodyFontSize,
+            pdfShowPageNumbers: buildOptions.pdfShowPageNumbers,
+            pdfIncludeAvatars: buildOptions.pdfIncludeAvatars,
+        };
         const commonOpts = {
             messages: scrapeRes.messages || [],
             meta: scrapeRes.meta || {},
             embedAvatars: Boolean(buildOptions.embedAvatars),
             downloadImages,
+            ...pdfKnobs,
         };
-        if (format === 'html' && downloadImages) {
-            return buildAndDownloadZip(deps, commonOpts);
+        // 2+ formats -> always bundle.zip. The bundle path doesn't honor
+        // saveAs because zips force a Save As anyway via downloads.show
+        // semantics (the file would conflict otherwise).
+        const avatarMode = buildOptions.avatarMode === 'files' ? 'files' : 'inline';
+        if (formats.length >= 2) {
+            return buildAndDownloadBundle(deps, { ...commonOpts, formats, avatarMode });
+        }
+        const format = formats[0];
+        // HTML goes into a .zip when EITHER inline images are on OR the
+        // user chose 'files' avatar mode (both need the zip's folder
+        // structure). Without either, single HTML stays inline.
+        const wantFiles = avatarMode === 'files' && Boolean(buildOptions.embedAvatars);
+        if (format === 'html' && (downloadImages || wantFiles)) {
+            return buildAndDownloadZip(deps, { ...commonOpts, avatarMode });
         }
         return buildAndDownload(deps, {
             ...commonOpts,
             format,
             saveAs: buildOptions.saveAs !== false,
         });
-    });
-}
-
-function handleStartExportZipMessage(msg: any, sendResponse: (res: any) => void) {
-    handleExportWithScrape(msg, sendResponse, async (scrapeRes, buildOptions, tabId) => {
-        return buildAndDownloadZip(
-            {
-                downloads,
-                isFirefox,
-                onStatus: (payload: Record<string, unknown>) => broadcastStatus({ ...payload, tabId }),
-            },
-            {
-                messages: scrapeRes.messages || [],
-                meta: scrapeRes.meta || {},
-                embedAvatars: Boolean(buildOptions.embedAvatars),
-                downloadImages: Boolean(buildOptions.downloadImages),
-            },
-        );
     });
 }
 
@@ -673,11 +692,6 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
 
     if (msg.type === 'START_EXPORT') {
         handleStartExportMessage(msg, sendResponse);
-        return true;
-    }
-
-    if (msg.type === 'START_EXPORT_ZIP') {
-        handleStartExportZipMessage(msg, sendResponse);
         return true;
     }
 

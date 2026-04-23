@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "نص عادي",
+  "format.pdf": "PDF",
   "options.replies": "تضمين الردود في السلاسل",
   "options.reactions": "تضمين التفاعلات",
   "options.system": "تضمين رسائل النظام",

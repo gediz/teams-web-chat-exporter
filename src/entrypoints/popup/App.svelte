@@ -38,8 +38,6 @@
     PingSWRequest,
     StartExportRequest,
     StartExportResponse,
-    StartExportZipRequest,
-    StartExportZipResponse,
     StopExportRequest,
   } from "../../types/messaging";
   import type { ExportStatusPayload, HistoryEntry } from "../../types/shared";
@@ -53,6 +51,7 @@
   import HeaderActions from "./components/HeaderActions.svelte";
   import SettingsPage from "./components/SettingsPage.svelte";
   import HistoryPage from "./components/HistoryPage.svelte";
+  import OnboardingOverlay from "./components/OnboardingOverlay.svelte";
   import { t, setLanguage, getLanguage } from "../../i18n/i18n";
 
   const runtime =
@@ -95,6 +94,15 @@
   // Only one can be visible at a time.
   let showSettings = false;
   let showHistory = false;
+  // Welcome overlay visibility. Becomes true once options load and the
+  // persisted flag is still false; the user dismisses it once and it
+  // stays dismissed across sessions.
+  let showOnboarding = false;
+
+  const dismissOnboarding = () => {
+    showOnboarding = false;
+    void updateOption("onboardingDismissed", true);
+  };
 
   // History state. Loaded once on mount, refreshed when an entry is appended
   // (popup hears phase=complete or phase=cancelled), and after the user opens
@@ -295,9 +303,17 @@
     const targetLabel = t(`target.${options.exportTarget}`, {}, lang);
     parts.push(targetLabel);
 
-    // Format
-    const formatLabel = t(`format.${options.format}`, {}, lang);
-    parts.push(formatLabel);
+    // Format(s). For multi-format we list all selected, then suffix "(zip)"
+    // since the output is a bundle. For single-html with downloadImages
+    // we still produce a .zip — that gets added below alongside the
+    // images note so the wording stays familiar.
+    const labels = options.formats.map(f => t(`format.${f}`, {}, lang));
+    const formatLabel = labels.join(", ");
+    if (options.formats.length >= 2) {
+      parts.push(`${formatLabel} (zip)`);
+    } else {
+      parts.push(formatLabel);
+    }
 
     // Date range
     if (quickActive && quickActive !== "none") {
@@ -305,17 +321,22 @@
       if (rangeLabel) parts.push(rangeLabel);
     }
 
-    // Include options (only for non-txt formats)
-    if (options.format !== "txt") {
+    // Include-options summary. Skip when every selected format is `txt` —
+    // none of these flags affect a TXT-only export.
+    const onlyTxt = options.formats.every(f => f === "txt");
+    if (!onlyTxt) {
+      const hasHtml = options.formats.includes("html");
       const includes: string[] = [];
       if (options.includeReplies) includes.push(t("summary.replies", {}, lang));
       if (options.includeReactions)
         includes.push(t("summary.reactions", {}, lang));
       if (options.includeSystem) includes.push(t("summary.system", {}, lang));
       if (options.embedAvatars) includes.push(t("summary.avatars", {}, lang));
-      if (options.format === "html" && options.downloadImages) {
+      if (hasHtml && options.downloadImages) {
         includes.push(t("summary.images", {}, lang));
-        includes.push(t("summary.zip", {}, lang));
+        // Only append the explicit "zip" hint for the legacy single-HTML
+        // case; the multi-format suffix above already says "(zip)".
+        if (options.formats.length === 1) includes.push(t("summary.zip", {}, lang));
       }
       if (includes.length > 0) parts.push(includes.join(", "));
     }
@@ -326,7 +347,7 @@
   // Update summary when options change
   $: {
     options.exportTarget;
-    options.format;
+    options.formats;
     options.includeReplies;
     options.includeReactions;
     options.includeSystem;
@@ -421,14 +442,11 @@
     if (message.includes("Missing tabId")) {
       return t("errors.missingTabId", {}, lang);
     }
-    if (message.includes("Switch to the Chat app")) {
-      return t("errors.switchToChat", {}, lang);
-    }
+    // "Switch to the Chat/Teams app" error paths were removed in the
+    // locale-independent checkChatContext refactor (issues #10/#19) —
+    // the content script now only emits "Open a chat/team" messages.
     if (message.includes("Open a chat conversation")) {
       return t("errors.chatNotOpen", {}, lang);
-    }
-    if (message.includes("Switch to the Teams app")) {
-      return t("errors.switchToTeams", {}, lang);
     }
     if (message.includes("Open a team channel")) {
       return t("errors.teamNotOpen", {}, lang);
@@ -703,7 +721,7 @@
       currentTabId = tab.id ?? null;
       await pingSW();
       const range = getValidatedRangeISO();
-      const format = options.format;
+      const formats = options.formats;
       const {
         includeReplies,
         includeReactions,
@@ -724,27 +742,30 @@
           includeSystem,
           showHud,
           exportTarget,
-          // Let the scraper skip image/avatar fetches that the chosen
-          // format would throw away anyway (TXT/CSV never render them;
-          // JSON/HTML only need them when embedAvatars/downloadImages).
-          format,
+          // Let the scraper skip image/avatar fetches that none of the
+          // selected formats would render. The SW reads the same array
+          // when deciding single-file vs HTML.zip vs bundle.zip.
+          formats,
           embedAvatars,
           downloadImages,
         },
-        buildOptions: { format, saveAs: true, embedAvatars, downloadImages, afterExport: options.afterExport },
+        buildOptions: {
+          formats,
+          saveAs: true,
+          embedAvatars,
+          downloadImages,
+          afterExport: options.afterExport,
+          avatarMode: options.avatarMode,
+          pdfPageSize: options.pdfPageSize,
+          pdfBodyFontSize: options.pdfBodyFontSize,
+          pdfShowPageNumbers: options.pdfShowPageNumbers,
+          pdfIncludeAvatars: options.pdfIncludeAvatars,
+        },
       };
-      let response: StartExportResponse | StartExportZipResponse;
-      if (format === "html" && downloadImages) {
-        response = await runtimeSend<StartExportZipRequest>(runtime, {
-          type: "START_EXPORT_ZIP",
-          data: requestData,
-        });
-      } else {
-        response = await runtimeSend<StartExportRequest>(runtime, {
-          type: "START_EXPORT",
-          data: requestData,
-        });
-      }
+      const response: StartExportResponse = await runtimeSend<StartExportRequest>(runtime, {
+        type: "START_EXPORT",
+        data: requestData,
+      });
       if (response?.code === "EMPTY_RESULTS") {
         const message = response.error || emptyLabel();
         setStatus(message, { stopElapsed: true });
@@ -823,6 +844,13 @@
       await applyLanguage(options.lang || "en");
       applyTheme(options.theme || "light");
       updateQuickRangeActive();
+      // Show the welcome overlay on the first popup open. We deliberately
+      // DON'T show it when Settings or History routes are active on open
+      // (those routes imply returning users), and we skip it while an
+      // export is already running to avoid interrupting the task.
+      if (!options.onboardingDismissed && !showSettings && !showHistory) {
+        showOnboarding = true;
+      }
       const persistedError = await loadPersistedError();
       if (!alive) return;
       if (persistedError?.message) {
@@ -885,10 +913,20 @@
         lang={options.lang || "en"}
         languages={languageOptions}
         afterExport={options.afterExport}
+        avatarMode={options.avatarMode}
+        pdfPageSize={options.pdfPageSize}
+        pdfBodyFontSize={options.pdfBodyFontSize}
+        pdfShowPageNumbers={options.pdfShowPageNumbers}
+        pdfIncludeAvatars={options.pdfIncludeAvatars}
         on:back={() => (showSettings = false)}
         on:themeChange={(e) => updateOption("theme", e.detail)}
         on:langChange={(e) => updateOption("lang", e.detail)}
         on:afterExportChange={(e) => updateOption("afterExport", e.detail)}
+        on:avatarModeChange={(e) => updateOption("avatarMode", e.detail)}
+        on:pdfPageSizeChange={(e) => updateOption("pdfPageSize", e.detail)}
+        on:pdfBodyFontSizeChange={(e) => updateOption("pdfBodyFontSize", e.detail)}
+        on:pdfShowPageNumbersChange={(e) => updateOption("pdfShowPageNumbers", e.detail)}
+        on:pdfIncludeAvatarsChange={(e) => updateOption("pdfIncludeAvatars", e.detail)}
       />
     </div>
   {:else if showHistory}
@@ -951,9 +989,10 @@
 
       <!-- Format Section (Full Width) -->
       <FormatSection
-        format={options.format}
+        formats={options.formats}
+        downloadImages={options.downloadImages}
         lang={options.lang || "en"}
-        on:formatChange={(e) => updateOption("format", e.detail)}
+        on:formatsChange={(e) => updateOption("formats", e.detail)}
       />
 
       <!-- Two Column Grid: Date Range + Include -->
@@ -977,10 +1016,10 @@
           embedAvatars={options.embedAvatars}
           downloadImages={options.downloadImages}
           lang={options.lang || "en"}
-          disableReplies={options.format === "txt"}
-          disableReactions={options.format === "txt"}
-          disableAvatars={options.format === "txt" || options.format === "csv"}
-          disableImages={options.format !== "html"}
+          disableReplies={options.formats.every((f) => f === "txt")}
+          disableReactions={options.formats.every((f) => f === "txt")}
+          disableAvatars={options.formats.every((f) => f === "txt" || f === "csv")}
+          disableImages={!options.formats.includes("html") && !options.formats.includes("pdf")}
           on:includeRepliesChange={(e) =>
             updateOption("includeReplies", e.detail)}
           on:includeReactionsChange={(e) =>
@@ -993,5 +1032,12 @@
         />
       </div>
     </div>
+  {/if}
+
+  {#if showOnboarding}
+    <OnboardingOverlay
+      lang={options.lang || "en"}
+      on:dismiss={dismissOnboarding}
+    />
   {/if}
 </div>

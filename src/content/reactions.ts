@@ -115,7 +115,13 @@ export function extractReactions(item: Element): Reaction[] {
         .map(s => s.trim())
         .filter(Boolean)
         .filter(s => !/^\d+\s+others?$/i.test(s) && !/others$/i.test(s));
-      if (names.length) entry.reactors = Array.from(new Set(names)).slice(0, 100);
+      // DOM-mode scrapes names only (no MRI/avatarId context). Wrap in
+       // the ReactorInfo shape so the type matches the API-mode output;
+       // the chip builder falls back to initials when avatarId is absent.
+       if (names.length) {
+         const dedup = Array.from(new Set(names)).slice(0, 100);
+         entry.reactors = dedup.map(name => ({ name }));
+       }
     }
 
     out.push(entry);

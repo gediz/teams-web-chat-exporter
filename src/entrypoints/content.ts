@@ -50,13 +50,19 @@ export default defineContentScript({
         // flight (IC3 pagination, image fetches, Graph photo fetches).
         let currentAbortController: AbortController | null = null;
 
-        function isChatNavSelected() {
-            return Boolean(document.querySelector('[data-tid="app-bar-wrapper"] button[aria-pressed="true"][aria-label^="Chat" i]'));
-        }
-
-        function isTeamsNavSelected() {
-            return Boolean(document.querySelector('[data-tid="app-bar-wrapper"] button[aria-pressed="true"][aria-label*="Teams" i]'));
-        }
+        // Chat/channel detection intentionally relies ONLY on data-tid
+        // attributes, never on aria-label text. Issues #10 and #19 reported
+        // that English-hardcoded checks (e.g. aria-label^="Chat") broke the
+        // extension for every non-English Teams UI — French ("Conversation"),
+        // Japanese, German, etc. data-tid values are code identifiers baked
+        // into Teams' build and don't change with UI language.
+        //
+        // Trade-off: we no longer surface a distinct "switch to the Chat
+        // app in Teams" error for users who have the wrong nav pane
+        // selected — we just report "open a chat before exporting", which
+        // is true in every case where the surface isn't present. That
+        // combined error is good enough; hyper-specific guidance isn't
+        // worth re-introducing the locale bug.
 
         function hasChatMessageSurface() {
             return Boolean(
@@ -72,31 +78,10 @@ export default defineContentScript({
 
         function checkChatContext(target: 'chat' | 'team' = 'chat') {
             if (target === 'team') {
-                const navSelected = isTeamsNavSelected();
-                const hasSurface = hasChannelMessageSurface();
-
-                if (!navSelected) {
-                    return { ok: false, reason: 'Switch to the Teams app in Teams before exporting.' };
-                }
-
-                if (hasSurface) {
-                    return { ok: true };
-                }
-
+                if (hasChannelMessageSurface()) return { ok: true };
                 return { ok: false, reason: 'Open a team channel before exporting.' };
             }
-
-            const navSelected = isChatNavSelected();
-            const hasSurface = hasChatMessageSurface();
-
-            if (navSelected && hasSurface) {
-                return { ok: true };
-            }
-
-            if (!navSelected) {
-                return { ok: false, reason: 'Switch to the Chat app in Teams before exporting.' };
-            }
-
+            if (hasChatMessageSurface()) return { ok: true };
             return { ok: false, reason: 'Open a chat conversation before exporting.' };
         }
 
@@ -462,6 +447,25 @@ export default defineContentScript({
                 if (id) return { ...m, avatar: null, avatarId: id };
                 return { ...m, avatar: null };
             });
+
+            // Enrich reactor avatarIds by matching reactor display name to
+            // the same author→id map we just built. Reactors who never
+            // appeared as message senders stay without an avatarId and
+            // render as initials in the chip's dot stack. Mutates in place
+            // because ReactorInfo is a plain object we already own.
+            for (const m of normalized) {
+                const reactions = (m as { reactions?: unknown[] }).reactions;
+                if (!Array.isArray(reactions)) continue;
+                for (const r of reactions) {
+                    const reactors = (r as { reactors?: Array<{ name: string; avatarId?: string }> }).reactors;
+                    if (!Array.isArray(reactors)) continue;
+                    for (const reactor of reactors) {
+                        if (reactor.avatarId) continue;
+                        const id = authorToId.get(reactor.name);
+                        if (id) reactor.avatarId = id;
+                    }
+                }
+            }
 
             return { messages: normalized, avatars };
         }
@@ -2215,18 +2219,23 @@ export default defineContentScript({
                         return;
                     }
                     if (msg.type === 'SCRAPE_TEAMS') {
-                        const { startAt, endAt, includeReactions, includeSystem, includeReplies, showHud, exportTarget, format, embedAvatars, downloadImages } = msg.options || {};
+                        const { startAt, endAt, includeReactions, includeSystem, includeReplies, showHud, exportTarget, formats, embedAvatars, downloadImages } = msg.options || {};
                         const target = exportTarget === 'team' ? 'team' : 'chat';
                         hudEnabled = showHud !== false;
                         if (!hudEnabled) clearHUD();
                         const scrapeOpts = { startAtISO: startAt, endAtISO: endAt, includeSystem, includeReactions, includeReplies: includeReplies !== false };
-                        // Skip expensive fetches the chosen format won't actually
-                        // use (see ScrapeOptions in types/shared.ts).
+                        // Skip expensive fetches none of the selected formats
+                        // would render (see ScrapeOptions in types/shared.ts).
                         //   TXT / CSV          — never render images or avatars
                         //   JSON / HTML        — only need avatars if embedAvatars=true
                         //   HTML               — only needs image blobs if downloadImages=true
-                        const needImages = format === 'html' && downloadImages === true;
-                        const needAvatars = (format === 'json' || format === 'html') && embedAvatars === true;
+                        // The union across selected formats decides — fetch
+                        // when ANY selected format wants the asset.
+                        const fmtList: string[] = Array.isArray(formats) ? formats : [];
+                        // HTML + PDF render inline images; TXT/CSV/JSON don't.
+                        const needImages = (fmtList.includes('html') || fmtList.includes('pdf')) && downloadImages === true;
+                        // JSON/HTML/PDF render avatars; TXT/CSV don't.
+                        const needAvatars = (fmtList.includes('json') || fmtList.includes('html') || fmtList.includes('pdf')) && embedAvatars === true;
                         console.debug('[Teams Exporter] SCRAPE_TEAMS', location.href, msg.options, 'needImages=' + needImages, 'needAvatars=' + needAvatars);
                         currentRunStartedAt = Date.now();
                         // Fresh AbortController per scrape so a stop only affects the
@@ -2256,7 +2265,7 @@ export default defineContentScript({
                             }, { startAtISO: scrapeOpts.startAtISO, signal: abortSignal });
 
                             if (apiResult) {
-                                const converted = convertApiMessages(apiResult.messages, scrapeOpts);
+                                const converted = convertApiMessages(apiResult.messages, scrapeOpts, apiResult.userId);
                                 if (converted.length > 0) {
                                     // Fetch inline images (content script has auth cookies, URLs expire).
                                     // Skipped when the target format won't render them.
@@ -2270,7 +2279,7 @@ export default defineContentScript({
                                             }
                                         }, { userId: apiResult.userId, userRegion: apiResult.userRegion, ic3Token: apiResult.ic3Token });
                                     } else {
-                                        console.log(`[Teams Exporter] Skipping inline image fetch — format=${format}, downloadImages=${downloadImages}`);
+                                        console.log(`[Teams Exporter] Skipping inline image fetch — formats=${fmtList.join(',')}, downloadImages=${downloadImages}`);
                                     }
                                     // Fetch profile photos via Graph API.
                                     // Skipped when the format/options don't render avatars.
@@ -2279,7 +2288,7 @@ export default defineContentScript({
                                         try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'avatars', messagesVisible: converted.length } }); } catch {}
                                         await fetchApiAvatars(converted, apiResult.messages);
                                     } else {
-                                        console.log(`[Teams Exporter] Skipping avatar fetch — format=${format}, embedAvatars=${embedAvatars}`);
+                                        console.log(`[Teams Exporter] Skipping avatar fetch — formats=${fmtList.join(',')}, embedAvatars=${embedAvatars}`);
                                     }
                                     messages = converted;
                                     title = target === 'team' ? extractChannelTitle() : extractChatTitle();

@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "טקסט פשוט",
+  "format.pdf": "PDF",
   "options.replies": "לכלול תגובות בשרשור",
   "options.reactions": "לכלול תגובות אמוג'י",
   "options.system": "לכלול הודעות מערכת",

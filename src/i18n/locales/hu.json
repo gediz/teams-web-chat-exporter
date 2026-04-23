@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "Szöveg",
+  "format.pdf": "PDF",
   "options.replies": "Válaszszálak hozzáadása",
   "options.reactions": "Reakciók hozzáadása",
   "options.system": "Rendszerüzenetek hozzáadása",

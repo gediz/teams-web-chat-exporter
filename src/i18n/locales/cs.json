@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "Text",
+  "format.pdf": "PDF",
   "options.replies": "Zahrnout odpovědi ve vláknech",
   "options.reactions": "Zahrnout reakce",
   "options.system": "Zahrnout systémové zprávy",

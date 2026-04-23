@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "Tekst",
+  "format.pdf": "PDF",
   "options.replies": "Dołącz odpowiedzi w wątkach",
   "options.reactions": "Dołącz reakcje",
   "options.system": "Dołącz wiadomości systemowe",

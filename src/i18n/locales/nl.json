@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "Platte tekst",
+  "format.pdf": "PDF",
   "options.replies": "Thread-antwoorden opnemen",
   "options.reactions": "Reacties opnemen",
   "options.system": "Systeemberichten opnemen",

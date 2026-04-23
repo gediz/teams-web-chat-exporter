@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "纯文本",
+  "format.pdf": "PDF",
   "options.replies": "包含线程回复",
   "options.reactions": "包含表情反应",
   "options.system": "包含系统消息",

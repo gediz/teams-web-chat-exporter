@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "Mətn",
+  "format.pdf": "PDF",
   "options.replies": "Mövzulu cavabları daxil et",
   "options.reactions": "Reaksiyaları daxil et",
   "options.system": "Sistem mesajlarını daxil et",

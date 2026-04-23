@@ -18,6 +18,7 @@
   "format.csv": "CSV",
   "format.html": "HTML",
   "format.txt": "Текст",
+  "format.pdf": "PDF",
   "options.replies": "Включать ответы в ветках",
   "options.reactions": "Включать реакции",
   "options.system": "Включать системные сообщения",

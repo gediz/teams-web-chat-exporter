@@ -24,29 +24,20 @@ export type StartExportResponse = {
   code?: string;
 };
 
-export type StartExportZipRequest = {
-  type: 'START_EXPORT_ZIP';
-  data: {
-    tabId?: number | null;
-    scrapeOptions: ScrapeOptions;
-    buildOptions: BuildOptions;
-  };
-};
-export type StartExportZipResponse = {
-  ok?: boolean;
-  filename?: string;
-  downloadId?: number;
-  cancelled?: boolean;
-  error?: string;
-  code?: string;
-};
+// START_EXPORT_ZIP was removed in the multi-format migration. The popup no
+// longer pre-routes by format; the service worker decides single-file vs
+// HTML.zip vs bundle.zip from `buildOptions.formats` + `downloadImages`.
 
+// Low-level "I have a payload, write a file" entry. Single-format only —
+// multi-format end-user exports go through START_EXPORT (which routes to
+// buildAndDownloadBundle in the SW). If a future caller needs bundle
+// output via this path, extend the handler too, not just this type.
 export type BuildAndDownloadRequest = {
   type: 'BUILD_AND_DOWNLOAD';
   data: {
     messages?: ExportMessage[];
     meta?: Record<string, unknown>;
-    format?: 'json' | 'csv' | 'html' | 'txt';
+    format?: 'json' | 'csv' | 'html' | 'txt' | 'pdf';
     saveAs?: boolean;
     embedAvatars?: boolean;
     downloadImages?: boolean;
@@ -102,7 +93,6 @@ export type RuntimeRequest =
   | PingSWRequest
   | GetExportStatusRequest
   | StartExportRequest
-  | StartExportZipRequest
   | StopExportRequest
   | BuildAndDownloadRequest;
 
@@ -110,7 +100,6 @@ export type BackgroundIncomingMessage =
   | PingSWRequest
   | GetExportStatusRequest
   | StartExportRequest
-  | StartExportZipRequest
   | StopExportRequest
   | BuildAndDownloadRequest
   | ExportStatusUpdateMessage
@@ -122,6 +111,5 @@ export type RuntimeResponse<T extends RuntimeRequest> =
   T extends PingSWRequest ? PingSWResponse :
   T extends GetExportStatusRequest ? GetExportStatusResponse :
   T extends StartExportRequest ? StartExportResponse :
-  T extends StartExportZipRequest ? StartExportZipResponse :
   T extends StopExportRequest ? StopExportResponse :
   unknown;

@@ -163,6 +163,57 @@ body {
   border-color: var(--color-accent);
 }
 
+/* PDF export settings card — compact row layout so label + control
+   share a line without breaking at narrow popup widths. */
+.pdf-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+.pdf-row-label {
+  font-size: 12px;
+  color: var(--color-text);
+  flex: 1;
+}
+.pdf-row .after-export-select,
+.pdf-num {
+  flex: 0 0 auto;
+  width: 110px;
+}
+.pdf-num {
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  text-align: center;
+}
+.pdf-num:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+.pdf-hint {
+  font-size: 10px;
+  color: var(--color-subtle);
+  margin-top: 4px;
+  margin-left: 2px;
+}
+.pdf-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pdf-toggle input[type="checkbox"] {
+  cursor: pointer;
+}
+
 /* Theme toggle */
 .theme-toggle {
   display: grid;
@@ -410,7 +461,10 @@ body[data-theme='dark'] .export-primary.busy:hover {
 
 .format-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* Five formats (JSON/CSV/HTML/TXT/PDF) — 3-column grid gives 3 on top
+     and 2 on the bottom row. 5-column would shrink cards below readable
+     width on the narrow popup. */
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
 }
 
@@ -441,11 +495,13 @@ body[data-theme='dark'] .export-primary.busy:hover {
   color: #fff;
 }
 
-.format-radio input[type="radio"] {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
+.format-radio {
+  font: inherit;
+  color: inherit;
+}
+
+.format-radio[aria-disabled="true"] {
+  cursor: default;
 }
 
 .format-icon {
