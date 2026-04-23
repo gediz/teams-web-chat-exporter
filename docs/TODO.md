@@ -14,6 +14,7 @@
 - [ ] Add README media (screenshots or GIF).
 - [ ] Add user-configurable image-fetch domain allowlist (currently hardcoded in `src/content/attachments.ts`).
 - [ ] Add user-configurable canvas size cap for embedded images (currently hardcoded at 4096x4096 in `src/content/attachments.ts`).
+- [ ] Optional dismiss × on the persisted post-export outcome tile. Currently the tile clears on the next export start; a manual dismiss is only needed if users report wanting to hide it sooner.
 
 ## Done
 
