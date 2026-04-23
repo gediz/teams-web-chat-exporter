@@ -11,6 +11,9 @@ importers:
       '@pdf-lib/fontkit':
         specifier: ^1.1.1
         version: 1.1.1
+      '@twemoji/svg':
+        specifier: ^15.0.0
+        version: 15.0.0
       fflate:
         specifier: ^0.8.1
         version: 0.8.2
@@ -460,6 +463,9 @@ packages:
 
   '@tsconfig/svelte@5.0.8':
     resolution: {integrity: sha512-UkNnw1/oFEfecR8ypyHIQuWYdkPvHiwcQ78sh+ymIiYoF+uc5H1UBetbjyqT+vgGJ3qQN6nhucJviX6HesWtKQ==}
+
+  '@twemoji/svg@15.0.0':
+    resolution: {integrity: sha512-ZSPef2B6nBaYnfgdTbAy4jgW95o7pi2xPGwGCU+WMTxo7J6B1lMPTWwSq/wTuiMq+N0khQ90CcvYp1wFoQpo/w==}
 
   '@types/chrome@0.0.268':
     resolution: {integrity: sha512-7N1QH9buudSJ7sI8Pe4mBHJr5oZ48s0hcanI9w3wgijAlv1OZNUZve9JR4x42dn5lJ5Sm87V1JNfnoh10EnQlA==}
@@ -2205,6 +2211,8 @@ snapshots:
       vitefu: 1.1.3(vite@6.4.2(@types/node@22.19.17)(jiti@2.6.1))
 
   '@tsconfig/svelte@5.0.8': {}
+
+  '@twemoji/svg@15.0.0': {}
 
   '@types/chrome@0.0.268':
     dependencies:

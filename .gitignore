@@ -5,6 +5,10 @@
 # Dependencies
 node_modules/
 
+# Vendored at install time from @twemoji/svg via scripts/vendor-twemoji.mjs.
+# Don't commit — that's what the postinstall script is for.
+src/public/twemoji/
+
 # Logs
 *.log
 npm-debug.log*
