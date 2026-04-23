@@ -15,6 +15,8 @@
 - [ ] Add user-configurable image-fetch domain allowlist (currently hardcoded in `src/content/attachments.ts`).
 - [ ] Add user-configurable canvas size cap for embedded images (currently hardcoded at 4096x4096 in `src/content/attachments.ts`).
 - [ ] Optional dismiss × on the persisted post-export outcome tile. Currently the tile clears on the next export start; a manual dismiss is only needed if users report wanting to hide it sooner.
+- [ ] Localize PDF timestamps per `options.lang` (currently fixed `YYYY-MM-DD HH:MM`). Small — use `Intl.DateTimeFormat` with the user's lang.
+- [ ] Revisit PDF CJK font strategy: bundled `NotoSansSC` is 10 MB and dominates extension size. Options to investigate: glyph-subsetting at build time (~3 MB), smaller CJK variants, or a runtime-fetch-and-cache path. Each trades size for complexity or offline behaviour.
 
 ## Done
 
