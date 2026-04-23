@@ -273,6 +273,8 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     .att-video img{border-radius:10px; cursor:pointer !important}
     .video-badge{position:absolute; bottom:8px; left:8px; background:rgba(0,0,0,0.7); color:#fff; font-size:12px; font-weight:600; padding:2px 8px; border-radius:4px}
     .att-meta{margin-top:6px; font-size:12px; color:#6b7280}
+    .att-missing{color:#6b7280; font-size:13px; background:#fafafa; border-style:dashed}
+    .att-missing .att-meta-hint{color:#9ca3af; font-size:11px; margin-left:4px}
     .att-img{padding:0; overflow:hidden}
     .att-img img{display:block; width:100%; height:auto; max-height:340px; object-fit:contain; background:#fff; cursor:zoom-in}
     .att-img .att-meta{padding:8px}
@@ -412,16 +414,26 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
         const isEmbeddedImage = !!att.dataUrl || /^data:image\//i.test(att.href || '');
         const isAmsImage = /asyncgw\.teams\.microsoft\.com|asm\.skype\.com/i.test(att.href || '');
         const isLocalImage = /^images\//i.test(att.href || '');
+        const isAuthProtected = isAmsImage || /sharepoint\.com|\.my\.\w/i.test(att.href || '');
         const looksLikeImage =
           /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.href || '') ||
           /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.label || '') ||
           /^(png|jpe?g|gif|webp)$/i.test(att.type || '');
-        // Only render as <img> if we have the data or the URL is a known image service.
-        // SharePoint/OneDrive URLs require auth and will 401 as img src.
-        const isImage = !!att.href && (isEmbeddedImage || isAmsImage || isLocalImage || (looksLikeImage && !(/sharepoint\.com|\.my\.\w/i.test(att.href || ''))));
+        // Only render as <img> if we have the data locally — either as a
+        // data: URL (embedded) or a relative path inside the zip. Any URL
+        // that needs auth (Teams AMS, SharePoint, OneDrive) would 401 as
+        // an img src when the saved file is opened later, so we render
+        // those as a clean placeholder card instead of a broken icon.
+        const isImage = !!att.href && (isEmbeddedImage || isLocalImage || (looksLikeImage && !isAuthProtected));
 
         if (isImage && href) {
           return `<div class="att-img"><img src="${href}" alt="${label}" data-full="${href}" />${metaText}</div>`;
+        }
+        // Auth-protected image that wasn't downloaded into this export.
+        // Show a quiet placeholder so users see "there was an image here"
+        // without the visual noise of a broken-icon `<img>` tag.
+        if (looksLikeImage && isAuthProtected) {
+          return `<div class="att att-missing">🖼️ ${label} <span class="att-meta-hint">(not included)</span></div>`;
         }
         const link = href ? `<a href="${href}" target="_blank" rel="noopener">${label}</a>` : label;
         return `<div class="att">${link}${type}${size}${owner}${metaText}</div>`;
