@@ -13,14 +13,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # pnpm is the package manager of record for this repo (see
+      # pnpm-lock.yaml). Set it up before Node so setup-node's
+      # `cache: pnpm` can resolve the correct pnpm store path.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: pnpm
 
-      # Node 24 LTS bundles npm 11 — matches the version that generated
-      # package-lock.json, no global upgrade needed.
-      - run: npm --version
-      - run: npm ci
-      - run: npm run check
-      - run: npm run build
+      # --frozen-lockfile is the CI equivalent of `npm ci`: fail if
+      # pnpm-lock.yaml is out of sync with package.json rather than
+      # silently regenerating it.
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm build

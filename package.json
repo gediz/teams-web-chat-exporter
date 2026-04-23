@@ -30,5 +30,10 @@
     "@types/node": "^22.0.0",
     "svelte": "^5.43.14",
     "svelte-check": "^4.3.4"
+  },
+  "pnpm": {
+    "overrides": {
+      "vite": "^6.4.0"
+    }
   }
 }
