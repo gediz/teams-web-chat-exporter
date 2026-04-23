@@ -76,6 +76,10 @@ export type ExportMeta = {
   endAt?: string | null;
   timeRange?: string | null;
   avatars?: Record<string, string>; // Map of avatarId -> base64 data URL
+  // Teams conversation id for the scraped chat (when the content script could
+  // resolve it). Used by the background to pin the persisted outcome snapshot
+  // to a specific conversation, not just a tab.
+  conversationId?: string;
   [key: string]: unknown;
 };
 
@@ -89,6 +93,14 @@ export type ScrapeOptions = {
   includeSystem?: boolean;
   showHud?: boolean;
   exportTarget?: 'chat' | 'team';
+  // Downstream build options surfaced to the scraper so it can skip
+  // expensive fetches the target format won't actually use:
+  //   format=txt/csv never renders images or avatars
+  //   json/html without embedAvatars don't need avatar photos
+  //   html without downloadImages doesn't need inline image blobs
+  format?: 'json' | 'csv' | 'html' | 'txt';
+  embedAvatars?: boolean;
+  downloadImages?: boolean;
 };
 
 export type BuildOptions = {
@@ -96,6 +108,8 @@ export type BuildOptions = {
   saveAs?: boolean;
   embedAvatars?: boolean;
   downloadImages?: boolean;
+  // User's "After export" preference. Drives auto-open / auto-show on success.
+  afterExport?: 'manual' | 'show';
 };
 
 export type ScrapeResult = {
@@ -109,9 +123,64 @@ export type ExportStatusPayload = {
   messages?: number;
   messagesExtracted?: number;
   filename?: string;
+  // Set on the 'complete' status so the popup can wire the Open/Show action
+  // buttons to chrome.downloads.open(id) / .show(id).
+  downloadId?: number;
+  // The user's "After export" preference, forwarded to the popup
+  // primarily for UI state (it no longer gates auto-open — the only
+  // auto-action is 'show', handled by the service worker because
+  // downloads.show() doesn't require a user gesture).
+  afterExport?: 'manual' | 'show';
   error?: string;
   message?: string;
   startedAt?: number | string;
+};
+
+// What the popup shows in the ExportButton's right zone after an export
+// finishes. For 'success', the action buttons render when downloadId is set;
+// otherwise the sticky "primary/secondary" tile falls back.
+export type ExportOutcome = {
+  kind: 'success' | 'cancelled';
+  primary: string;
+  secondary: string;
+  downloadId?: number;
+  // When true, the post-export actions swap roles: 'Show in folder' becomes
+  // the primary action (safer across platforms for .zip).
+  isZip?: boolean;
+};
+
+// One row in the export history. Written on phase='complete'|'cancelled'
+// and rendered by the HistoryPage. Metadata only — no message content,
+// no avatars, no file bytes.
+export type HistoryEntry = {
+  // UUID; used as the React-style key when rendering and as the target
+  // when the user removes a single entry.
+  id: string;
+  tabId: number;
+  kind: 'success' | 'cancelled';
+  // Teams conversation id (from the content script's resolver). Optional;
+  // present helps verify "this entry belongs to the chat I'm looking at."
+  convId?: string;
+  // chrome.downloads id — drives the Open / Show actions.
+  downloadId?: number;
+  filename?: string;
+  // Chat / channel display name from the scrape meta. Shown in the row's
+  // secondary line so users can tell entries apart at a glance.
+  title?: string;
+  // Selected build format. Drives the colored badge.
+  format?: 'json' | 'csv' | 'html' | 'txt';
+  isZip?: boolean;
+  messageCount?: number;
+  elapsedMs?: number;
+  savedAt: number;        // Date.now() when the entry was written
+  // Tri-state file-existence record:
+  //   undefined  - never verified (or unknown — render as available)
+  //   true       - confirmed present on disk
+  //   false      - confirmed missing (Open failed, or onChanged exists=false)
+  // Persisted so missing state survives popup close/reopen, especially
+  // important on Firefox where downloads.search() returns stale 'exists:
+  // true' for files deleted outside the browser.
+  fileExists?: boolean;
 };
 
 export type ActiveExportInfo = {

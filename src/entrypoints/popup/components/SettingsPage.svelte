@@ -1,20 +1,28 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { ArrowLeft, Sun, Moon, Globe } from 'lucide-svelte';
+  import { ArrowLeft, Sun, Moon, Globe, FolderOpen } from 'lucide-svelte';
   import { t } from '../../../i18n/i18n';
 
   type Theme = 'light' | 'dark';
+  type AfterExport = 'manual' | 'show';
   type LanguageOption = { value: string; label: string; native: string; code: string };
 
   export let theme: Theme = 'light';
   export let lang = 'en';
   export let languages: LanguageOption[] = [];
+  export let afterExport: AfterExport = 'manual';
 
   const dispatch = createEventDispatcher<{
     back: void;
     themeChange: Theme;
     langChange: string;
+    afterExportChange: AfterExport;
   }>();
+
+  function onAfterExportChange(e: Event) {
+    const value = (e.target as HTMLSelectElement).value as AfterExport;
+    dispatch('afterExportChange', value);
+  }
 </script>
 
 <div class="settings-page">
@@ -49,6 +57,23 @@
         <Moon size={16} /> {t('settings.theme.dark', {}, lang)}
       </button>
     </div>
+  </div>
+
+  <!-- After export card -->
+  <div class="card settings-card">
+    <div class="card-header">
+      <span class="card-icon"><FolderOpen size={16} /></span>
+      <span class="card-title">{t('settings.afterExport', {}, lang) || 'After export'}</span>
+    </div>
+    <div class="settings-subtitle">{t('settings.afterExport.hint', {}, lang) || 'What happens once the file is saved.'}</div>
+    <select
+      class="after-export-select"
+      value={afterExport}
+      on:change={onAfterExportChange}
+    >
+      <option value="manual">{t('settings.afterExport.manual', {}, lang) || 'Let me decide'}</option>
+      <option value="show">{t('settings.afterExport.show', {}, lang) || 'Show in folder automatically'}</option>
+    </select>
   </div>
 
   <!-- Language Card -->

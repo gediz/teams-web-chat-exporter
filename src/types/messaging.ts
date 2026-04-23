@@ -14,7 +14,15 @@ export type StartExportRequest = {
     buildOptions: BuildOptions;
   };
 };
-export type StartExportResponse = { filename?: string; messages?: number; error?: string; code?: string };
+export type StartExportResponse = {
+  ok?: boolean;
+  filename?: string;
+  downloadId?: number;
+  messages?: number;
+  cancelled?: boolean;
+  error?: string;
+  code?: string;
+};
 
 export type StartExportZipRequest = {
   type: 'START_EXPORT_ZIP';
@@ -24,7 +32,14 @@ export type StartExportZipRequest = {
     buildOptions: BuildOptions;
   };
 };
-export type StartExportZipResponse = { ok?: boolean; filename?: string; downloadId?: number; error?: string; code?: string };
+export type StartExportZipResponse = {
+  ok?: boolean;
+  filename?: string;
+  downloadId?: number;
+  cancelled?: boolean;
+  error?: string;
+  code?: string;
+};
 
 export type BuildAndDownloadRequest = {
   type: 'BUILD_AND_DOWNLOAD';
@@ -54,6 +69,19 @@ export type FetchBlobResponse =
 
 export type StopExportRequest = { type: 'STOP_EXPORT'; tabId?: number | null };
 export type StopExportResponse = { ok: boolean; error?: string };
+
+// NOTE: Open/Show actions on a finished download are handled by the popup
+// calling chrome.downloads.open / .show directly. Routing through the
+// service worker broke the user-activation requirement on downloads.open
+// in MV3. See openSavedDownload in App.svelte.
+
+// Ask the content script for the current Teams conversation id. Sent to a
+// specific tab via `chrome.tabs.sendMessage` (not runtime.sendMessage), since
+// the response depends on per-tab DOM/IndexedDB state.
+// Returns `null` when the page isn't showing a conversation yet (e.g. Teams
+// landing) or when extraction fails.
+export type GetConvIdRequest = { type: 'GET_CONV_ID' };
+export type GetConvIdResponse = { convId: string | null };
 
 export type ScrapeProgressMessage = {
   type: 'SCRAPE_PROGRESS';

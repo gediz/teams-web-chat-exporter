@@ -1,13 +1,19 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, tick } from 'svelte';
   import { Download, Square } from 'lucide-svelte';
   import { t } from '../../../i18n/i18n';
 
-  // The button is the popup's single status surface. Idle: shows the export
-  // action. Busy: turns red, becomes a Stop button, and the bottom of the
-  // button hosts a 4-segment phase tracker (messages · images · people · file).
-  // After complete or cancel, the right zone keeps the result visible (sticky)
-  // until the user clicks the button again.
+  // The button has exactly two visible states now:
+  //   Idle  — Download icon, "Export current chat", summary on detail line.
+  //   Busy  — red, Square icon, "Stop export", phase tracker animating along
+  //           the bottom edge, counter on the right.
+  //
+  // Post-export outcomes live in the History page (see HistoryPage.svelte).
+  // Success and cancellation are signalled to the user by:
+  //   - one-shot green flash on this button (via `flashTrigger` prop bump)
+  //   - one-shot pulse on the history icon (handled by HeaderActions)
+  //   - persistent "new" dot on the history icon
+  // After cancel/complete, the button immediately returns to its idle state.
 
   export let disabled = false;
   export let busy = false;
@@ -24,40 +30,44 @@
   // null = not yet started (dim).
   export let segments: Array<number | null> = [null, null, null, null];
 
-  // Sticky outcome: shown in the right zone after complete or cancel until
-  // the user starts a new export.
-  export let outcome: null | {
-    kind: 'success' | 'cancelled';
-    primary: string;          // big text e.g. "✓ 12,591" or "✕ 0:18"
-    secondary: string;        // small text e.g. "saved · 0:48" / "cancelled"
-  } = null;
+  // Increment-counter trigger for the success flash. When the parent
+  // increments this value, we briefly toggle the `success-flash` class so
+  // the CSS animation re-fires. The counter pattern (vs a boolean) means
+  // the animation can fire repeatedly without the parent having to reset
+  // anything.
+  export let flashTrigger = 0;
 
-  const dispatch = createEventDispatcher<{
-    run: void;
-    stop: void;
-  }>();
+  const dispatch = createEventDispatcher<{ run: void; stop: void; }>();
 
   function handleClick() {
-    if (busy) {
-      dispatch('stop');
-      return;
-    }
-    if (!disabled) {
-      dispatch('run');
-    }
+    if (busy) { dispatch('stop'); return; }
+    if (!disabled) { dispatch('run'); }
   }
 
   $: idleLabel = t('actions.export', {}, lang);
   $: stopLabel = t('actions.stop', {}, lang) || 'Stop export';
 
-  // Subtitle shown in the left "detail" line. While busy, prefer the phase
-  // label; otherwise (idle / outcome state) fall back to the options summary.
+  // Subtitle: phase label while busy, options summary while idle.
   $: detailText = busy ? phaseLabel : summary;
 
-  // Map a segment value to a styling state.
+  // One-shot flash. When `flashTrigger` changes (parent bumps the counter),
+  // we momentarily clear then set the class so the CSS keyframes re-run.
+  let flashActive = false;
+  let lastFlashSeen = 0;
+  $: if (flashTrigger !== lastFlashSeen) {
+    lastFlashSeen = flashTrigger;
+    void replayFlash();
+  }
+  async function replayFlash() {
+    flashActive = false;
+    await tick();
+    flashActive = true;
+    setTimeout(() => { flashActive = false; }, 700);
+  }
+
   function segClass(v: number | null) {
     if (v == null) return '';
-    if (v < 0) return 'active';   // indeterminate stripe
+    if (v < 0) return 'active';
     return '';
   }
   function segWidth(v: number | null) {
@@ -69,42 +79,30 @@
 <button
   class="export-primary"
   class:busy
-  class:has-outcome={!busy && outcome}
+  class:success-flash={flashActive}
+  type="button"
   disabled={!busy && disabled}
   title={busy ? stopLabel : ''}
   on:click={handleClick}
 >
   <div class="left">
     <div class="icon">
-      {#if busy}
-        <Square size={20} />
-      {:else}
-        <Download size={22} />
-      {/if}
+      {#if busy}<Square size={20} />{:else}<Download size={22} />{/if}
     </div>
     <div class="text">
-      <span class="title">{busy ? stopLabel : idleLabel}</span>
-      {#if detailText}
-        <span class="detail">{detailText}</span>
-      {/if}
+      <span class="title">
+        {#if busy}{stopLabel}{:else}{idleLabel}{/if}
+      </span>
+      {#if detailText}<span class="detail">{detailText}</span>{/if}
     </div>
   </div>
 
-  {#if busy || outcome}
-    <div class="right" class:sticky={outcome}>
-      {#if outcome}
-        <span class="v">{outcome.primary}</span>
-        <span class="l">{outcome.secondary}</span>
-      {:else}
-        <span class="v">{counterValue}</span>
-        {#if counterLabel}
-          <span class="l">{counterLabel}</span>
-        {/if}
-      {/if}
-    </div>
-  {/if}
-
   {#if busy}
+    <div class="right">
+      <span class="v">{counterValue}</span>
+      {#if counterLabel}<span class="l">{counterLabel}</span>{/if}
+    </div>
+
     <div class="phase-track" aria-hidden="true">
       {#each segments as seg}
         <div class="seg {segClass(seg)}">
@@ -121,16 +119,33 @@
     box-sizing: border-box;
     border: none;
     border-radius: 10px;
-    cursor: pointer;
     color: #fff;
     font: inherit;
     display: flex;
     align-items: stretch;
     overflow: hidden;
     position: relative;
-    transition: background 0.2s ease;
     margin-bottom: 12px;
+    cursor: pointer;
+    transition: background 0.2s ease;
   }
+  .export-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  /* Success flash — one-shot green pulse on the whole bar. The animation
+     class is briefly removed/re-added by the script so it can replay on
+     subsequent successful exports. ~700ms total. */
+  .export-primary.success-flash {
+    animation: btn-success-flash 0.7s ease-out 1;
+  }
+  @keyframes btn-success-flash {
+    0%   { background: var(--color-accent); }
+    35%  { background: #16a34a; box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.18); }
+    100% { background: var(--color-accent); box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+  }
+
   .left {
     flex: 1; min-width: 0;
     padding: 14px;
@@ -140,6 +155,8 @@
     flex-shrink: 0;
     width: 22px; height: 22px;
     display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    font-weight: 700;
   }
   .text { flex: 1; min-width: 0; }
   .title { font-weight: 600; font-size: 14px; display: block; }
@@ -149,8 +166,11 @@
     opacity: 0.92;
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
+    /* Project convention: clip silently, no ellipsis. */
+    text-overflow: clip;
   }
+
+  /* Right zone: busy counter only (cancelled tile is gone). */
   .right {
     width: 96px;
     border-left: 1px solid rgba(255, 255, 255, 0.22);
@@ -161,7 +181,6 @@
     gap: 2px;
     flex-shrink: 0;
   }
-  .right.sticky { background: rgba(0, 0, 0, 0.20); }
   .right .v { font-size: 14px; font-weight: 600; line-height: 1.1; }
   .right .l { opacity: 0.85; font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; }
 
@@ -186,7 +205,6 @@
     background: rgba(255, 255, 255, 0.85);
     transition: width 0.3s ease;
   }
-  /* Indeterminate: animated highlight scrolling across the segment. */
   .seg.active > .seg-fill {
     width: 100%;
     background: linear-gradient(90deg,
@@ -199,10 +217,5 @@
   @keyframes vc-stripe {
     0%   { background-position: 100% 0; }
     100% { background-position: -100% 0; }
-  }
-
-  .export-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
   }
 </style>

@@ -146,6 +146,23 @@ body {
   margin-bottom: 10px;
 }
 
+.after-export-select {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.after-export-select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
 /* Theme toggle */
 .theme-toggle {
   display: grid;
@@ -247,11 +264,14 @@ body {
   border-radius: var(--radius-lg);
   transition: background 0.2s ease, box-shadow 0.2s ease;
 }
-.export-primary:hover:not(:disabled):not(.busy) {
+/* Hover styling applies only to the single-button variant (idle/busy/
+   cancelled tile). The three-button post-export variant relies on each
+   inner button's own hover state so the whole bar doesn't flash. */
+.export-primary:not(.has-actions):hover:not(:disabled):not(.busy) {
   background: var(--color-accent-hover);
   box-shadow: 0 10px 20px -6px rgba(37, 99, 235, 0.5);
 }
-body[data-theme='dark'] .export-primary:hover:not(:disabled):not(.busy) {
+body[data-theme='dark'] .export-primary:not(.has-actions):hover:not(:disabled):not(.busy) {
   box-shadow: 0 10px 20px -6px rgba(96, 165, 250, 0.4);
 }
 

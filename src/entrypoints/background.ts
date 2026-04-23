@@ -3,6 +3,7 @@ import { createBadgeManager } from '../utils/badge';
 import { isTeamsUrl } from '../utils/teams-urls';
 import { buildAndDownload, buildAndDownloadZip } from '../background/download';
 import { formatDayLabelForExport, parseTimeStamp } from '../utils/time';
+import { appendHistoryEntry } from '../utils/options';
 import type { BackgroundIncomingMessage } from '../types/messaging';
 import type {
   ActiveExportInfo,
@@ -10,6 +11,7 @@ import type {
   ExportMessage,
   ExportMeta,
   ExportStatusPayload,
+  HistoryEntry,
   Reaction,
   ScrapeOptions,
   ScrapeResult,
@@ -30,12 +32,80 @@ const action = typeof browser !== 'undefined'
     : chrome.action;
 const downloads = typeof browser !== 'undefined' ? browser.downloads : chrome.downloads;
 const scripting = typeof browser !== 'undefined' ? browser.scripting : chrome.scripting;
+const storage = typeof browser !== 'undefined' ? browser.storage : chrome.storage;
 const badge = createBadgeManager(action);
 const { set: setBadge, reset: resetBadge, clearSoon: clearBadgeSoon, updateForStatus: updateBadgeForStatus, updateForProgress: updateBadgeForProgress } = badge;
 const isFirefox = typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox');
 
 function log(...a: unknown[]) { try { console.log("[Teams Exporter SW]", ...a) } catch { } }
 log("boot");
+
+// Ask the content script for the tab's current Teams conversation id. The
+// content script uses IndexedDB/DOM/URL to resolve it — the address-bar
+// URL alone omits the id in Teams v2. Returns undefined when the page
+// isn't on a conversation, when the content script hasn't loaded yet, or
+// when the extraction fails.
+async function getConvIdForTab(tabId: number): Promise<string | undefined> {
+    try {
+        const resp = await sendMessageToTab(tabId, { type: 'GET_CONV_ID' });
+        return resp?.convId || undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+// Append a row to the persisted export history. The popup reads this on
+// open to render the History page and to compute whether to show the
+// "new entry" dot on the history icon. Writing from the background (not
+// the popup) means the entry is recorded even when the popup was closed
+// during the export.
+async function persistHistoryEntry(entry: HistoryEntry): Promise<void> {
+    await appendHistoryEntry(storage, entry);
+}
+
+// Best-effort UUID. Service worker has crypto.randomUUID() in MV3 / Firefox.
+function makeEntryId(): string {
+    try {
+        // crypto.randomUUID is available in modern Chromium SW + Firefox WebExt.
+        const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+        if (c?.randomUUID) return c.randomUUID();
+    } catch { /* fall through */ }
+    // Fallback: timestamp + random. Collision-prone only under absurd load.
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// downloads.download() returns the item's ID before the file is actually
+// written to disk. Calling downloads.open() in that window would fail for
+// larger exports (blob-URL writes can take a few hundred ms for 50MB+).
+// Wait up to `timeoutMs` for the item to reach state='complete'. Returns
+// true when ready, false on timeout or interruption.
+function waitForDownloadComplete(id: number, timeoutMs = 10_000): Promise<boolean> {
+    return new Promise(resolve => {
+        let done = false;
+        const finish = (ok: boolean) => {
+            if (done) return;
+            done = true;
+            try { downloads.onChanged.removeListener(onChange); } catch { /* noop */ }
+            clearTimeout(timer);
+            resolve(ok);
+        };
+        const onChange = (delta: chrome.downloads.DownloadDelta) => {
+            if (delta.id !== id) return;
+            if (delta.state?.current === 'complete') finish(true);
+            else if (delta.state?.current === 'interrupted') finish(false);
+        };
+        const timer = setTimeout(() => finish(false), timeoutMs);
+        try { downloads.onChanged.addListener(onChange); } catch { /* noop */ }
+        // Fast path — the item may already be complete by the time we check.
+        Promise.resolve(downloads.search({ id }))
+            .then(results => {
+                const item = Array.isArray(results) ? results[0] : undefined;
+                if (item?.state === 'complete') finish(true);
+                else if (item?.state === 'interrupted') finish(false);
+            })
+            .catch(() => { /* leave the listener to resolve it */ });
+    });
+}
 
 runtime.onInstalled.addListener(() => {
     log("onInstalled");
@@ -265,7 +335,13 @@ function handleExportWithScrape(
         sendResponse({ error: 'Missing tabId for export request' });
         return;
     }
-    if (activeExports.has(tabId)) {
+    // activeExports is dual-purpose: it tracks in-flight exports AND the
+    // last-status cache (so GET_EXPORT_STATUS can answer after completion).
+    // After cancel/complete/error, broadcastStatus re-inserts the tab with
+    // the terminal phase, so plain .has() would wrongly block a retry.
+    // Guard against *in-flight* only by checking the phase.
+    const existing = activeExports.get(tabId);
+    if (existing?.phase && !TERMINAL_PHASES.has(existing.phase)) {
         sendResponse({ error: 'An export is already running for this tab' });
         return;
     }
@@ -302,7 +378,86 @@ function handleExportWithScrape(
 
             const buildRes = await buildStep(scrapeRes, buildOptions, tabId);
 
-            broadcastStatus({ tabId, phase: 'complete', filename: buildRes.filename });
+            // Wait until the download has actually settled on disk.
+            // chrome.downloads.download() resolves with the id as soon as
+            // the download is queued — the file may still be writing, OR
+            // the user may have hit Cancel in the Save As dialog (in which
+            // case the download immediately enters state='interrupted'
+            // without any file ever being written). If we broadcast
+            // 'complete' and persist a history entry before checking, the
+            // popup ends up showing a row that points at a non-existent
+            // file, and Open fails with "An unexpected error occurred."
+            const downloadOk = buildRes.id != null
+                ? await waitForDownloadComplete(buildRes.id, 30_000)
+                : true;
+            if (!downloadOk) {
+                log('export download did not complete (cancelled or interrupted) for id', buildRes.id);
+                broadcastStatus({ tabId, phase: 'cancelled' });
+                sendResponse({ cancelled: true });
+                return;
+            }
+
+            broadcastStatus({
+                tabId,
+                phase: 'complete',
+                filename: buildRes.filename,
+                downloadId: buildRes.id,
+                // Forward the setting so the popup can try auto-open from
+                // its own context (see auto-action comment below).
+                afterExport: buildOptions?.afterExport,
+            });
+
+            // Append a row to the persisted export history. Reading happens
+            // from the popup's HistoryPage; the entry is written here (not
+            // popup-side) so it gets recorded even when the popup was
+            // closed during the export.
+            const completeStartedAt = activeExports.get(tabId)?.startedAt;
+            const completeElapsedMs = completeStartedAt
+                ? Math.max(0, Date.now() - completeStartedAt)
+                : 0;
+            const completeFname = buildRes.filename || '';
+            // Prefer the convId the content script already resolved during
+            // the scrape; only re-query the tab if it's missing.
+            const metaConvId = typeof scrapeRes.meta?.conversationId === 'string'
+                ? scrapeRes.meta.conversationId
+                : undefined;
+            const completeConvId = metaConvId ?? await getConvIdForTab(tabId);
+            const completeTitle = typeof scrapeRes.meta?.title === 'string'
+                ? scrapeRes.meta.title
+                : undefined;
+            await persistHistoryEntry({
+                id: makeEntryId(),
+                tabId,
+                kind: 'success',
+                convId: completeConvId,
+                downloadId: buildRes.id,
+                filename: completeFname || undefined,
+                title: completeTitle,
+                format: buildOptions?.format,
+                isZip: completeFname.toLowerCase().endsWith('.zip'),
+                messageCount: totalMessages,
+                elapsedMs: completeElapsedMs,
+                savedAt: Date.now(),
+            });
+
+            // Auto-action dispatch:
+            //   'show' — downloads.show() doesn't need a user gesture, so
+            //            the SW handles it here. We don't have to wait for
+            //            the download to be on disk because the
+            //            waitForDownloadComplete above already gated us.
+            //   'manual' — no auto-action; the user clicks the Open / Show
+            //              buttons on the History page when ready.
+            const after = buildOptions?.afterExport;
+            log('after-export setting is', after, 'downloadId is', buildRes.id);
+            if (buildRes.id != null && after === 'show') {
+                try {
+                    await downloads.show(buildRes.id);
+                    log('auto-show: downloads.show resolved for id', buildRes.id);
+                } catch (e: any) {
+                    log('auto-show failed — error:', e?.message || String(e));
+                }
+            }
+
             sendResponse({ ok: true, filename: buildRes.filename, downloadId: buildRes.id });
         } catch (err: any) {
             const message = err?.message || String(err);
@@ -561,6 +716,12 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
         return true;
     }
 
+    // No SHOW_DOWNLOAD / OPEN_DOWNLOAD handlers: the popup calls
+    // chrome.downloads.show / .open directly from its click handler so the
+    // user-activation check on .open() sees a live gesture. Routing through
+    // the service worker loses the activation and fails with "User gesture
+    // required." See openSavedDownload in App.svelte.
+
     if (msg.type === 'STOP_EXPORT') {
         const tabId = typeof msg.tabId === 'number' ? msg.tabId : sender?.tab?.id;
         if (typeof tabId !== 'number') {
@@ -585,6 +746,23 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
 
 async function handleStopExportMessage(tabId: number, sendResponse: (resp: unknown) => void) {
     log('STOP_EXPORT for tab', tabId);
+    const existing = activeExports.get(tabId);
+
+    // Race guard: small/fast exports can finish saving in the gap between
+    // the user pressing Stop and this handler running. If the export
+    // already reached phase='complete', a success row was just persisted —
+    // we must not also persist a cancelled row, and we shouldn't broadcast
+    // 'cancelled' to the popup either (the user just got their file).
+    if (existing?.phase === 'complete') {
+        log('STOP_EXPORT ignored — export already completed');
+        sendResponse({ ok: true, alreadyComplete: true });
+        return;
+    }
+
+    // Capture startedAt before we delete the active-export entry so the
+    // persisted snapshot can include how long the user had run the export.
+    const stopStartedAt = existing?.startedAt;
+
     // Tell the popup right away — the actual teardown takes a beat as the
     // content script unwinds, but the user gets feedback immediately.
     broadcastStatus({ tabId, phase: 'cancelling' });
@@ -623,6 +801,21 @@ async function handleStopExportMessage(tabId: number, sendResponse: (resp: unkno
     // Clear the toolbar badge so the partial message count doesn't linger
     // after the user pressed Stop.
     resetBadge();
+
+    // Append a cancelled row to the persisted history. The popup's History
+    // page renders these as muted rows so the user has an audit trail of
+    // "I tried this and stopped" — useful when revisiting context later.
+    const stopElapsedMs = stopStartedAt ? Math.max(0, Date.now() - stopStartedAt) : 0;
+    const stopConvId = await getConvIdForTab(tabId);
+    await persistHistoryEntry({
+        id: makeEntryId(),
+        tabId,
+        kind: 'cancelled',
+        convId: stopConvId,
+        elapsedMs: stopElapsedMs,
+        savedAt: Date.now(),
+    });
+
     broadcastStatus({ tabId, phase: 'cancelled' });
     sendResponse({ ok: true });
 }

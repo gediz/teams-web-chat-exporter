@@ -12,7 +12,7 @@ import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scr
 import { extractChatTitle, extractChannelTitle } from '../content/title';
 import { extractAvatarId } from '../utils/avatars';
 import { TEAMS_MATCH_PATTERNS } from '../utils/teams-urls';
-import { apiScrape, getGraphToken } from '../content/api-client';
+import { apiScrape, extractConversationId, getGraphToken } from '../content/api-client';
 import { convertApiMessages, buildApiMeta } from '../content/api-converter';
 import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ReplyContext, ScrapeOptions } from '../types/shared';
 
@@ -2188,6 +2188,21 @@ export default defineContentScript({
                 try {
                     if (msg.type === 'PING') { sendResponse({ ok: true }); return; }
                     if (msg.type === 'CHECK_CHAT_CONTEXT') { sendResponse(checkChatContext(msg.target)); return; }
+                    if (msg.type === 'GET_CONV_ID') {
+                        // Delegates to the same extractor the scraper uses
+                        // (IndexedDB → URL → DOM). Used by the popup on
+                        // restore to confirm the persisted outcome still
+                        // matches the active conversation, and by the
+                        // background on cancel to tag the cancelled snapshot.
+                        try {
+                            const convId = await extractConversationId();
+                            sendResponse({ convId: convId ?? null });
+                        } catch (e) {
+                            console.log('[Teams Exporter] GET_CONV_ID extraction failed:', e);
+                            sendResponse({ convId: null });
+                        }
+                        return;
+                    }
                     if (msg.type === 'STOP_SCRAPE') {
                         if (currentAbortController) {
                             console.log('[Teams Exporter] STOP_SCRAPE received — aborting active scrape');
@@ -2200,12 +2215,19 @@ export default defineContentScript({
                         return;
                     }
                     if (msg.type === 'SCRAPE_TEAMS') {
-                        const { startAt, endAt, includeReactions, includeSystem, includeReplies, showHud, exportTarget } = msg.options || {};
+                        const { startAt, endAt, includeReactions, includeSystem, includeReplies, showHud, exportTarget, format, embedAvatars, downloadImages } = msg.options || {};
                         const target = exportTarget === 'team' ? 'team' : 'chat';
                         hudEnabled = showHud !== false;
                         if (!hudEnabled) clearHUD();
                         const scrapeOpts = { startAtISO: startAt, endAtISO: endAt, includeSystem, includeReactions, includeReplies: includeReplies !== false };
-                        console.debug('[Teams Exporter] SCRAPE_TEAMS', location.href, msg.options);
+                        // Skip expensive fetches the chosen format won't actually
+                        // use (see ScrapeOptions in types/shared.ts).
+                        //   TXT / CSV          — never render images or avatars
+                        //   JSON / HTML        — only need avatars if embedAvatars=true
+                        //   HTML               — only needs image blobs if downloadImages=true
+                        const needImages = format === 'html' && downloadImages === true;
+                        const needAvatars = (format === 'json' || format === 'html') && embedAvatars === true;
+                        console.debug('[Teams Exporter] SCRAPE_TEAMS', location.href, msg.options, 'needImages=' + needImages, 'needAvatars=' + needAvatars);
                         currentRunStartedAt = Date.now();
                         // Fresh AbortController per scrape so a stop only affects the
                         // current run and aborts the IC3 pagination loop, image fetches,
@@ -2236,19 +2258,29 @@ export default defineContentScript({
                             if (apiResult) {
                                 const converted = convertApiMessages(apiResult.messages, scrapeOpts);
                                 if (converted.length > 0) {
-                                    // Fetch inline images (content script has auth cookies, URLs expire)
-                                    hud(`fetching inline images…`);
-                                    try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length } }); } catch {}
-                                    await fetchInlineImages(converted, (done, total) => {
-                                        hud(`images: ${done}/${total}`);
-                                        if (done % 10 === 0 || done === total) {
-                                            try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length, imagesDone: done, imagesTotal: total } }); } catch {}
-                                        }
-                                    }, { userId: apiResult.userId, userRegion: apiResult.userRegion, ic3Token: apiResult.ic3Token });
-                                    // Fetch profile photos via Graph API
-                                    hud(`fetching avatars…`);
-                                    try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'avatars', messagesVisible: converted.length } }); } catch {}
-                                    await fetchApiAvatars(converted, apiResult.messages);
+                                    // Fetch inline images (content script has auth cookies, URLs expire).
+                                    // Skipped when the target format won't render them.
+                                    if (needImages) {
+                                        hud(`fetching inline images…`);
+                                        try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length } }); } catch {}
+                                        await fetchInlineImages(converted, (done, total) => {
+                                            hud(`images: ${done}/${total}`);
+                                            if (done % 10 === 0 || done === total) {
+                                                try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length, imagesDone: done, imagesTotal: total } }); } catch {}
+                                            }
+                                        }, { userId: apiResult.userId, userRegion: apiResult.userRegion, ic3Token: apiResult.ic3Token });
+                                    } else {
+                                        console.log(`[Teams Exporter] Skipping inline image fetch — format=${format}, downloadImages=${downloadImages}`);
+                                    }
+                                    // Fetch profile photos via Graph API.
+                                    // Skipped when the format/options don't render avatars.
+                                    if (needAvatars) {
+                                        hud(`fetching avatars…`);
+                                        try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'avatars', messagesVisible: converted.length } }); } catch {}
+                                        await fetchApiAvatars(converted, apiResult.messages);
+                                    } else {
+                                        console.log(`[Teams Exporter] Skipping avatar fetch — format=${format}, embedAvatars=${embedAvatars}`);
+                                    }
                                     messages = converted;
                                     title = target === 'team' ? extractChannelTitle() : extractChatTitle();
                                     console.log(`[Teams Exporter] API mode: ${converted.length} messages from ${apiResult.messages.length} raw`);
@@ -2383,20 +2415,34 @@ export default defineContentScript({
                             if (skippedAmbiguous > 0) console.log(`[Teams Exporter] Avatar patch: ${skippedAmbiguous} messages skipped (multiple users share the same display name)`);
                         }
 
-                        // Fetch avatars in content script context (has access to Teams cookies)
-                        hud('fetching avatars...');
-                        const messagesForAvatar = messages.map(m => ({
-                            id: m.id || '',
-                            threadId: m.threadId ?? null,
-                            author: m.author || '',
-                            timestamp: m.timestamp || '',
-                            text: m.text || '',
-                            edited: m.edited || false,
-                            avatar: m.avatar ?? null,
-                            ...m,
-                        })) as ExtractedMessage[];
-                        const { messages: normalizedMessages, avatars: fetchedAvatars } = await embedAvatarsInContent(messagesForAvatar);
-                        avatars = fetchedAvatars;
+                        // Fetch + normalize avatars in content script context.
+                        // This also fetches DOM-mode HTTP avatar URLs, so we
+                        // skip it entirely when the format/options won't use
+                        // the resulting avatars map.
+                        let normalizedMessages: ExtractedMessage[];
+                        if (needAvatars) {
+                            hud('fetching avatars...');
+                            const messagesForAvatar = messages.map(m => ({
+                                id: m.id || '',
+                                threadId: m.threadId ?? null,
+                                author: m.author || '',
+                                timestamp: m.timestamp || '',
+                                text: m.text || '',
+                                edited: m.edited || false,
+                                avatar: m.avatar ?? null,
+                                ...m,
+                            })) as ExtractedMessage[];
+                            const result = await embedAvatarsInContent(messagesForAvatar);
+                            normalizedMessages = result.messages;
+                            avatars = result.avatars;
+                        } else {
+                            // Drop avatar bytes so nothing travels through
+                            // the port unnecessarily. The builder's
+                            // removeAvatars() would strip these downstream
+                            // anyway when embedAvatars is false.
+                            normalizedMessages = messages.map(m => ({ ...m, avatar: null })) as ExtractedMessage[];
+                            avatars = {};
+                        }
 
                         currentRunStartedAt = null;
 
@@ -2418,7 +2464,20 @@ export default defineContentScript({
                             return;
                         }
 
-                        const meta = { count: messages.length, title, startAt: startAt || null, endAt: endAt || null, avatars };
+                        // Include the resolved conversation id so the
+                        // background can pin the persisted outcome snapshot
+                        // to this specific chat (Teams is an SPA; tabId
+                        // alone doesn't distinguish conversations).
+                        let scrapeConvId: string | null = null;
+                        try { scrapeConvId = await extractConversationId(); } catch { /* best-effort */ }
+                        const meta: Record<string, unknown> = {
+                            count: messages.length,
+                            title,
+                            startAt: startAt || null,
+                            endAt: endAt || null,
+                            avatars,
+                        };
+                        if (scrapeConvId) meta.conversationId = scrapeConvId;
                         const requestId = msg.requestId || `${Date.now()}`;
 
                         // Estimate payload for logging

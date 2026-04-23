@@ -37,6 +37,10 @@ export default defineConfig({
       'scripting',
       'activeTab',
       'downloads',
+      // downloads.open is needed so the popup can "Open" a saved export
+      // via chrome.downloads.open(id); downloads.show is already part of
+      // the base 'downloads' permission.
+      'downloads.open',
       'storage',
     ],
     host_permissions: [...TEAMS_MATCH_PATTERNS, ...API_FETCH_PATTERNS],

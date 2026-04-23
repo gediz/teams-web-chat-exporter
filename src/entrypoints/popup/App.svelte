@@ -10,10 +10,16 @@
   import {
     clearLastError,
     DEFAULT_OPTIONS,
+    loadHistory,
+    loadHistoryViewedAt,
     loadLastError,
     loadOptions,
+    markHistorySeen,
     persistErrorMessage,
+    removeHistoryEntry as removeHistoryEntryFromStorage,
+    clearHistory as clearHistoryStorage,
     saveOptions,
+    updateHistoryEntry,
     validateRange,
     type OptionFormat,
     type Options,
@@ -36,6 +42,7 @@
     StartExportZipResponse,
     StopExportRequest,
   } from "../../types/messaging";
+  import type { ExportStatusPayload, HistoryEntry } from "../../types/shared";
   import ExportButton from "./components/ExportButton.svelte";
   import FormatSection from "./components/FormatSection.svelte";
   import TargetSection from "./components/TargetSection.svelte";
@@ -45,6 +52,7 @@
   import IncludeSection from "./components/IncludeSection.svelte";
   import HeaderActions from "./components/HeaderActions.svelte";
   import SettingsPage from "./components/SettingsPage.svelte";
+  import HistoryPage from "./components/HistoryPage.svelte";
   import { t, setLanguage, getLanguage } from "../../i18n/i18n";
 
   const runtime =
@@ -53,20 +61,7 @@
   const storage =
     typeof browser !== "undefined" ? browser.storage : chrome.storage;
 
-  type ExportStatusMsg = {
-    tabId?: number;
-    phase?: string;
-    startedAt?: number | string;
-    messages?: number;
-    filename?: string;
-    message?: string;
-    error?: string;
-  };
-
-  type ExportStatusResponse = {
-    active: boolean;
-    info?: { startedAt?: number | string; lastStatus?: ExportStatusMsg };
-  };
+  type ExportStatusMsg = ExportStatusPayload;
 
   const DAY_MS = 24 * 60 * 60 * 1000;
   const languageOptions = [
@@ -96,7 +91,27 @@
     { value: "tr", code: "TR", native: "Türkçe", label: "Turkish (Türkçe)" },
   ];
 
+  // Page routing — popup has three views: main, settings, history.
+  // Only one can be visible at a time.
   let showSettings = false;
+  let showHistory = false;
+
+  // History state. Loaded once on mount, refreshed when an entry is appended
+  // (popup hears phase=complete or phase=cancelled), and after the user opens
+  // the History page (which marks them all as seen).
+  let historyEntries: HistoryEntry[] = [];
+  let lastHistoryViewedAt = 0;
+  // Number of entries added since the last visit to the History page.
+  // Drives the count badge on the history icon (capped to "9+" in
+  // HeaderActions for display).
+  $: newHistoryCount = historyEntries.filter(e => e.savedAt > lastHistoryViewedAt).length;
+
+  // Counters that increment on success / cancel — passed to ExportButton and
+  // HeaderActions to trigger one-shot animations (button flash, icon pulse).
+  // Using a counter (not a boolean) lets the same animation re-fire on the
+  // next export without us having to manually toggle the trigger off.
+  let successFlashTrigger = 0;
+  let pulseHistoryIcon = 0;
 
   let options: Options = { ...DEFAULT_OPTIONS };
   const currentLang = () => options.lang || "en";
@@ -125,7 +140,7 @@
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
   let exportSummary = "";
 
-  // Phase-tracker state for the W1 split button. The 4 segments map to
+  // Phase-tracker state for the export button. The 4 segments map to
   // (messages · images · people · file). A segment value of `null` means
   // "not started yet" (dim), `-1` means "active, indeterminate" (animated
   // stripe), and 0..100 means a determinate fill percentage.
@@ -135,11 +150,6 @@
   let counterValue = '—';
   let counterLabel = '';
   let segments: SegState[] = [null, null, null, null];
-  let outcome: null | {
-    kind: 'success' | 'cancelled';
-    primary: string;
-    secondary: string;
-  } = null;
 
   const resetPhaseTracker = () => {
     phaseLabel = '';
@@ -147,7 +157,19 @@
     counterValue = '—';
     counterLabel = '';
     segments = [null, null, null, null];
-    outcome = null;
+  };
+
+  // Re-read history from storage (called after a phase=complete / cancelled
+  // arrives, after the user removes a row, etc.). Cheap (~ms).
+  const refreshHistory = async () => {
+    if (!alive) return;
+    const [list, viewedAt] = await Promise.all([
+      loadHistory(storage),
+      loadHistoryViewedAt(storage),
+    ]);
+    if (!alive) return;
+    historyEntries = list;
+    lastHistoryViewedAt = viewedAt;
   };
 
   const elapsedNow = () =>
@@ -530,13 +552,14 @@
     } else if (phase === "scrape:complete") {
       setBusy(true, busyBuildLabel());
       const count = msg.messages ?? 0;
-      setStatus(`Building export…`, { count });
+      setStatus(t("status.building", {}, langNow), { count });
     } else if (phase === "build") {
       setBusy(true, busyBuildLabel());
       const count = msg.messages ?? 0;
       const fname = msg.filename || '';
       const isZip = fname.endsWith('.zip');
-      setStatus(isZip ? `Compressing…` : `Building…`, { count });
+      const key = isZip ? "status.compressing" : "status.building";
+      setStatus(t(key, {}, langNow), { count });
     } else if (phase === "empty") {
       const message = msg.message || emptyLabel();
       setBusy(false);
@@ -544,22 +567,18 @@
       showErrorBanner(message, false);
       void clearLastError(storage);
     } else if (phase === "complete") {
-      const elapsedStr = elapsedNow();
-      const messageCount = (msg as { messages?: number }).messages ?? 0;
       setBusy(false);
-      // Sticky outcome on the button — replaces the verbose filename status
-      // with a compact "✓ N saved · 0:48" tile that the user can read at a
-      // glance. The filename itself goes to the Downloads folder where the
-      // browser already shows it.
-      const savedLabel = t("phase.outcome.saved", {}, langNow);
-      outcome = {
-        kind: 'success',
-        primary: messageCount > 0 ? `✓ ${messageCount.toLocaleString()}` : '✓',
-        secondary: elapsedStr ? `${savedLabel} · ${elapsedStr}` : savedLabel,
-      };
       segments = [100, 100, 100, 100];
       setStatus(t("status.complete", {}, langNow), { stopElapsed: true });
       hideErrorBanner(true);
+      // The success path no longer renders an inline outcome tile. The
+      // background appends a row to the persisted history; we re-read it
+      // here so the dot on the history icon updates immediately. Then we
+      // bump the animation triggers — ExportButton runs a green flash on
+      // the bar and HeaderActions pulses the history icon.
+      void refreshHistory();
+      successFlashTrigger += 1;
+      pulseHistoryIcon += 1;
     } else if (phase === "error") {
       setBusy(false);
       setStatus(msg.error || t("status.error", {}, langNow), {
@@ -573,21 +592,19 @@
         { stopElapsed: true },
       );
     } else if (phase === "cancelled") {
-      const elapsedStr = elapsedNow();
       setBusy(false);
-      // Sticky outcome — same shape as complete but cancelled-flavored.
-      outcome = {
-        kind: 'cancelled',
-        primary: elapsedStr ? `✕ ${elapsedStr}` : '✕',
-        secondary: t("phase.outcome.cancelled", {}, langNow),
-      };
-      // Freeze segments in place (faded) — informative about how far we got.
-      segments = segments.map(s => (s == null ? null : s === -1 ? 0 : s));
+      // Reset the phase tracker rather than freezing it. The button is a
+      // pure Export button again now that outcomes live in the History page.
+      resetPhaseTracker();
       setStatus(
         t("status.cancelled", {}, langNow) || "Cancelled",
         { stopElapsed: true },
       );
       hideErrorBanner(true);
+      // Background appended a cancelled row; refresh the dot + nudge the
+      // history icon so the user knows something changed.
+      void refreshHistory();
+      pulseHistoryIcon += 1;
     }
   };
 
@@ -677,8 +694,7 @@
     if (busy || !alive) return;
     try {
       hideErrorBanner(true);
-      // Clear any sticky outcome from a previous run so the user sees a
-      // clean "starting…" state rather than the prior result.
+      // Reset the phase tracker so the new export starts at a clean state.
       resetPhaseTracker();
       setBusy(true, busyExportLabel());
       setStatus(t("status.preparing", {}, currentLang()));
@@ -708,8 +724,14 @@
           includeSystem,
           showHud,
           exportTarget,
+          // Let the scraper skip image/avatar fetches that the chosen
+          // format would throw away anyway (TXT/CSV never render them;
+          // JSON/HTML only need them when embedAvatars/downloadImages).
+          format,
+          embedAvatars,
+          downloadImages,
         },
-        buildOptions: { format, saveAs: true, embedAvatars, downloadImages },
+        buildOptions: { format, saveAs: true, embedAvatars, downloadImages, afterExport: options.afterExport },
       };
       let response: StartExportResponse | StartExportZipResponse;
       if (format === "html" && downloadImages) {
@@ -733,7 +755,7 @@
       // User pressed Stop while the export was running. The background already
       // broadcast a 'cancelled' status and tore down everything; here we just
       // show a clean message and skip the error banner.
-      if ((response as { cancelled?: boolean })?.cancelled) {
+      if (response?.cancelled) {
         setStatus(
           t("status.cancelled", {}, currentLang()) || "Cancelled",
           { stopElapsed: true },
@@ -765,6 +787,31 @@
     } finally {
       setBusy(false);
     }
+  };
+
+  // Handlers passed down to HistoryPage. They mutate storage and re-read it
+  // so the list and dot stay in sync.
+  const onHistoryRemove = async (id: string) => {
+    await removeHistoryEntryFromStorage(storage, id);
+    await refreshHistory();
+  };
+  const onHistoryClear = async () => {
+    await clearHistoryStorage(storage);
+    await refreshHistory();
+  };
+  // Persist the "file is missing on disk" observation. Without this, the
+  // grayed-out state would only survive within one popup session — on
+  // Firefox in particular, downloads.search() on next mount returns stale
+  // 'exists: true' and the row reappears as if the file is still there.
+  const onHistoryMarkMissing = async (id: string) => {
+    await updateHistoryEntry(storage, id, { fileExists: false });
+    await refreshHistory();
+  };
+  // Fired when the user navigates into the History page — record the visit
+  // so the dot clears and stays cleared until a new entry is added.
+  const onHistoryOpened = async () => {
+    await markHistorySeen(storage);
+    lastHistoryViewedAt = Date.now();
   };
 
   onMount(() => {
@@ -815,6 +862,9 @@
       } catch {
         /* user not on Teams tab */
       }
+      // Always load history so the dot reflects any entries added while
+      // the popup was closed.
+      await refreshHistory();
     };
     void init();
     runtime.onMessage.addListener(onRuntimeMessage);
@@ -834,9 +884,22 @@
         theme={options.theme}
         lang={options.lang || "en"}
         languages={languageOptions}
+        afterExport={options.afterExport}
         on:back={() => (showSettings = false)}
         on:themeChange={(e) => updateOption("theme", e.detail)}
         on:langChange={(e) => updateOption("lang", e.detail)}
+        on:afterExportChange={(e) => updateOption("afterExport", e.detail)}
+      />
+    </div>
+  {:else if showHistory}
+    <div class="popup-content">
+      <HistoryPage
+        entries={historyEntries}
+        lang={options.lang || "en"}
+        on:back={() => (showHistory = false)}
+        on:remove={(e) => onHistoryRemove(e.detail)}
+        on:clearAll={onHistoryClear}
+        on:markMissing={(e) => onHistoryMarkMissing(e.detail)}
       />
     </div>
   {:else}
@@ -847,7 +910,11 @@
           {t("title.app", {}, options.lang || "en") || "Teams Chat Exporter"}
         </h1>
         <HeaderActions
+          {newHistoryCount}
+          {pulseHistoryIcon}
+          lang={options.lang || "en"}
           on:openSettings={() => (showSettings = true)}
+          on:openHistory={() => { showHistory = true; void onHistoryOpened(); }}
         />
       </header>
 
@@ -861,7 +928,7 @@
         </div>
       {/if}
 
-      <!-- Export Button (single status surface — see ExportButton.svelte) -->
+      <!-- Export button — plain in every state. Outcomes live in History page. -->
       <ExportButton
         disabled={false}
         {busy}
@@ -870,7 +937,7 @@
         {counterValue}
         {counterLabel}
         {segments}
-        {outcome}
+        flashTrigger={successFlashTrigger}
         lang={options.lang || "en"}
         on:run={startExport}
         on:stop={stopExport}
