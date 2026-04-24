@@ -502,9 +502,15 @@
   .badge-zip  { background: rgba(124, 58, 237, 0.10); color: #7c3aed; }
   /* Bundle = 2+ formats packed into one .zip. Same purple family as
      .zip but darker/saturated so it reads as "this is a multi-file
-     archive" at a glance. Kept narrower-feeling via slightly tighter
-     letter-spacing to fit "BUNDLE" without growing the badge. */
-  .badge-bundle { background: rgba(109, 40, 217, 0.14); color: #6d28d9; letter-spacing: 0.02em; }
+     archive" at a glance. Font-size is dialled down from the 11px
+     base so 6 characters ("BUNDLE") fit the fixed 36px-square badge
+     without clipping on either edge. */
+  .badge-bundle {
+    background: rgba(109, 40, 217, 0.14);
+    color: #6d28d9;
+    font-size: 9px;
+    letter-spacing: 0;
+  }
   .badge-cancelled { background: rgba(220, 38, 38, 0.10); color: #dc2626; font-size: 14px; }
   .badge-missing { background: rgba(0, 0, 0, 0.05); color: var(--color-text-muted); }
 

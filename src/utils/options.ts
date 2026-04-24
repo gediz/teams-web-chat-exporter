@@ -93,6 +93,11 @@ export const HISTORY_STORAGE_KEY = 'teamsExporterHistory';
 // value are considered "new" and trigger the breathing dot on the history
 // icon. Stored under its own key so it survives history clears.
 export const HISTORY_VIEWED_KEY = 'teamsExporterHistoryViewedAt';
+// Which popup page was open when the popup was last closed. Restored on
+// next open so the user doesn't lose context mid-task (e.g. reading
+// settings, switching tabs to verify something, coming back).
+export const LAST_PAGE_STORAGE_KEY = 'teamsExporterLastPage';
+export type PopupPage = 'main' | 'settings' | 'history';
 
 export const DEFAULT_OPTIONS: Options = {
   lang: 'en',

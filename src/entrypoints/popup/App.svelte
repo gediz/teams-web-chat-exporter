@@ -21,8 +21,10 @@
     saveOptions,
     updateHistoryEntry,
     validateRange,
+    LAST_PAGE_STORAGE_KEY,
     type OptionFormat,
     type Options,
+    type PopupPage,
     type Theme,
   } from "../../utils/options";
   import {
@@ -91,9 +93,20 @@
   ];
 
   // Page routing — popup has three views: main, settings, history.
-  // Only one can be visible at a time.
+  // Only one can be visible at a time. The active view is persisted
+  // under LAST_PAGE_STORAGE_KEY so reopening the popup resumes where
+  // the user left off (fire-and-forget — page state is a UX nicety, a
+  // dropped write just falls back to 'main' next time).
   let showSettings = false;
   let showHistory = false;
+  $: currentPage = showSettings ? 'settings' : showHistory ? 'history' : 'main';
+  $: void persistCurrentPage(currentPage as PopupPage);
+
+  async function persistCurrentPage(page: PopupPage) {
+    try {
+      await chrome.storage.local.set({ [LAST_PAGE_STORAGE_KEY]: page });
+    } catch { /* best-effort; nothing hard-depends on this */ }
+  }
   // Welcome overlay visibility. Becomes true once options load and the
   // persisted flag is still false; the user dismisses it once and it
   // stays dismissed across sessions.
@@ -844,6 +857,17 @@
       await applyLanguage(options.lang || "en");
       applyTheme(options.theme || "light");
       updateQuickRangeActive();
+      // Restore the last-open page BEFORE onboarding check — both branches
+      // inspect showSettings/showHistory. Guard against corrupt storage
+      // values by ignoring anything that isn't one of the three pages.
+      try {
+        const stored = await chrome.storage.local.get(LAST_PAGE_STORAGE_KEY);
+        const last = stored?.[LAST_PAGE_STORAGE_KEY];
+        if (alive) {
+          if (last === 'settings') showSettings = true;
+          else if (last === 'history') showHistory = true;
+        }
+      } catch { /* fall through to 'main' default */ }
       // Show the welcome overlay on the first popup open. We deliberately
       // DON'T show it when Settings or History routes are active on open
       // (those routes imply returning users), and we skip it while an
@@ -914,6 +938,7 @@
         languages={languageOptions}
         afterExport={options.afterExport}
         avatarMode={options.avatarMode}
+        embedAvatars={options.embedAvatars}
         pdfPageSize={options.pdfPageSize}
         pdfBodyFontSize={options.pdfBodyFontSize}
         pdfShowPageNumbers={options.pdfShowPageNumbers}
@@ -991,6 +1016,8 @@
       <FormatSection
         formats={options.formats}
         downloadImages={options.downloadImages}
+        embedAvatars={options.embedAvatars}
+        avatarMode={options.avatarMode}
         lang={options.lang || "en"}
         on:formatsChange={(e) => updateOption("formats", e.detail)}
       />

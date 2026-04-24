@@ -8,11 +8,16 @@
   import { t } from '../../../i18n/i18n';
 
   export let formats: OptionFormat[] = ['html'];
-  // Downstream signal used only to drive the "Will save:" pill — a single
-  // HTML format + Inline images on yields an `HTML.zip` pill, not `HTML`.
-  // We don't control this flag ourselves; the checkbox lives in
-  // IncludeSection. Default false keeps pre-wired call sites working.
+  // Downstream signals that determine whether the HTML output has to be
+  // packaged as a .zip:
+  //   - downloadImages=true attaches an images/ folder
+  //   - embedAvatars=true + avatarMode='files' attaches an avatars/ folder
+  // Either trigger means "HTML" becomes "HTML.zip". Both controls live
+  // in other components (IncludeSection, SettingsPage); we read-only.
+  // Defaults keep pre-wired call sites working.
   export let downloadImages = false;
+  export let embedAvatars = false;
+  export let avatarMode: 'inline' | 'files' = 'inline';
   export let lang = 'en';
 
   const dispatch = createEventDispatcher<{
@@ -41,16 +46,17 @@
 
   // Pill + "Will save:" metadata.
   //
-  //   0 formats          — can't happen (enforced elsewhere)
-  //   1 format, no zip   — plain pill matching the format ("HTML")
-  //   1 HTML + images    — purple "HTML.zip" pill with ⓘ tooltip
-  //   2+ formats         — purple "bundle.zip" pill + ⓘ + contents reveal
+  //   0 formats                  — can't happen (enforced elsewhere)
+  //   1 format, no zip           — plain pill matching the format ("HTML")
+  //   1 HTML + images/avatars    — purple "HTML.zip" pill with ⓘ tooltip
+  //   2+ formats                 — purple "bundle.zip" pill + ⓘ + contents reveal
   //
   // We don't try to predict the auto-zip-large-HTML branch in
   // download.ts — that's runtime data-size dependent and would lie when
   // the conversation turns out small. Only show the zip variant when
   // the user's selections deterministically produce a zip.
-  $: isHtmlZip = formats.length === 1 && formats[0] === 'html' && downloadImages;
+  $: avatarsAsFiles = embedAvatars && avatarMode === 'files';
+  $: isHtmlZip = formats.length === 1 && formats[0] === 'html' && (downloadImages || avatarsAsFiles);
   $: isBundle = formats.length >= 2;
   $: isZip = isHtmlZip || isBundle;
   $: pillLabel = isBundle
@@ -58,13 +64,32 @@
       : isHtmlZip
         ? 'HTML.zip'
         : (formats[0] ?? '').toUpperCase();
+  // Contents reveal — the ": HTML, JSON, CSV" line that appears after
+  // the pill. Bundles list the formats; HTML.zip lists HTML + the
+  // asset folders that forced the .zip so the user sees exactly what
+  // lives inside the archive.
   $: contentsList = isBundle
       ? formats.map(f => f.toUpperCase()).join(', ')
-      : '';
+      : isHtmlZip
+        ? ['HTML',
+            downloadImages ? (t('format.zipContent.images', {}, lang) || 'images') : null,
+            avatarsAsFiles ? (t('format.zipContent.avatars', {}, lang) || 'avatars') : null,
+          ].filter(Boolean).join(', ')
+        : '';
+  // The HTML.zip tooltip is rebuilt from the same content list so any
+  // toggle in IncludeSection/SettingsPage flows through to it — e.g.
+  // turning 'Embed avatars' on with avatarMode=files extends the
+  // tooltip to mention avatars without needing a separate translation.
+  $: htmlZipTooltipBase = t('format.htmlZipTooltipBase', {}, lang) || 'HTML plus';
+  $: htmlZipTooltipSuffix = t('format.htmlZipTooltipSuffix', {}, lang) || ', packaged as a .zip.';
+  $: htmlZipExtras = [
+      downloadImages ? (t('format.zipContent.imageFiles', {}, lang) || 'image files') : null,
+      avatarsAsFiles ? (t('format.zipContent.avatarFiles', {}, lang) || 'avatar files') : null,
+    ].filter(Boolean);
   $: pillTooltip = isBundle
       ? t('format.bundleTooltip', {}, lang) || 'Multiple formats packaged as a .zip.'
       : isHtmlZip
-        ? t('format.htmlZipTooltip', {}, lang) || 'HTML plus image files, packaged as a .zip.'
+        ? `${htmlZipTooltipBase} ${htmlZipExtras.join(' and ')}${htmlZipTooltipSuffix}`
         : '';
 </script>
 
@@ -113,8 +138,8 @@
           <span class="will-save-info" aria-hidden="true">ⓘ</span>
         {/if}
       </span>
-      <span class="will-save-contents" class:visible={isBundle} aria-hidden={!isBundle}>
-        {#if isBundle}: {contentsList}{/if}
+      <span class="will-save-contents" class:visible={isZip} aria-hidden={!isZip}>
+        {#if isZip}: {contentsList}{/if}
       </span>
     </div>
   </div>

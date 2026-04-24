@@ -162,6 +162,21 @@ body {
   outline: none;
   border-color: var(--color-accent);
 }
+.after-export-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Setting card visually dimmed when its controls are inert — used on
+   the avatar-mode card while 'Embed avatars' is off. The controls
+   themselves carry :disabled, but dimming the entire card (including
+   icon + title) makes the dependency read at a glance. */
+.settings-card.disabled-card {
+  opacity: 0.65;
+}
+.settings-card.disabled-card .settings-subtitle {
+  font-style: italic;
+}
 
 /* PDF export settings card — compact row layout so label + control
    share a line without breaking at narrow popup widths. */
@@ -191,6 +206,16 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   text-align: center;
+  /* Hide the platform-specific spinner buttons. Each browser styles
+     them differently and they're consistently ugly inside our themed
+     input. Keep arrow-key + scroll wheel for keyboard users. */
+  -moz-appearance: textfield;     /* Firefox */
+  appearance: textfield;          /* Modern */
+}
+.pdf-num::-webkit-outer-spin-button,
+.pdf-num::-webkit-inner-spin-button {
+  -webkit-appearance: none;       /* Chrome / Safari / Edge */
+  margin: 0;
 }
 .pdf-num:focus {
   outline: none;
@@ -304,6 +329,83 @@ body {
   font-size: 9px;
   font-weight: 500;
   opacity: 0.8;
+}
+
+/* === ABOUT CARD ===
+   Last card in SettingsPage. Name + version on one line, two link
+   buttons below. Muted visual weight — purely informational, shouldn't
+   compete with the actual settings controls above it. */
+.about-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+.about-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.about-version {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+.about-links {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--color-surface-alt, var(--color-surface));
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  text-decoration: none;
+  border: 1px solid var(--color-border);
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.about-link:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+.about-author {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+.about-author-label {
+  font-weight: 500;
+}
+/* Plain underlined link for the author credit — no pill styling so
+   it reads as "written by X" rather than a call-to-action. The small
+   external-link glyph sits inline with the name to signal "opens
+   elsewhere" without needing the full border/background of the
+   action pills above. */
+.about-author-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--color-text);
+  text-decoration: underline;
+  text-decoration-color: var(--color-border);
+  text-underline-offset: 2px;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+.about-author-link:hover {
+  color: var(--color-accent);
+  text-decoration-color: var(--color-accent);
 }
 
 /* === EXPORT BUTTON ===
@@ -461,11 +563,11 @@ body[data-theme='dark'] .export-primary.busy:hover {
 
 .format-grid {
   display: grid;
-  /* Five formats (JSON/CSV/HTML/TXT/PDF) — 3-column grid gives 3 on top
-     and 2 on the bottom row. 5-column would shrink cards below readable
-     width on the narrow popup. */
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  /* All 5 formats (JSON/CSV/HTML/TXT/PDF) in one row. Tight at the
+     popup's 420px width (~67pt per card) but readable — see the
+     compacted .format-radio padding + icon below. */
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
 }
 
 .format-radio {
@@ -473,8 +575,8 @@ body[data-theme='dark'] .export-primary.busy:hover {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 11px 8px;
+  gap: 4px;
+  padding: 9px 4px;
   border: 1.5px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-bg);
@@ -505,8 +607,8 @@ body[data-theme='dark'] .export-primary.busy:hover {
 }
 
 .format-icon {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -514,8 +616,8 @@ body[data-theme='dark'] .export-primary.busy:hover {
 }
 
 .format-icon svg {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   stroke: var(--color-text);
   fill: none;
   stroke-width: 2;
@@ -526,7 +628,7 @@ body[data-theme='dark'] .export-primary.busy:hover {
 }
 
 .format-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 

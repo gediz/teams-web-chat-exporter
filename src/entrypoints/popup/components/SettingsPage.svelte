@@ -1,7 +1,23 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { ArrowLeft, Sun, Moon, Globe, FolderOpen, CircleUserRound, Printer } from 'lucide-svelte';
+  import { ArrowLeft, Sun, Moon, Globe, FolderOpen, CircleUserRound, Printer, Info, ExternalLink, Bug } from 'lucide-svelte';
   import { t } from '../../../i18n/i18n';
+
+  // Repo + issues + author URLs used by the About card. Hard-coded
+  // strings (vs. reading from the manifest) because they never change
+  // and a runtime lookup for a static string is needless overhead.
+  const REPO_URL = 'https://github.com/gediz/teams-web-chat-exporter';
+  const ISSUES_URL = `${REPO_URL}/issues`;
+  const AUTHOR_NAME = 'Gediz';
+  const AUTHOR_LINKEDIN_URL = 'https://www.linkedin.com/in/nazimgedizaydindogmus/';
+
+  // Version shown in the About card. Falls back to an empty string if
+  // chrome.runtime isn't available (e.g. unit-test harness), so the
+  // header still renders cleanly.
+  const extensionVersion = (() => {
+    try { return chrome?.runtime?.getManifest?.()?.version || ''; }
+    catch { return ''; }
+  })();
 
   type Theme = 'light' | 'dark';
   type AfterExport = 'manual' | 'show';
@@ -19,6 +35,11 @@
   export let languages: LanguageOption[] = [];
   export let afterExport: AfterExport = 'manual';
   export let avatarMode: AvatarMode = 'inline';
+  // embedAvatars is read-only here; the toggle lives in IncludeSection.
+  // We surface it so the avatarMode select can be disabled when avatars
+  // aren't being embedded — 'inline vs files' is meaningless otherwise,
+  // and the disabled state makes the dependency obvious.
+  export let embedAvatars = false;
   export let pdfPageSize: PdfPageSize = 'a4';
   export let pdfBodyFontSize = 10;
   export let pdfShowPageNumbers = true;
@@ -121,16 +142,26 @@
     </select>
   </div>
 
-  <!-- Avatar mode card -->
-  <div class="card settings-card">
+  <!-- Avatar mode card. The select is disabled when embedAvatars is
+       off — pick 'inline' or 'files' only means something when avatars
+       are actually being saved. The subtitle also swaps to a hint
+       pointing at the Include section so the user knows how to enable it. -->
+  <div class="card settings-card" class:disabled-card={!embedAvatars}>
     <div class="card-header">
       <span class="card-icon"><CircleUserRound size={16} /></span>
       <span class="card-title">{t('settings.avatarMode', {}, lang) || 'Avatars in HTML'}</span>
     </div>
-    <div class="settings-subtitle">{t('settings.avatarMode.hint', {}, lang) || 'How avatar images are packaged in HTML exports.'}</div>
+    <div class="settings-subtitle">
+      {#if embedAvatars}
+        {t('settings.avatarMode.hint', {}, lang) || 'How avatar images are packaged in HTML exports.'}
+      {:else}
+        {t('settings.avatarMode.disabledHint', {}, lang) || 'Enable "Embed avatars" in the main page to choose how they are packaged.'}
+      {/if}
+    </div>
     <select
       class="after-export-select"
       value={avatarMode}
+      disabled={!embedAvatars}
       on:change={onAvatarModeChange}
     >
       <option value="inline">{t('settings.avatarMode.inline', {}, lang) || 'Embed in HTML file (larger single file)'}</option>
@@ -206,6 +237,41 @@
           <span class="lang-native">{language.native}</span>
         </button>
       {/each}
+    </div>
+  </div>
+
+  <!-- About Card. Links open in a new tab via target=_blank so the
+       popup doesn't close under the user. rel=noopener keeps the new
+       tab's window.opener null — standard hygiene for external links. -->
+  <div class="card settings-card about-card">
+    <div class="card-header">
+      <span class="card-icon"><Info size={16} /></span>
+      <span class="card-title">{t('settings.about', {}, lang) || 'About'}</span>
+    </div>
+    <div class="about-body">
+      <div class="about-name">
+        {t('appName', {}, lang) || 'Teams Chat Exporter'}
+        {#if extensionVersion}<span class="about-version">v{extensionVersion}</span>{/if}
+      </div>
+      <div class="about-links">
+        <a class="about-link" href={REPO_URL} target="_blank" rel="noopener">
+          <ExternalLink size={12} />
+          <span>{t('settings.about.source', {}, lang) || 'Source code'}</span>
+        </a>
+        <a class="about-link" href={ISSUES_URL} target="_blank" rel="noopener">
+          <Bug size={12} />
+          <span>{t('settings.about.feedback', {}, lang) || 'Report an issue'}</span>
+        </a>
+      </div>
+      <!-- Author line: short name + external link to LinkedIn profile.
+           No icon — the attribution sits below the two action links
+           and reads cleanest as plain "Author: Gediz →". -->
+      <div class="about-author">
+        <span class="about-author-label">{t('settings.about.author', {}, lang) || 'Author'}:</span>
+        <a class="about-author-link" href={AUTHOR_LINKEDIN_URL} target="_blank" rel="noopener">
+          {AUTHOR_NAME}<ExternalLink size={10} />
+        </a>
+      </div>
     </div>
   </div>
 </div>
