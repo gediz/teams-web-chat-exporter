@@ -1,0 +1,115 @@
+name: Bug report
+description: Something broke or behaves unexpectedly.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: One or two sentences. The full story goes below.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps from popup open to broken state.
+      placeholder: |
+        1. Open Teams chat …
+        2. Click the extension …
+        3. Select formats: …
+        4. Click Start
+        5. Observed: …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser
+      options:
+        - Chrome
+        - Edge
+        - Firefox
+        - Other (specify below)
+    validations:
+      required: true
+
+  - type: input
+    id: browser-version
+    attributes:
+      label: Browser version
+      placeholder: e.g. 124.0.6367.91
+    validations:
+      required: true
+
+  - type: input
+    id: extension-version
+    attributes:
+      label: Extension version
+      description: Shown in Settings → About, or on chrome://extensions / about:addons.
+      placeholder: e.g. 1.3.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: teams-env
+    attributes:
+      label: Teams environment
+      options:
+        - Commercial (teams.microsoft.com / *.cloud.microsoft)
+        - Teams Free (teams.live.com)
+        - GCC High (teams.microsoft.us)
+        - MCAS proxy (*.mcas.ms)
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: export-target
+    attributes:
+      label: Export target
+      options:
+        - Chat (direct or group)
+        - Team channel
+        - Either / I'm not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: formats
+    attributes:
+      label: Selected formats + options
+      description: Which formats were selected, plus include toggles (replies, reactions, avatars, inline images, system messages).
+      placeholder: |
+        Formats: HTML + PDF
+        Include: replies, reactions, avatars
+        Date range: last 30 days
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console logs (optional)
+      description: |
+        Open DevTools on the Teams tab AND the extension background page (chrome://extensions → "service worker" / about:debugging#/runtime/this-firefox), reproduce, and paste anything prefixed with `[API]`, `[Teams Exporter]`, or `[pdf]`. Redact any message text you don't want shared.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, sample export output, rough chat size — whatever helps.
+    validations:
+      required: false
