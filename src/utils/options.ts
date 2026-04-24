@@ -99,6 +99,15 @@ export const HISTORY_VIEWED_KEY = 'teamsExporterHistoryViewedAt';
 export const LAST_PAGE_STORAGE_KEY = 'teamsExporterLastPage';
 export type PopupPage = 'main' | 'settings' | 'history';
 
+// Mirror of the background's `activeExports` map, keyed by tabId, kept
+// in chrome.storage.local so the popup can paint the correct export-
+// button state on first render instead of flashing idle for the ~100–
+// 400 ms it takes GET_EXPORT_STATUS to round-trip. The background writes
+// on every state change; the popup reads synchronously on mount. Stale
+// entries get evicted when GET_EXPORT_STATUS reports no active export
+// for the tab, so a killed service worker doesn't leave ghost state.
+export const ACTIVE_EXPORTS_STORAGE_KEY = 'teamsExporterActiveExports';
+
 export const DEFAULT_OPTIONS: Options = {
   lang: 'en',
   startAt: '',

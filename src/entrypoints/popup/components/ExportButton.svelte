@@ -230,13 +230,22 @@
     background: rgba(255, 255, 255, 0.85);
     transition: width 0.3s ease;
   }
+  /* Indeterminate (v < 0) renders as a narrow highlight band sliding
+     across an otherwise-empty track — NOT a full-width fill. If the
+     phase later resolves to a determinate 30 %, we go from
+     "small moving band" → "30 % solid fill", which reads as progress.
+     Previously the stripe filled 100 % of the bar, so switching to
+     30 % looked like a regression. */
   .seg.active > .seg-fill {
     width: 100%;
-    background: linear-gradient(90deg,
-      rgba(255, 255, 255, 0.4) 0%,
-      rgba(255, 255, 255, 0.95) 50%,
-      rgba(255, 255, 255, 0.4) 100%);
-    background-size: 200% 100%;
+    background:
+      linear-gradient(90deg,
+        transparent 0%,
+        transparent 40%,
+        rgba(255, 255, 255, 0.9) 50%,
+        transparent 60%,
+        transparent 100%);
+    background-size: 240% 100%;
     animation: vc-stripe 1.4s linear infinite;
   }
   @keyframes vc-stripe {

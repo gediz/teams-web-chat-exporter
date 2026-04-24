@@ -22,11 +22,13 @@
     updateHistoryEntry,
     validateRange,
     LAST_PAGE_STORAGE_KEY,
+    ACTIVE_EXPORTS_STORAGE_KEY,
     type OptionFormat,
     type Options,
     type PopupPage,
     type Theme,
   } from "../../utils/options";
+  import type { ActiveExportInfo } from "../../types/shared";
   import {
     formatElapsed,
     isoToLocalInput,
@@ -897,6 +899,35 @@
       try {
         const tab = await getActiveTeamsTab();
         currentTabId = tab.id ?? null;
+
+        // Pre-hydrate from chrome.storage.local BEFORE the async message
+        // round-trip to the background. The background mirrors its in-
+        // memory activeExports Map here on every update, so we can paint
+        // the correct busy/idle state almost instantly. GET_EXPORT_STATUS
+        // below still runs and overwrites with the authoritative answer
+        // (covers the "service worker got killed and lost state" case).
+        if (currentTabId != null) {
+          try {
+            const stored = await chrome.storage.local.get(ACTIVE_EXPORTS_STORAGE_KEY);
+            const snapshot = (stored?.[ACTIVE_EXPORTS_STORAGE_KEY] || {}) as Record<string, ActiveExportInfo>;
+            const preInfo = snapshot[String(currentTabId)];
+            if (alive && preInfo) {
+              const startedAt = normalizeStart(preInfo.startedAt);
+              if (startedAt) { startedAtMs = startedAt; ensureElapsedTimer(); }
+              if (preInfo.lastStatus) {
+                handleExportStatus(preInfo.lastStatus);
+              } else {
+                setBusy(true, busyExportLabel());
+                setStatus(t("status.running"));
+              }
+              // We have a confident pre-state — clear the checking flag
+              // so the reveal is instant rather than waiting for the
+              // message reply below.
+              statusKnown = true;
+            }
+          } catch { /* storage unavailable — fall through to async */ }
+        }
+
         const status = await runtimeSend<GetExportStatusRequest>(runtime, {
           type: "GET_EXPORT_STATUS",
           tabId: currentTabId,
@@ -915,6 +946,14 @@
             setBusy(true, busyExportLabel());
             setStatus(t("status.running"));
           }
+        } else if (busy) {
+          // Pre-hydration said busy, but authoritative says idle — the
+          // export finished while the popup was closed. Drop back to
+          // idle and let the history page carry the outcome signal.
+          setBusy(false);
+          setStatus(t("status.ready"));
+          resetPhaseTracker();
+          startedAtMs = null;
         }
       } catch {
         /* user not on Teams tab */

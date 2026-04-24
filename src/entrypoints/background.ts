@@ -3,7 +3,7 @@ import { createBadgeManager } from '../utils/badge';
 import { isTeamsUrl } from '../utils/teams-urls';
 import { buildAndDownload, buildAndDownloadBundle, buildAndDownloadZip } from '../background/download';
 import { formatDayLabelForExport, parseTimeStamp } from '../utils/time';
-import { appendHistoryEntry } from '../utils/options';
+import { ACTIVE_EXPORTS_STORAGE_KEY, appendHistoryEntry } from '../utils/options';
 import type { BackgroundIncomingMessage } from '../types/messaging';
 import type {
   ActiveExportInfo,
@@ -119,7 +119,7 @@ runtime.onStartup?.addListener(() => {
 tabs.onUpdated.addListener((tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab?: chrome.tabs.Tab) => {
     const nextUrl = changeInfo.url ?? tab?.url;
     if (changeInfo.status === 'loading' && isTeamsUrl(nextUrl)) {
-        activeExports.delete(tabId);
+        activeExports.delete(tabId); void persistActiveExports();
         resetBadge();
     }
 });
@@ -134,7 +134,22 @@ function updateActiveExport(tabId: number, patch: Partial<ActiveExportInfo> = {}
     const prev = activeExports.get(tabId) || {};
     const next: ActiveExportInfo = { ...prev, ...patch };
     activeExports.set(tabId, next);
+    void persistActiveExports();
     return next;
+}
+
+// Snapshot the in-memory activeExports Map to chrome.storage.local so
+// the popup can pre-hydrate the export-button state on mount. Writes
+// are fire-and-forget — storage errors aren't actionable and the
+// worst case is the popup falls back to the async GET_EXPORT_STATUS
+// round-trip. Debouncing isn't worth it: updates are driven by user
+// export start/stop and progress events that already throttle.
+async function persistActiveExports() {
+    try {
+        const snapshot: Record<string, ActiveExportInfo> = {};
+        for (const [tabId, info] of activeExports) snapshot[String(tabId)] = info;
+        await storage.local.set({ [ACTIVE_EXPORTS_STORAGE_KEY]: snapshot });
+    } catch { /* ignore */ }
 }
 
 const sendMessageToTab = (tabId: number, msg: unknown) => new Promise<any>((resolve, reject) => {
@@ -479,7 +494,7 @@ function handleExportWithScrape(
                 sendResponse({ error: message });
             }
         } finally {
-            activeExports.delete(tabId);
+            activeExports.delete(tabId); void persistActiveExports();
         }
     })();
 }
@@ -699,7 +714,7 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
         const payload = msg.payload || {};
         broadcastStatus(payload);
         if (payload?.tabId != null && TERMINAL_PHASES.has(payload.phase || '')) {
-            activeExports.delete(payload.tabId);
+            activeExports.delete(payload.tabId); void persistActiveExports();
         }
         sendResponse({ ok: true });
         return true;
@@ -805,7 +820,7 @@ async function handleStopExportMessage(tabId: number, sendResponse: (resp: unkno
         }
     }
 
-    activeExports.delete(tabId);
+    activeExports.delete(tabId); void persistActiveExports();
     // Mark the tab as cancelled so any late SCRAPE_PROGRESS events that were
     // already in flight don't repaint the badge with stale numbers. The mark
     // is cleared after a few seconds — long enough for the in-flight events
