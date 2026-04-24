@@ -110,17 +110,20 @@ function waitForDownloadComplete(id: number, timeoutMs = 10_000): Promise<boolea
 runtime.onInstalled.addListener((details) => {
     log("onInstalled", details?.reason);
     resetBadge();
-    // Stamp the first-install timestamp on brand-new installs so the
-    // review prompt can gate itself on install age. Update events skip
-    // this — we only want a true "first install" mark, not a reinstall
-    // proxy. Storage write is fire-and-forget.
-    if (details?.reason === 'install') {
-        storage.local.get(FIRST_INSTALL_STORAGE_KEY).then((stored) => {
-            if (!stored?.[FIRST_INSTALL_STORAGE_KEY]) {
-                return storage.local.set({ [FIRST_INSTALL_STORAGE_KEY]: Date.now() });
-            }
-        }).catch(() => { /* nothing critical depends on this */ });
-    }
+    // Stamp the first-install timestamp if not already present — regardless
+    // of reason. We deliberately do NOT restrict to reason='install':
+    // users who had the extension before this feature shipped see reason=
+    // 'update' and would otherwise never get a stamp, which would keep the
+    // review prompt permanently invisible for them. Stamping on first-seen
+    // undercounts their real install age by whatever time has elapsed
+    // since their actual first install, but that's fine — the 7-day gate
+    // becomes "7 days since this feature reached them" which is still a
+    // reasonable heuristic for "has had time to form an opinion".
+    storage.local.get(FIRST_INSTALL_STORAGE_KEY).then((stored) => {
+        if (!stored?.[FIRST_INSTALL_STORAGE_KEY]) {
+            return storage.local.set({ [FIRST_INSTALL_STORAGE_KEY]: Date.now() });
+        }
+    }).catch(() => { /* nothing critical depends on this */ });
 });
 runtime.onStartup?.addListener(() => {
     log("onStartup");
