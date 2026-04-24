@@ -108,6 +108,25 @@ export type PopupPage = 'main' | 'settings' | 'history';
 // for the tab, so a killed service worker doesn't leave ghost state.
 export const ACTIVE_EXPORTS_STORAGE_KEY = 'teamsExporterActiveExports';
 
+// First-install timestamp (ms since epoch). Stamped by the background
+// on `runtime.onInstalled` with reason 'install'. Used as one gate for
+// the review prompt (≥ 7 days old). Missing value is treated as
+// "install was very recent" — a reinstalled user won't be pestered.
+export const FIRST_INSTALL_STORAGE_KEY = 'teamsExporterFirstInstalledAt';
+
+// One-shot review-prompt state. Once `shown` is true the inline one-
+// liner below the export button is never rendered again on this
+// profile (settings-clearing edge case aside). We record `response` so
+// we can tell whether the user engaged or dismissed, purely for our
+// own sanity — it's not used to decide future prompts.
+export type ReviewPromptResponse = 'rated' | 'feedback' | 'dismissed';
+export type ReviewPromptState = {
+  shown: boolean;
+  response?: ReviewPromptResponse;
+  at?: number;
+};
+export const REVIEW_PROMPT_STORAGE_KEY = 'teamsExporterReviewPrompt';
+
 export const DEFAULT_OPTIONS: Options = {
   lang: 'en',
   startAt: '',

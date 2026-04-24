@@ -3,7 +3,7 @@ import { createBadgeManager } from '../utils/badge';
 import { isTeamsUrl } from '../utils/teams-urls';
 import { buildAndDownload, buildAndDownloadBundle, buildAndDownloadZip } from '../background/download';
 import { formatDayLabelForExport, parseTimeStamp } from '../utils/time';
-import { ACTIVE_EXPORTS_STORAGE_KEY, appendHistoryEntry } from '../utils/options';
+import { ACTIVE_EXPORTS_STORAGE_KEY, FIRST_INSTALL_STORAGE_KEY, appendHistoryEntry } from '../utils/options';
 import type { BackgroundIncomingMessage } from '../types/messaging';
 import type {
   ActiveExportInfo,
@@ -107,9 +107,20 @@ function waitForDownloadComplete(id: number, timeoutMs = 10_000): Promise<boolea
     });
 }
 
-runtime.onInstalled.addListener(() => {
-    log("onInstalled");
+runtime.onInstalled.addListener((details) => {
+    log("onInstalled", details?.reason);
     resetBadge();
+    // Stamp the first-install timestamp on brand-new installs so the
+    // review prompt can gate itself on install age. Update events skip
+    // this — we only want a true "first install" mark, not a reinstall
+    // proxy. Storage write is fire-and-forget.
+    if (details?.reason === 'install') {
+        storage.local.get(FIRST_INSTALL_STORAGE_KEY).then((stored) => {
+            if (!stored?.[FIRST_INSTALL_STORAGE_KEY]) {
+                return storage.local.set({ [FIRST_INSTALL_STORAGE_KEY]: Date.now() });
+            }
+        }).catch(() => { /* nothing critical depends on this */ });
+    }
 });
 runtime.onStartup?.addListener(() => {
     log("onStartup");

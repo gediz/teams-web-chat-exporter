@@ -127,5 +127,9 @@
   "settings.about.source": "Forráskód",
   "settings.about.feedback": "Hiba bejelentése",
   "settings.about.author": "Szerző",
-  "status.checking": "Állapot ellenőrzése…"
+  "status.checking": "Állapot ellenőrzése…",
+  "review.prompt": "Értékeld a Teams Chat Exportert",
+  "review.rate": "Értékelés az áruházban",
+  "review.feedback": "Visszajelzés",
+  "review.dismiss": "Bezár"
 }

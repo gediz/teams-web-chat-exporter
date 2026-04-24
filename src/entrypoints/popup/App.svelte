@@ -23,12 +23,17 @@
     validateRange,
     LAST_PAGE_STORAGE_KEY,
     ACTIVE_EXPORTS_STORAGE_KEY,
+    FIRST_INSTALL_STORAGE_KEY,
+    REVIEW_PROMPT_STORAGE_KEY,
     type OptionFormat,
     type Options,
     type PopupPage,
+    type ReviewPromptResponse,
+    type ReviewPromptState,
     type Theme,
   } from "../../utils/options";
   import type { ActiveExportInfo } from "../../types/shared";
+  import { getIssueNewUrl, getReviewStoreUrl } from "../../utils/store-urls";
   import {
     formatElapsed,
     isoToLocalInput,
@@ -56,6 +61,7 @@
   import SettingsPage from "./components/SettingsPage.svelte";
   import HistoryPage from "./components/HistoryPage.svelte";
   import OnboardingOverlay from "./components/OnboardingOverlay.svelte";
+  import ReviewPrompt from "./components/ReviewPrompt.svelte";
   import { t, setLanguage, getLanguage } from "../../i18n/i18n";
 
   const runtime =
@@ -118,6 +124,42 @@
     showOnboarding = false;
     void updateOption("onboardingDismissed", true);
   };
+
+  // Review-prompt gate state — inline one-liner rendered under the
+  // export button when ALL of:
+  //   - not yet shown (one-shot flag)
+  //   - onboarding already dismissed (don't stack two overlays)
+  //   - first install ≥ 7 days ago
+  //   - ≥ 2 successful history entries
+  //   - not currently busy (never compete with an in-progress export)
+  //   - on the main page (not settings / history)
+  // Rendered permanently once eligible until the user clicks rate,
+  // feedback, or dismiss; persisted response in chrome.storage.local
+  // under REVIEW_PROMPT_STORAGE_KEY.
+  let reviewPromptState: ReviewPromptState = { shown: false };
+  let firstInstalledAt: number | null = null;
+  const REVIEW_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+  const REVIEW_MIN_EXPORTS = 2;
+  $: successfulExportCount = historyEntries.filter(e => e.kind === 'success').length;
+  $: reviewPromptEligible =
+    !reviewPromptState.shown &&
+    options.onboardingDismissed === true &&
+    !busy &&
+    currentPage === 'main' &&
+    firstInstalledAt != null &&
+    Date.now() - firstInstalledAt >= REVIEW_MIN_AGE_MS &&
+    successfulExportCount >= REVIEW_MIN_EXPORTS;
+
+  const reviewStoreUrl = getReviewStoreUrl();
+  const reviewIssueUrl = getIssueNewUrl();
+
+  async function onReviewPromptRespond(response: ReviewPromptResponse) {
+    const next: ReviewPromptState = { shown: true, response, at: Date.now() };
+    reviewPromptState = next;
+    try {
+      await chrome.storage.local.set({ [REVIEW_PROMPT_STORAGE_KEY]: next });
+    } catch { /* best-effort; one-shot, worst case user is asked once more */ }
+  }
 
   // History state. Loaded once on mount, refreshed when an entry is appended
   // (popup hears phase=complete or phase=cancelled), and after the user opens
@@ -875,6 +917,26 @@
           else if (last === 'history') showHistory = true;
         }
       } catch { /* fall through to 'main' default */ }
+
+      // Review-prompt gate: pull the one-shot flag and first-install
+      // timestamp. Both reads are best-effort; any failure leaves the
+      // prompt permanently hidden for this session.
+      try {
+        const reviewStored = await chrome.storage.local.get([
+          REVIEW_PROMPT_STORAGE_KEY,
+          FIRST_INSTALL_STORAGE_KEY,
+        ]);
+        if (alive) {
+          const s = reviewStored?.[REVIEW_PROMPT_STORAGE_KEY];
+          if (s && typeof s === 'object' && typeof s.shown === 'boolean') {
+            reviewPromptState = s as ReviewPromptState;
+          }
+          const t = reviewStored?.[FIRST_INSTALL_STORAGE_KEY];
+          if (typeof t === 'number' && Number.isFinite(t)) {
+            firstInstalledAt = t;
+          }
+        }
+      } catch { /* keep defaults */ }
       // Show the welcome overlay on the first popup open. We deliberately
       // DON'T show it when Settings or History routes are active on open
       // (those routes imply returning users), and we skip it while an
@@ -1054,6 +1116,15 @@
         on:run={startExport}
         on:stop={stopExport}
       />
+
+      {#if reviewPromptEligible}
+        <ReviewPrompt
+          lang={options.lang || "en"}
+          storeUrl={reviewStoreUrl}
+          issueUrl={reviewIssueUrl}
+          on:respond={(e) => onReviewPromptRespond(e.detail)}
+        />
+      {/if}
 
       <TargetSection
         target={options.exportTarget}

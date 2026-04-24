@@ -127,5 +127,9 @@
   "settings.about.source": "Kod sumber",
   "settings.about.feedback": "Laporkan isu",
   "settings.about.author": "Pengarang",
-  "status.checking": "Menyemak status…"
+  "status.checking": "Menyemak status…",
+  "review.prompt": "Nilai Teams Chat Exporter",
+  "review.rate": "Nilai di kedai",
+  "review.feedback": "Hantar maklum balas",
+  "review.dismiss": "Tutup"
 }

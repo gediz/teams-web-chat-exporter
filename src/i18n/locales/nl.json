@@ -127,5 +127,9 @@
   "settings.about.source": "Broncode",
   "settings.about.feedback": "Probleem melden",
   "settings.about.author": "Auteur",
-  "status.checking": "Status controleren…"
+  "status.checking": "Status controleren…",
+  "review.prompt": "Beoordeel Teams Chat Exporter",
+  "review.rate": "Beoordelen in store",
+  "review.feedback": "Feedback sturen",
+  "review.dismiss": "Sluiten"
 }

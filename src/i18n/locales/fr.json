@@ -127,5 +127,9 @@
   "settings.about.source": "Code source",
   "settings.about.feedback": "Signaler un problème",
   "settings.about.author": "Auteur",
-  "status.checking": "Vérification du statut…"
+  "status.checking": "Vérification du statut…",
+  "review.prompt": "Noter Teams Chat Exporter",
+  "review.rate": "Noter sur le store",
+  "review.feedback": "Envoyer un retour",
+  "review.dismiss": "Fermer"
 }

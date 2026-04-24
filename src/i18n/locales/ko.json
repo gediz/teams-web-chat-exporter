@@ -127,5 +127,9 @@
   "settings.about.source": "소스 코드",
   "settings.about.feedback": "문제 신고",
   "settings.about.author": "제작자",
-  "status.checking": "상태 확인 중…"
+  "status.checking": "상태 확인 중…",
+  "review.prompt": "Teams Chat Exporter 평가하기",
+  "review.rate": "스토어에서 평가",
+  "review.feedback": "피드백 보내기",
+  "review.dismiss": "닫기"
 }

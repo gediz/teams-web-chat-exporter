@@ -127,5 +127,9 @@
   "settings.about.source": "Исходный код",
   "settings.about.feedback": "Сообщить о проблеме",
   "settings.about.author": "Автор",
-  "status.checking": "Проверка состояния…"
+  "status.checking": "Проверка состояния…",
+  "review.prompt": "Оценить Teams Chat Exporter",
+  "review.rate": "Оценить в магазине",
+  "review.feedback": "Отправить отзыв",
+  "review.dismiss": "Скрыть"
 }

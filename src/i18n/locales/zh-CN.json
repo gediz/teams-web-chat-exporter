@@ -127,5 +127,9 @@
   "settings.about.source": "源代码",
   "settings.about.feedback": "报告问题",
   "settings.about.author": "作者",
-  "status.checking": "正在检查状态…"
+  "status.checking": "正在检查状态…",
+  "review.prompt": "评价 Teams Chat Exporter",
+  "review.rate": "在商店评价",
+  "review.feedback": "发送反馈",
+  "review.dismiss": "关闭"
 }

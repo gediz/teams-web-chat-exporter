@@ -127,5 +127,9 @@
   "settings.about.source": "原始碼",
   "settings.about.feedback": "回報問題",
   "settings.about.author": "作者",
-  "status.checking": "正在檢查狀態…"
+  "status.checking": "正在檢查狀態…",
+  "review.prompt": "評價 Teams Chat Exporter",
+  "review.rate": "在商店評價",
+  "review.feedback": "傳送回饋",
+  "review.dismiss": "關閉"
 }

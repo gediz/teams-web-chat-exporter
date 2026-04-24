@@ -127,5 +127,9 @@
   "settings.about.source": "ソースコード",
   "settings.about.feedback": "問題を報告",
   "settings.about.author": "作者",
-  "status.checking": "状態を確認中…"
+  "status.checking": "状態を確認中…",
+  "review.prompt": "Teams Chat Exporter を評価",
+  "review.rate": "ストアで評価",
+  "review.feedback": "フィードバックを送る",
+  "review.dismiss": "閉じる"
 }

@@ -127,5 +127,9 @@
   "settings.about.source": "সোর্স কোড",
   "settings.about.feedback": "সমস্যা রিপোর্ট",
   "settings.about.author": "রচয়িতা",
-  "status.checking": "স্ট্যাটাস পরীক্ষা হচ্ছে…"
+  "status.checking": "স্ট্যাটাস পরীক্ষা হচ্ছে…",
+  "review.prompt": "Teams Chat Exporter রেট করুন",
+  "review.rate": "স্টোরে রেট করুন",
+  "review.feedback": "মতামত পাঠান",
+  "review.dismiss": "বন্ধ"
 }

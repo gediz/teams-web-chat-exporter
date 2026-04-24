@@ -127,5 +127,9 @@
   "settings.about.source": "Kaynak kodu",
   "settings.about.feedback": "Sorun bildir",
   "settings.about.author": "Yazar",
-  "status.checking": "Durum kontrol ediliyor…"
+  "status.checking": "Durum kontrol ediliyor…",
+  "review.prompt": "Teams Sohbet Dışa Aktarıcı'yı değerlendir",
+  "review.rate": "Mağazada değerlendir",
+  "review.feedback": "Geri bildirim gönder",
+  "review.dismiss": "Kapat"
 }

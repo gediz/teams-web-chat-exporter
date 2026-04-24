@@ -127,5 +127,9 @@
   "settings.about.source": "Zdrojový kód",
   "settings.about.feedback": "Nahlásit problém",
   "settings.about.author": "Autor",
-  "status.checking": "Kontrola stavu…"
+  "status.checking": "Kontrola stavu…",
+  "review.prompt": "Ohodnoťte Teams Chat Exporter",
+  "review.rate": "Ohodnotit v obchodě",
+  "review.feedback": "Poslat zpětnou vazbu",
+  "review.dismiss": "Zavřít"
 }

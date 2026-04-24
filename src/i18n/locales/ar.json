@@ -127,5 +127,9 @@
   "settings.about.source": "الشيفرة المصدرية",
   "settings.about.feedback": "الإبلاغ عن مشكلة",
   "settings.about.author": "المؤلف",
-  "status.checking": "جارٍ التحقق من الحالة…"
+  "status.checking": "جارٍ التحقق من الحالة…",
+  "review.prompt": "قيّم Teams Chat Exporter",
+  "review.rate": "قيّم في المتجر",
+  "review.feedback": "إرسال ملاحظات",
+  "review.dismiss": "إخفاء"
 }

@@ -127,5 +127,9 @@
   "settings.about.source": "ซอร์สโค้ด",
   "settings.about.feedback": "รายงานปัญหา",
   "settings.about.author": "ผู้เขียน",
-  "status.checking": "กำลังตรวจสอบสถานะ…"
+  "status.checking": "กำลังตรวจสอบสถานะ…",
+  "review.prompt": "ให้คะแนน Teams Chat Exporter",
+  "review.rate": "ให้คะแนนในร้านค้า",
+  "review.feedback": "ส่งคำติชม",
+  "review.dismiss": "ปิด"
 }

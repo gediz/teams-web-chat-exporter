@@ -127,5 +127,9 @@
   "settings.about.source": "קוד מקור",
   "settings.about.feedback": "דיווח על בעיה",
   "settings.about.author": "מחבר",
-  "status.checking": "בודק סטטוס…"
+  "status.checking": "בודק סטטוס…",
+  "review.prompt": "דרג את Teams Chat Exporter",
+  "review.rate": "דרג בחנות",
+  "review.feedback": "שלח משוב",
+  "review.dismiss": "סגור"
 }

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { ArrowLeft, Sun, Moon, Globe, FolderOpen, CircleUserRound, Printer, Info, ExternalLink, Bug } from 'lucide-svelte';
+  import { ArrowLeft, Sun, Moon, Globe, FolderOpen, CircleUserRound, Printer, Info, ExternalLink, Bug, Star } from 'lucide-svelte';
   import { t } from '../../../i18n/i18n';
+  import { getReviewStoreUrl } from '../../../utils/store-urls';
 
   // Repo + issues + author URLs used by the About card. Hard-coded
   // strings (vs. reading from the manifest) because they never change
@@ -10,6 +11,10 @@
   const ISSUES_URL = `${REPO_URL}/issues`;
   const AUTHOR_NAME = 'Gediz';
   const AUTHOR_LINKEDIN_URL = 'https://www.linkedin.com/in/nazimgedizaydindogmus/';
+  // Store review URL picked from UA. Shown alongside Source / Report
+  // so engaged users have a permanent entry point regardless of
+  // whether the inline one-liner ever fires for them.
+  const REVIEW_STORE_URL = getReviewStoreUrl();
 
   // Version shown in the About card. Falls back to an empty string if
   // chrome.runtime isn't available (e.g. unit-test harness), so the
@@ -261,6 +266,10 @@
         <a class="about-link" href={ISSUES_URL} target="_blank" rel="noopener">
           <Bug size={12} />
           <span>{t('settings.about.feedback', {}, lang) || 'Report an issue'}</span>
+        </a>
+        <a class="about-link" href={REVIEW_STORE_URL} target="_blank" rel="noopener">
+          <Star size={12} />
+          <span>{t('review.rate', {}, lang) || 'Rate on store'}</span>
         </a>
       </div>
       <!-- Author line: short name + external link to LinkedIn profile.

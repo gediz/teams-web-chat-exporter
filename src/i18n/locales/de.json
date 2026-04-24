@@ -127,5 +127,9 @@
   "settings.about.source": "Quellcode",
   "settings.about.feedback": "Problem melden",
   "settings.about.author": "Autor",
-  "status.checking": "Status wird geprüft…"
+  "status.checking": "Status wird geprüft…",
+  "review.prompt": "Teams Chat Exporter bewerten",
+  "review.rate": "Im Store bewerten",
+  "review.feedback": "Feedback senden",
+  "review.dismiss": "Ausblenden"
 }

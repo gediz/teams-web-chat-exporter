@@ -127,5 +127,9 @@
   "settings.about.source": "Código fuente",
   "settings.about.feedback": "Reportar un problema",
   "settings.about.author": "Autor",
-  "status.checking": "Comprobando estado…"
+  "status.checking": "Comprobando estado…",
+  "review.prompt": "Valora Teams Chat Exporter",
+  "review.rate": "Valorar en la tienda",
+  "review.feedback": "Enviar comentarios",
+  "review.dismiss": "Ocultar"
 }
