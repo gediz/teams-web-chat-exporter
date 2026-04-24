@@ -126,5 +126,6 @@
   "settings.about": "Относно",
   "settings.about.source": "Изходен код",
   "settings.about.feedback": "Докладвай проблем",
-  "settings.about.author": "Автор"
+  "settings.about.author": "Автор",
+  "status.checking": "Проверка на статуса…"
 }

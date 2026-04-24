@@ -126,5 +126,6 @@
   "settings.about": "About",
   "settings.about.source": "Source code",
   "settings.about.feedback": "Report an issue",
-  "settings.about.author": "Author"
+  "settings.about.author": "Author",
+  "status.checking": "Checking status…"
 }

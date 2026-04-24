@@ -126,5 +126,6 @@
   "settings.about": "Over",
   "settings.about.source": "Broncode",
   "settings.about.feedback": "Probleem melden",
-  "settings.about.author": "Auteur"
+  "settings.about.author": "Auteur",
+  "status.checking": "Status controleren…"
 }

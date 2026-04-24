@@ -126,5 +126,6 @@
   "settings.about": "Info",
   "settings.about.source": "Quellcode",
   "settings.about.feedback": "Problem melden",
-  "settings.about.author": "Autor"
+  "settings.about.author": "Autor",
+  "status.checking": "Status wird geprüft…"
 }

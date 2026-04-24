@@ -126,5 +126,6 @@
   "settings.about": "關於",
   "settings.about.source": "原始碼",
   "settings.about.feedback": "回報問題",
-  "settings.about.author": "作者"
+  "settings.about.author": "作者",
+  "status.checking": "正在檢查狀態…"
 }

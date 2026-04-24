@@ -17,6 +17,11 @@
 
   export let disabled = false;
   export let busy = false;
+  // False on popup mount until GET_EXPORT_STATUS replies. While false
+  // we show a muted "checking…" subtitle instead of the idle summary,
+  // so if the real state is busy the reveal isn't a jarring flip from
+  // "Export current chat".
+  export let statusKnown = true;
   export let lang = 'en';
   // Idle subtitle (e.g. options summary like "Chat · JSON · with replies")
   export let summary = '';
@@ -46,9 +51,11 @@
 
   $: idleLabel = t('actions.export', {}, lang);
   $: stopLabel = t('actions.stop', {}, lang) || 'Stop export';
+  $: checkingLabel = t('status.checking', {}, lang) || 'Checking status…';
 
-  // Subtitle: phase label while busy, options summary while idle.
-  $: detailText = busy ? phaseLabel : summary;
+  // Subtitle: phase label while busy, options summary while idle, or a
+  // muted "checking…" while we haven't yet confirmed which is the case.
+  $: detailText = busy ? phaseLabel : (statusKnown ? summary : checkingLabel);
 
   // One-shot flash. When `flashTrigger` changes (parent bumps the counter),
   // we momentarily clear then set the class so the CSS keyframes re-run.
@@ -70,8 +77,14 @@
     if (v < 0) return 'active';
     return '';
   }
+  // Indeterminate segments (v < 0) need width:100% so the animated
+  // stripe has a canvas to slide across. Earlier we returned '0%' here
+  // and tried to override via .seg.active > .seg-fill { width:100% }
+  // in the stylesheet, but the inline style wins over the selector —
+  // so the stripe animated on a zero-width element and stayed invisible.
   function segWidth(v: number | null) {
-    if (v == null || v < 0) return '0%';
+    if (v == null) return '0%';
+    if (v < 0) return '100%';
     return `${Math.max(0, Math.min(100, v))}%`;
   }
 </script>
@@ -79,9 +92,10 @@
 <button
   class="export-primary"
   class:busy
+  class:checking={!busy && !statusKnown}
   class:success-flash={flashActive}
   type="button"
-  disabled={!busy && disabled}
+  disabled={(!busy && disabled) || (!busy && !statusKnown)}
   title={busy ? stopLabel : ''}
   on:click={handleClick}
 >
@@ -132,6 +146,17 @@
   .export-primary:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+  /* Pre-status state: dim + subtle pulse, so the ~100–400 ms between
+     popup mount and the GET_EXPORT_STATUS reply reads as "we're
+     checking" rather than a confident idle button the user might
+     click before we know whether an export is already running. */
+  .export-primary.checking {
+    opacity: 0.7;
+  }
+  .export-primary.checking .detail {
+    opacity: 0.75;
+    font-style: italic;
   }
 
   /* Success flash — one-shot green pulse on the whole bar. The animation

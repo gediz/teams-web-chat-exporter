@@ -126,5 +126,6 @@
   "settings.about": "Tentang",
   "settings.about.source": "Kod sumber",
   "settings.about.feedback": "Laporkan isu",
-  "settings.about.author": "Pengarang"
+  "settings.about.author": "Pengarang",
+  "status.checking": "Menyemak status…"
 }

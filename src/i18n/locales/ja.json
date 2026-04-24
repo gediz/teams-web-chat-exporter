@@ -126,5 +126,6 @@
   "settings.about": "アプリ情報",
   "settings.about.source": "ソースコード",
   "settings.about.feedback": "問題を報告",
-  "settings.about.author": "作者"
+  "settings.about.author": "作者",
+  "status.checking": "状態を確認中…"
 }

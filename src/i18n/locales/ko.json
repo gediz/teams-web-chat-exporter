@@ -126,5 +126,6 @@
   "settings.about": "정보",
   "settings.about.source": "소스 코드",
   "settings.about.feedback": "문제 신고",
-  "settings.about.author": "제작자"
+  "settings.about.author": "제작자",
+  "status.checking": "상태 확인 중…"
 }

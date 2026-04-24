@@ -126,5 +126,6 @@
   "settings.about": "Hakkında",
   "settings.about.source": "Kaynak kodu",
   "settings.about.feedback": "Sorun bildir",
-  "settings.about.author": "Yazar"
+  "settings.about.author": "Yazar",
+  "status.checking": "Durum kontrol ediliyor…"
 }

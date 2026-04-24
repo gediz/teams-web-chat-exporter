@@ -126,5 +126,6 @@
   "settings.about": "के बारे में",
   "settings.about.source": "स्रोत कोड",
   "settings.about.feedback": "समस्या रिपोर्ट करें",
-  "settings.about.author": "लेखक"
+  "settings.about.author": "लेखक",
+  "status.checking": "स्थिति जाँच रही है…"
 }

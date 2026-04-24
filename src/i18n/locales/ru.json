@@ -126,5 +126,6 @@
   "settings.about": "О программе",
   "settings.about.source": "Исходный код",
   "settings.about.feedback": "Сообщить о проблеме",
-  "settings.about.author": "Автор"
+  "settings.about.author": "Автор",
+  "status.checking": "Проверка состояния…"
 }

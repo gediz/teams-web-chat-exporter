@@ -126,5 +126,6 @@
   "settings.about": "אודות",
   "settings.about.source": "קוד מקור",
   "settings.about.feedback": "דיווח על בעיה",
-  "settings.about.author": "מחבר"
+  "settings.about.author": "מחבר",
+  "status.checking": "בודק סטטוס…"
 }

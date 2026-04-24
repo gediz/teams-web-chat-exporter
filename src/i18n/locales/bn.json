@@ -126,5 +126,6 @@
   "settings.about": "সম্পর্কে",
   "settings.about.source": "সোর্স কোড",
   "settings.about.feedback": "সমস্যা রিপোর্ট",
-  "settings.about.author": "রচয়িতা"
+  "settings.about.author": "রচয়িতা",
+  "status.checking": "স্ট্যাটাস পরীক্ষা হচ্ছে…"
 }

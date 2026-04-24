@@ -126,5 +126,6 @@
   "settings.about": "Névjegy",
   "settings.about.source": "Forráskód",
   "settings.about.feedback": "Hiba bejelentése",
-  "settings.about.author": "Szerző"
+  "settings.about.author": "Szerző",
+  "status.checking": "Állapot ellenőrzése…"
 }

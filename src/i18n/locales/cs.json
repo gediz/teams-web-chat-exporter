@@ -126,5 +126,6 @@
   "settings.about": "O aplikaci",
   "settings.about.source": "Zdrojový kód",
   "settings.about.feedback": "Nahlásit problém",
-  "settings.about.author": "Autor"
+  "settings.about.author": "Autor",
+  "status.checking": "Kontrola stavu…"
 }

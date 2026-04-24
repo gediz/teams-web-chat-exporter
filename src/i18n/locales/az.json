@@ -126,5 +126,6 @@
   "settings.about": "Haqqında",
   "settings.about.source": "Mənbə kodu",
   "settings.about.feedback": "Problem bildir",
-  "settings.about.author": "Müəllif"
+  "settings.about.author": "Müəllif",
+  "status.checking": "Status yoxlanılır…"
 }

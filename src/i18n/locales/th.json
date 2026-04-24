@@ -126,5 +126,6 @@
   "settings.about": "เกี่ยวกับ",
   "settings.about.source": "ซอร์สโค้ด",
   "settings.about.feedback": "รายงานปัญหา",
-  "settings.about.author": "ผู้เขียน"
+  "settings.about.author": "ผู้เขียน",
+  "status.checking": "กำลังตรวจสอบสถานะ…"
 }

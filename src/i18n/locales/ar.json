@@ -126,5 +126,6 @@
   "settings.about": "حول",
   "settings.about.source": "الشيفرة المصدرية",
   "settings.about.feedback": "الإبلاغ عن مشكلة",
-  "settings.about.author": "المؤلف"
+  "settings.about.author": "المؤلف",
+  "status.checking": "جارٍ التحقق من الحالة…"
 }

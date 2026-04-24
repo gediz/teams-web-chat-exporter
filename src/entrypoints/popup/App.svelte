@@ -156,6 +156,11 @@
   let alive = true;
   let busy = false;
   let busyLabel = runLabel();
+  // True from popup mount until GET_EXPORT_STATUS has replied. While
+  // this is true the export button renders a neutral "checking…" label
+  // instead of its idle default, so when the real status arrives (busy
+  // or idle) the user doesn't see a brief wrong-state flash.
+  let statusKnown = false;
   let currentTabId: number | null = null;
   let startedAtMs: number | null = null;
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
@@ -913,6 +918,10 @@
         }
       } catch {
         /* user not on Teams tab */
+      } finally {
+        // Flip the "checking…" neutral state regardless of outcome so the
+        // export button renders its real label (idle or busy) from here on.
+        if (alive) statusKnown = true;
       }
       // Always load history so the dot reflects any entries added while
       // the popup was closed.
@@ -995,6 +1004,7 @@
       <ExportButton
         disabled={false}
         {busy}
+        {statusKnown}
         summary={exportSummary}
         {phaseLabel}
         {counterValue}
