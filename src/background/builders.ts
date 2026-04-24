@@ -723,15 +723,35 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     return bestIdx;
   };
 
+  // First pass: wire each reply to its immediate parent.
+  const directParentOf = new Map<number, number>();
   for (let i = 0; i < rows.length; i++) {
     const m = rows[i];
     if (!m || !m.replyTo || m.system) continue;
     const parentIdx = findParentIndex(m, i);
     if (parentIdx == null || parentIdx === i) continue;
-    const list = repliesByParent.get(parentIdx) || [];
-    list.push({ index: i, msg: m });
-    repliesByParent.set(parentIdx, list);
+    directParentOf.set(i, parentIdx);
     replyIndices.add(i);
+  }
+  // Second pass: fold reply chains onto the top-most non-reply ancestor.
+  // Teams UIs let users reply to a reply, which produces chains like
+  // G → P → C. The renderer below walks each top-level parent's
+  // repliesByParent list once; if we left P→C un-flattened, C would
+  // land in repliesByParent[P] and never be visited (because P is in
+  // replyIndices and skipped in the main render loop). Walk up until
+  // we hit a node with no direct parent — that's the thread root.
+  for (const replyIdx of directParentOf.keys()) {
+    let root = directParentOf.get(replyIdx)!;
+    const seen = new Set<number>([replyIdx, root]);
+    while (directParentOf.has(root)) {
+      const next = directParentOf.get(root)!;
+      if (seen.has(next)) break; // defensive: malformed data, no infinite loop
+      seen.add(next);
+      root = next;
+    }
+    const list = repliesByParent.get(root) || [];
+    list.push({ index: replyIdx, msg: rows[replyIdx] });
+    repliesByParent.set(root, list);
   }
 
   const parts: string[] = [];
