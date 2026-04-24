@@ -381,7 +381,21 @@ export async function discover(skypeToken: string): Promise<{ chatServiceUrl: st
  * method in Teams v2 — the URL doesn't contain the conversation ID and
  * sidebar focus state doesn't always match the visible conversation.
  */
+// Per-URL cache of the last successful conversation ID. Issue #15.4
+// reported that a second export on the same tab sometimes fell back to
+// DOM scrolling because the IDB lookup transiently failed (replychain-
+// manager DB handle in use, getAll returning 0 records, etc.) even
+// though the conversation hadn't changed. Once we've successfully
+// extracted an ID on this URL, remember it — on re-extract we verify
+// the URL still matches and skip straight to the cached value.
+let _lastExtractedForUrl: { url: string; convId: string } | null = null;
+
 export async function extractConversationId(): Promise<string | null> {
+  const currentUrl = window.location.href;
+  if (_lastExtractedForUrl?.url === currentUrl) {
+    return _lastExtractedForUrl.convId;
+  }
+
   // Method 1 (primary): Look up visible data-mid values in IndexedDB
   let midsCount = 0;
   try {
@@ -392,7 +406,10 @@ export async function extractConversationId(): Promise<string | null> {
 
     if (mids.length > 0) {
       const convId = await lookupConversationInIdb(mids);
-      if (convId) return convId;
+      if (convId) {
+        _lastExtractedForUrl = { url: currentUrl, convId };
+        return convId;
+      }
     }
   } catch (e) {
     console.log('[API] IDB conversation lookup failed:', e);
@@ -401,12 +418,20 @@ export async function extractConversationId(): Promise<string | null> {
   // Method 2: URL query parameter or hash
   const CONV_ID_RE = /19:[^|"}\s&?/]+@(?:unq\.gbl\.spaces|thread\.[a-z0-9]+)/i;
   try {
-    const url = new URL(window.location.href);
+    const url = new URL(currentUrl);
     for (const [, value] of url.searchParams) {
-      if (CONV_ID_RE.test(value)) return value.match(CONV_ID_RE)![0];
+      if (CONV_ID_RE.test(value)) {
+        const convId = value.match(CONV_ID_RE)![0];
+        _lastExtractedForUrl = { url: currentUrl, convId };
+        return convId;
+      }
     }
     const hashMatch = window.location.hash.match(CONV_ID_RE);
-    if (hashMatch) return decodeURIComponent(hashMatch[0]);
+    if (hashMatch) {
+      const convId = decodeURIComponent(hashMatch[0]);
+      _lastExtractedForUrl = { url: currentUrl, convId };
+      return convId;
+    }
   } catch { /* ignore */ }
 
   // Method 3: DOM data attributes on chat/message pane
@@ -414,14 +439,17 @@ export async function extractConversationId(): Promise<string | null> {
   const threadId = chatPane?.getAttribute('data-convid') ||
                    chatPane?.getAttribute('data-tid-convid') ||
                    chatPane?.getAttribute('data-conversation-id');
-  if (threadId) return threadId;
+  if (threadId) {
+    _lastExtractedForUrl = { url: currentUrl, convId: threadId };
+    return threadId;
+  }
 
   // All three methods exhausted. Log the state so the next failure is
   // diagnosable without the user having to reproduce under devtools.
   console.log('[API] extractConversationId exhausted all methods.', {
     visibleDataMids: midsCount,
     hasMessagePane: !!chatPane,
-    url: window.location.href,
+    url: currentUrl,
     hash: window.location.hash,
   });
   return null;
