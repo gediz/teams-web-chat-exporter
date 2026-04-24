@@ -18,6 +18,7 @@
     "@pdf-lib/fontkit": "^1.1.1",
     "@twemoji/svg": "^15.0.0",
     "fflate": "^0.8.1",
+    "harfbuzzjs": "^0.10.3",
     "lucide-svelte": "^0.554.0",
     "pdf-lib": "^1.17.1",
     "vanilla-calendar-pro": "^3.0.5",

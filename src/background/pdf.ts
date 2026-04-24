@@ -24,9 +24,21 @@
 // - Page breaks: measured per block; if the current block won't fit we
 //   add a new page before rendering it.
 
-import { PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFString, PDFArray, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import type { Attachment, ExportMessage, ExportMeta } from '../types/shared';
+import { subsetFont } from './font-subset';
+
+// Match-anywhere regex for URL detection inside rendered text. Kept
+// deliberately conservative — URLs end at whitespace or any character
+// that's unusual in real URLs (quote, paren, bracket, curly). Trailing
+// punctuation (.,;!?) is trimmed off post-match to avoid "visit..."
+// swallowing the sentence's trailing period.
+const URL_RE = /https?:\/\/[^\s<>"')\]}]+/g;
+
+function trimTrailingPunct(url: string): string {
+  return url.replace(/[.,;:!?)\]}]+$/, '');
+}
 
 // Page dimensions (points, 1/72 inch). A4 is the default; US Letter is
 // selectable via PdfOptions.pageSize.
@@ -226,7 +238,15 @@ export async function buildPdf(
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit as unknown as Parameters<typeof doc.registerFontkit>[0]);
 
-  const fonts = await loadFonts(doc);
+  // Scan every rendered text field once: collects the used codepoints
+  // (→ font subset targets) and emoji sequences (→ prewarm list). Doing
+  // it up front keeps the downstream rendering pass synchronous and
+  // guarantees the subset contains every glyph the renderer will draw,
+  // because both steps walk the same fields with the same code.
+  const emojiManifest = await loadTwemojiManifest();
+  const scan = scanDocument(messages, meta, emojiManifest);
+
+  const fonts = await loadFonts(doc, scan.codepoints);
   doc.setTitle(meta.title || 'Teams Chat Export');
   doc.setCreator('Teams Chat Exporter');
   doc.setProducer('Teams Chat Exporter');
@@ -250,11 +270,9 @@ export async function buildPdf(
   };
   const avatars = meta.avatars || {};
 
-  // Prewarm emoji images so rendering can stay synchronous. This is a
-  // single pass over all message text that fetches + rasterizes each
-  // unique emoji sequence in parallel.
-  const emojiManifest = await loadTwemojiManifest();
-  await prewarmTwemoji(doc, cache, messages);
+  // Fetch + rasterize the Twemoji images we know we'll need in
+  // parallel. Rendering then stays synchronous.
+  await prewarmTwemojiKeys(doc, cache, scan.emojiKeys);
 
   const ctx: TextCtx = { fonts, emojiManifest, twemoji: cache.twemoji, layout };
 
@@ -304,19 +322,47 @@ async function fetchFont(path: string): Promise<ArrayBuffer> {
   return resp.arrayBuffer();
 }
 
-async function loadFonts(doc: PDFDocument): Promise<Fonts> {
+// Page-number codepoints that always get rendered even if no message
+// mentions them. Keeps "1 / 42" style footers from going tofu on a
+// chat that happens not to use any digit, slash, or space character.
+const PAGE_NUMBER_CODEPOINTS = '0123456789/ ';
+
+async function loadFonts(doc: PDFDocument, codepoints: Set<number>): Promise<Fonts> {
   const [regularBytes, boldBytes, cjkBytes] = await Promise.all([
     fetchFont(FONT_REGULAR_PATH),
     fetchFont(FONT_BOLD_PATH),
     fetchFont(FONT_CJK_PATH),
   ]);
-  // subset: true is critical for CJK — the full NotoSansSC has 40k+
-  // glyphs and 10 MB of data; subsetting drops the PDF down to just
-  // the codepoints actually used (often a handful per export).
-  const regular = await doc.embedFont(regularBytes, { subset: true });
-  const bold = await doc.embedFont(boldBytes, { subset: true });
-  const cjk = await doc.embedFont(cjkBytes, { subset: true });
+
+  // Subset each font to exactly the codepoints the document uses via
+  // HarfBuzz. This is both correct (HarfBuzz is the reference subsetter
+  // used by browsers) and tiny (a 10 MB CJK font drops to <1 MB for a
+  // typical conversation; a 620 KB Latin font drops to a few KB for a
+  // short English chat). The result is a valid TTF that pdf-lib embeds
+  // verbatim with `subset: false` — bypassing fontkit's buggy subsetter.
+  //
+  // If subsetting fails for any reason (corrupt input, WASM error, an
+  // empty codepoint set), we fall back to embedding the original full
+  // font. That costs ~10 MB extra in the PDF but keeps every glyph
+  // available — fail-safe, not fail-broken.
+  const regular = await embedSubsetOrFull(doc, regularBytes, codepoints);
+  const bold = await embedSubsetOrFull(doc, boldBytes, codepoints);
+  const cjk = await embedSubsetOrFull(doc, cjkBytes, codepoints);
   return { regular, bold, cjk };
+}
+
+async function embedSubsetOrFull(
+  doc: PDFDocument,
+  fontBytes: ArrayBuffer,
+  codepoints: Set<number>,
+): Promise<PDFFont> {
+  try {
+    const subset = await subsetFont(new Uint8Array(fontBytes), codepoints);
+    if (subset && subset.byteLength > 0) {
+      return await doc.embedFont(subset, { subset: false });
+    }
+  } catch { /* fall through */ }
+  return doc.embedFont(fontBytes, { subset: false });
 }
 
 // Per-character font selection for NON-emoji characters. Emoji are
@@ -423,25 +469,52 @@ function readEmojiSequence(text: string, i: number, index: Set<string>): { key: 
   return null;
 }
 
-// Walk every text field on every message collecting unique emoji keys
-// so we can pre-embed them in parallel, up front. Rendering then stays
-// synchronous.
-function collectEmojiKeys(messages: ExportMessage[], index: Set<string>): Set<string> {
-  const keys = new Set<string>();
+// Walk every text field on every message, collecting (a) unique emoji
+// keys so we can pre-embed the emoji images and (b) every non-emoji
+// codepoint so we can build a minimal font subset for the document.
+// Single pass over all rendered text — the two outputs stay in lockstep
+// with the renderer by construction.
+type DocScan = { emojiKeys: Set<string>; codepoints: Set<number> };
+
+function scanDocument(
+  messages: ExportMessage[],
+  meta: ExportMeta,
+  index: Set<string>,
+): DocScan {
+  const emojiKeys = new Set<string>();
+  const codepoints = new Set<number>();
   const visit = (t: string | undefined | null) => {
     if (!t) return;
     let i = 0;
     while (i < t.length) {
       const seq = readEmojiSequence(t, i, index);
       if (seq) {
-        keys.add(seq.key);
+        emojiKeys.add(seq.key);
+        // Also add each emoji codepoint to the font subset as a
+        // last-resort fallback: if Twemoji rasterization fails at
+        // runtime, drawMixed routes the codepoints through the font.
+        // Without the subset containing them, the glyphs get stripped
+        // entirely (invisible reactions) rather than rendering as
+        // visible tofu boxes. Tofu is ugly; invisible is a bug.
+        let j = i;
+        const end = i + seq.len;
+        while (j < end) {
+          const cp = t.codePointAt(j);
+          if (cp !== undefined) codepoints.add(cp);
+          j += cp !== undefined && cp > 0xFFFF ? 2 : 1;
+        }
         i += seq.len;
-      } else {
-        const cp = t.codePointAt(i);
-        i += (cp !== undefined && cp > 0xFFFF) ? 2 : 1;
+        continue;
       }
+      const cp = t.codePointAt(i);
+      if (cp !== undefined) codepoints.add(cp);
+      i += (cp !== undefined && cp > 0xFFFF) ? 2 : 1;
     }
   };
+  // Header fields: title + "N messages" suffix.
+  visit(meta.title);
+  visit(meta.timeRange as string | undefined);
+  // Per-message text fields. Kept in sync with renderMessage's reads.
   for (const m of messages) {
     visit(m.text);
     visit(m.author);
@@ -450,48 +523,148 @@ function collectEmojiKeys(messages: ExportMessage[], index: Set<string>): Set<st
     visit(m.replyTo?.author);
     visit(m.forwarded?.originalAuthor);
     visit(m.forwarded?.originalText);
-    if (Array.isArray(m.reactions)) for (const r of m.reactions) visit(r.emoji);
-    if (Array.isArray(m.attachments)) for (const a of m.attachments) visit(a.label || '');
+    if (Array.isArray(m.reactions)) {
+      for (const r of m.reactions) {
+        visit(r.emoji);
+        if (r.reactors) for (const reactor of r.reactors) visit(reactor.name);
+      }
+    }
+    if (Array.isArray(m.attachments)) {
+      for (const a of m.attachments) visit(a.label || '');
+    }
   }
-  return keys;
+  // Literal strings renderMessage stamps on the page that users don't
+  // type. Covering them here ensures the subset always has glyphs for
+  // the scaffolding even if the conversation is, say, emoji-only.
+  visit('[unknown]');
+  visit('[URGENT]');
+  visit('[IMPORTANT]');
+  visit('(edited)');
+  visit('[forwarded from ]');
+  visit('[attachment] ');
+  visit('Subject: ');
+  visit('Teams Chat Export');
+  visit('messages');
+  visit('> ');
+  visit('…');
+  // Digits + space + slash for the page-number footer.
+  for (const ch of PAGE_NUMBER_CODEPOINTS) codepoints.add(ch.codePointAt(0)!);
+  return { emojiKeys, codepoints };
 }
 
-// Rasterize a Twemoji SVG to PNG bytes via OffscreenCanvas + createImageBitmap.
-// Both APIs are available in MV3 service workers (Chromium 2020+, Firefox 113+).
+// Rasterize a Twemoji SVG to PNG bytes via OffscreenCanvas +
+// createImageBitmap. Works in MV3 service workers on Chromium 2020+
+// and Firefox 113+.
+//
+// Twemoji SVGs carry only `viewBox="0 0 36 36"` with no width/height
+// attributes. Firefox's createImageBitmap silently fails to rasterize
+// such "viewport-only" SVGs even when resizeWidth/Height are passed —
+// the returned bitmap is a 0×0 phantom that draws as transparent,
+// producing tofu boxes in the final PDF. Fix: fetch as text, inject
+// explicit width + height attributes, then hand the fixed string to
+// createImageBitmap. Chromium works either way; Firefox only works
+// with the sized version.
 async function rasterizeTwemoji(key: string): Promise<Uint8Array | null> {
   try {
     const url = chrome.runtime.getURL(`twemoji/${key}.svg`);
     const resp = await fetch(url);
-    if (!resp.ok) return null;
-    const svgBlob = await resp.blob();
-    const bitmap = await createImageBitmap(svgBlob, {
-      resizeWidth: EMOJI_RASTER_PX,
-      resizeHeight: EMOJI_RASTER_PX,
-      resizeQuality: 'high',
+    if (!resp.ok) {
+      console.warn(`[pdf] Twemoji ${key}: fetch failed HTTP ${resp.status}`);
+      return null;
+    }
+    let svgText = await resp.text();
+    // Stamp width/height onto the root <svg> tag. If they're already
+    // present (later Twemoji revisions may add them), this replacement
+    // is idempotent — the regex matches any first <svg attributes.
+    svgText = svgText.replace(/<svg\b([^>]*)>/i, (_m, attrs: string) => {
+      const stripped = attrs
+        .replace(/\s+width="[^"]*"/i, '')
+        .replace(/\s+height="[^"]*"/i, '');
+      return `<svg${stripped} width="${EMOJI_RASTER_PX}" height="${EMOJI_RASTER_PX}">`;
     });
-    const canvas = new OffscreenCanvas(EMOJI_RASTER_PX, EMOJI_RASTER_PX);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    ctx.drawImage(bitmap, 0, 0);
-    const pngBlob = await canvas.convertToBlob({ type: 'image/png' });
-    const buf = await pngBlob.arrayBuffer();
-    return new Uint8Array(buf);
-  } catch {
+
+    // Firefox MV2 background has a DOM (window.Image, HTMLImageElement),
+    // and its SVG rendering through <img> is more reliable than
+    // createImageBitmap on svg blobs — which has a long tail of
+    // viewport-inference bugs. Prefer the DOM path when available.
+    const png = (typeof Image !== 'undefined' && typeof document !== 'undefined')
+      ? await rasterizeViaImage(svgText)
+      : await rasterizeViaImageBitmap(svgText);
+    if (!png) {
+      console.warn(`[pdf] Twemoji ${key}: rasterize returned null`);
+      return null;
+    }
+    return png;
+  } catch (err) {
+    console.warn(`[pdf] Twemoji ${key}: rasterize threw`, err);
     return null;
   }
 }
 
+// DOM-backed rasterization path. Only valid in contexts with an HTML
+// document (Firefox MV2 background, or future popup contexts). Loads
+// the SVG into an Image via data URL, draws into an OffscreenCanvas,
+// and exports PNG bytes. Canvas is detached from DOM; only the Image
+// needs to live long enough to reach the 'load' event.
+async function rasterizeViaImage(svgText: string): Promise<Uint8Array | null> {
+  const dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgText)));
+  const img = new Image();
+  img.width = EMOJI_RASTER_PX;
+  img.height = EMOJI_RASTER_PX;
+  const loaded = new Promise<boolean>(resolve => {
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+  });
+  img.src = dataUrl;
+  const ok = await loaded;
+  if (!ok) return null;
+  const canvas = new OffscreenCanvas(EMOJI_RASTER_PX, EMOJI_RASTER_PX);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  try {
+    ctx.drawImage(img, 0, 0, EMOJI_RASTER_PX, EMOJI_RASTER_PX);
+  } catch {
+    return null;
+  }
+  const pngBlob = await canvas.convertToBlob({ type: 'image/png' });
+  return new Uint8Array(await pngBlob.arrayBuffer());
+}
+
+// Service-worker (Chrome MV3) rasterization path. createImageBitmap
+// is the only async image loader available in that context. Firefox
+// bug note: without resizeWidth/resizeHeight, createImageBitmap on an
+// SVG blob can return a 0×0 phantom that draws as transparent. The
+// resize options pre-allocate a fixed target so the decoder can't
+// silently skip sizing.
+async function rasterizeViaImageBitmap(svgText: string): Promise<Uint8Array | null> {
+  const svgBlob = new Blob([svgText], { type: 'image/svg+xml' });
+  const bitmap = await createImageBitmap(svgBlob, {
+    resizeWidth: EMOJI_RASTER_PX,
+    resizeHeight: EMOJI_RASTER_PX,
+    resizeQuality: 'high',
+  });
+  if (bitmap.width === 0 || bitmap.height === 0) {
+    bitmap.close?.();
+    return null;
+  }
+  const canvas = new OffscreenCanvas(EMOJI_RASTER_PX, EMOJI_RASTER_PX);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(bitmap, 0, 0, EMOJI_RASTER_PX, EMOJI_RASTER_PX);
+  bitmap.close?.();
+  const pngBlob = await canvas.convertToBlob({ type: 'image/png' });
+  return new Uint8Array(await pngBlob.arrayBuffer());
+}
+
 // Populate the emoji image cache for every key actually used in this
 // export, in parallel. Failed/missing keys are cached as null so the
-// rendering pass skips them without retrying.
-async function prewarmTwemoji(
+// rendering pass skips them without retrying. Keys come from scanDocument.
+async function prewarmTwemojiKeys(
   doc: PDFDocument,
   cache: AssetCache,
-  messages: ExportMessage[],
+  keys: Set<string>,
 ): Promise<void> {
-  const index = await loadTwemojiManifest();
-  if (!index.size) return;
-  const keys = collectEmojiKeys(messages, index);
+  if (!keys.size) return;
   await Promise.all(Array.from(keys).map(async key => {
     if (cache.twemoji.has(key)) return;
     const bytes = await rasterizeTwemoji(key);
@@ -688,6 +861,70 @@ function safeWidthOf(text: string, weight: PreferredWeight, ctx: TextCtx, size: 
   return w;
 }
 
+// Attach a clickable link annotation to the given rectangle on a
+// page. pdf-lib doesn't expose a high-level helper for this, so we
+// build the annotation dict directly against the document's low-level
+// object graph. Rect coords are in PDF user space (origin bottom-left).
+function addLinkAnnotation(
+  page: PDFPage,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  url: string,
+) {
+  const ctx = page.doc.context;
+  const actionDict = ctx.obj({
+    Type: 'Action',
+    S: 'URI',
+    URI: PDFString.of(url),
+  });
+  const annotDict = ctx.obj({
+    Type: 'Annot',
+    Subtype: 'Link',
+    Rect: [x1, y1, x2, y2],
+    Border: [0, 0, 0],
+    A: actionDict,
+  });
+  const annotRef = ctx.register(annotDict);
+  const annotsKey = PDFName.of('Annots');
+  const existing = page.node.get(annotsKey);
+  if (existing instanceof PDFArray) {
+    existing.push(annotRef);
+  } else {
+    page.node.set(annotsKey, ctx.obj([annotRef]));
+  }
+}
+
+// Scan a rendered text line for URLs and register link annotations
+// for each one. Uses String.matchAll under the hood so we can iterate
+// without mutating regex state. Skips URL substrings that don't begin
+// with http(s):// (e.g. the tail half of a URL that got wrapped to a
+// second line — annotating partial URLs would misdirect the click).
+function addLinkAnnotationsForLine(
+  page: PDFPage,
+  line: string,
+  x: number,
+  y: number,
+  size: number,
+  weight: PreferredWeight,
+  ctx: TextCtx,
+) {
+  for (const m of line.matchAll(URL_RE)) {
+    const raw = m[0];
+    const url = trimTrailingPunct(raw);
+    if (!url) continue;
+    const prefix = line.slice(0, m.index ?? 0);
+    const prefixW = safeWidthOf(prefix, weight, ctx, size);
+    const urlW = safeWidthOf(url, weight, ctx, size);
+    const x1 = x + prefixW;
+    const x2 = x1 + urlW;
+    // 1pt of space below baseline catches descenders; top goes to y+size
+    // so the hit area roughly matches the glyph cap height.
+    addLinkAnnotation(page, x1, y - 1, x2, y + size, url);
+  }
+}
+
 // Draw text+emoji at (x,y). Text runs go through drawText; emoji runs
 // draw an inline PDFImage scaled to `size`. The image's baseline is
 // set so the visual center aligns roughly with the x-height of the
@@ -745,11 +982,17 @@ function drawLines(
   color: Color,
   leading: number,
   indent = 0,
+  opts?: { links?: boolean },
 ) {
+  const linkify = opts?.links === true;
   for (const line of lines) {
     ensureSpace(cursor, leading);
     cursor.y -= leading;
-    drawMixed(cursor.page, line, ctx.layout.textColX + indent, cursor.y, size, weight, ctx, color);
+    const lineX = ctx.layout.textColX + indent;
+    drawMixed(cursor.page, line, lineX, cursor.y, size, weight, ctx, color);
+    if (linkify && line.includes('http')) {
+      addLinkAnnotationsForLine(cursor.page, line, lineX, cursor.y, size, weight, ctx);
+    }
   }
 }
 
@@ -865,7 +1108,7 @@ async function renderMessage(
     const who = m.replyTo.author ? `${m.replyTo.author}: ` : '';
     const truncated = m.replyTo.text.length > 200 ? m.replyTo.text.slice(0, 200) + '…' : m.replyTo.text;
     const quote = `> ${who}${truncated}`;
-    drawLines(cursor, wrapText(quote, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.textWidth - 12), 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta, 12);
+    drawLines(cursor, wrapText(quote, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.textWidth - 12), 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta, 12, { links: true });
   }
 
   if (m.forwarded?.originalAuthor) {
@@ -874,7 +1117,7 @@ async function renderMessage(
     drawLines(cursor, wrapText(fwd, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.textWidth), 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta);
     if (m.forwarded.originalText) {
       const truncated = m.forwarded.originalText.length > 300 ? m.forwarded.originalText.slice(0, 300) + '…' : m.forwarded.originalText;
-      drawLines(cursor, wrapText(truncated, 'regular', ctx, ctx.layout.sizeBody, ctx.layout.textWidth - 12), 'regular', ctx, ctx.layout.sizeBody, COLOR_BODY, ctx.layout.leadBody, 12);
+      drawLines(cursor, wrapText(truncated, 'regular', ctx, ctx.layout.sizeBody, ctx.layout.textWidth - 12), 'regular', ctx, ctx.layout.sizeBody, COLOR_BODY, ctx.layout.leadBody, 12, { links: true });
     }
   }
 
@@ -886,7 +1129,7 @@ async function renderMessage(
   const text = (m.text || '').replace(/\r\n/g, '\n');
   if (text) {
     cursor.y -= 2;
-    drawLines(cursor, wrapText(text, 'regular', ctx, ctx.layout.sizeBody, ctx.layout.textWidth), 'regular', ctx, ctx.layout.sizeBody, COLOR_BODY, ctx.layout.leadBody);
+    drawLines(cursor, wrapText(text, 'regular', ctx, ctx.layout.sizeBody, ctx.layout.textWidth), 'regular', ctx, ctx.layout.sizeBody, COLOR_BODY, ctx.layout.leadBody, 0, { links: true });
   }
 
   if (Array.isArray(m.reactions) && m.reactions.length) {
@@ -898,12 +1141,32 @@ async function renderMessage(
   // the image inline. Everything else (non-image types, failed embeds,
   // or images with no dataUrl because downloadImages was off) falls
   // back to a single text line so the user still sees the filename.
+  // When att.href is an http(s) URL, the entire fallback line becomes
+  // a clickable link so the user can jump to the original file.
   if (Array.isArray(m.attachments) && m.attachments.length) {
     for (const att of m.attachments) {
       const drewImage = await tryDrawAttachmentImage(cursor, att, ac);
       if (drewImage) continue;
       const label = att.label || att.href || '[attachment]';
-      drawLines(cursor, wrapText(`[attachment] ${label}`, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.textWidth), 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta);
+      const attLine = `[attachment] ${label}`;
+      const wrapped = wrapText(attLine, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.textWidth);
+      const isHttp = !!(att.href && /^https?:\/\//i.test(att.href));
+      drawLines(cursor, wrapped, 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta);
+      // Attach a link annotation over the single-line case. Multi-line
+      // attachment labels would need per-line baseline tracking through
+      // page breaks, and attachments rarely wrap, so the common case
+      // is enough. The URL is on cursor.page at cursor.y.
+      if (isHttp && att.href && wrapped.length === 1) {
+        const w = safeWidthOf(wrapped[0], 'regular', ctx, ctx.layout.sizeMeta);
+        addLinkAnnotation(
+          cursor.page,
+          ctx.layout.textColX,
+          cursor.y - 1,
+          ctx.layout.textColX + w,
+          cursor.y + ctx.layout.sizeMeta,
+          att.href,
+        );
+      }
     }
   }
 

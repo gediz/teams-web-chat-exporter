@@ -11,24 +11,42 @@
 // PDF builder can answer "is this codepoint-sequence renderable?" in O(1)
 // without one HTTP 404 per unknown character.
 
-import { copyFileSync, mkdirSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
+const require = createRequire(import.meta.url);
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const srcDir = join(repoRoot, 'node_modules', '@twemoji', 'svg');
-const destDir = join(repoRoot, 'src', 'public', 'twemoji');
 
-if (!existsSync(srcDir)) {
-  console.warn(`[vendor-twemoji] ${srcDir} not found — skipping. (Did @twemoji/svg install?)`);
-  process.exit(0);
+// --- Twemoji SVGs ---------------------------------------------------------
+
+const twemojiSrc = join(repoRoot, 'node_modules', '@twemoji', 'svg');
+const twemojiDest = join(repoRoot, 'src', 'public', 'twemoji');
+
+if (existsSync(twemojiSrc)) {
+  mkdirSync(twemojiDest, { recursive: true });
+  const files = readdirSync(twemojiSrc).filter(f => f.endsWith('.svg'));
+  for (const f of files) copyFileSync(join(twemojiSrc, f), join(twemojiDest, f));
+  const keys = files.map(f => f.replace(/\.svg$/, ''));
+  writeFileSync(join(twemojiDest, 'manifest.json'), JSON.stringify(keys));
+  console.log(`[vendor] copied ${files.length} Twemoji SVGs + manifest.json`);
+} else {
+  console.warn(`[vendor] ${twemojiSrc} not found — skipping Twemoji copy`);
 }
 
-mkdirSync(destDir, { recursive: true });
-const files = readdirSync(srcDir).filter(f => f.endsWith('.svg'));
-for (const f of files) {
-  copyFileSync(join(srcDir, f), join(destDir, f));
+// --- HarfBuzz subsetter WASM ---------------------------------------------
+// Copied to the extension so the PDF builder can load it via
+// chrome.runtime.getURL in the service worker. harfbuzzjs itself is
+// just JS bindings — we load the WASM binary at runtime.
+
+try {
+  const hbWasmSrc = require.resolve('harfbuzzjs/hb-subset.wasm');
+  const hbDest = join(repoRoot, 'src', 'public', 'wasm');
+  mkdirSync(hbDest, { recursive: true });
+  copyFileSync(hbWasmSrc, join(hbDest, 'hb-subset.wasm'));
+  const size = statSync(join(hbDest, 'hb-subset.wasm')).size;
+  console.log(`[vendor] copied hb-subset.wasm (${Math.round(size / 1024)} KB)`);
+} catch (err) {
+  console.warn(`[vendor] harfbuzzjs not found — skipping hb-subset.wasm copy: ${err?.message || err}`);
 }
-const keys = files.map(f => f.replace(/\.svg$/, ''));
-writeFileSync(join(destDir, 'manifest.json'), JSON.stringify(keys));
-console.log(`[vendor-twemoji] copied ${files.length} SVGs and wrote manifest.json`);
