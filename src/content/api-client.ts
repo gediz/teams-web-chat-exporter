@@ -383,10 +383,12 @@ export async function discover(skypeToken: string): Promise<{ chatServiceUrl: st
  */
 export async function extractConversationId(): Promise<string | null> {
   // Method 1 (primary): Look up visible data-mid values in IndexedDB
+  let midsCount = 0;
   try {
     const mids = Array.from(document.querySelectorAll('[data-mid]'))
       .map(el => el.getAttribute('data-mid'))
       .filter(Boolean) as string[];
+    midsCount = mids.length;
 
     if (mids.length > 0) {
       const convId = await lookupConversationInIdb(mids);
@@ -414,24 +416,40 @@ export async function extractConversationId(): Promise<string | null> {
                    chatPane?.getAttribute('data-conversation-id');
   if (threadId) return threadId;
 
+  // All three methods exhausted. Log the state so the next failure is
+  // diagnosable without the user having to reproduce under devtools.
+  console.log('[API] extractConversationId exhausted all methods.', {
+    visibleDataMids: midsCount,
+    hasMessagePane: !!chatPane,
+    url: window.location.href,
+    hash: window.location.hash,
+  });
   return null;
 }
 
 /** Look up which conversation owns the given message IDs via IndexedDB. */
 async function lookupConversationInIdb(mids: string[]): Promise<string | null> {
   // indexedDB.databases() is not available in Firefox < 126
-  if (typeof indexedDB.databases !== 'function') return null;
+  if (typeof indexedDB.databases !== 'function') {
+    console.log('[API] indexedDB.databases() not available');
+    return null;
+  }
   const databases = await indexedDB.databases();
   // The DB name carries tenant/user/locale suffixes; match the manager prefix and
   // exclude streams-replychain-manager which is a different store.
   const rcDb = databases.find(d =>
     d.name?.includes('replychain-manager:react-web-client') && !d.name.includes('streams-')
   );
-  if (!rcDb?.name) return null;
+  if (!rcDb?.name) {
+    console.log('[API] replychain-manager DB not found; candidates:',
+      databases.map(d => d.name).filter(Boolean));
+    return null;
+  }
 
   return new Promise((resolve) => {
     const req = indexedDB.open(rcDb.name!);
-    req.onerror = () => resolve(null);
+    req.onerror = () => { console.log('[API] IDB open onerror for', rcDb.name); resolve(null); };
+    req.onblocked = () => { console.log('[API] IDB open onblocked for', rcDb.name); resolve(null); };
     req.onsuccess = (e) => {
       const db = (e.target as IDBOpenDBRequest).result;
       try {
@@ -485,10 +503,17 @@ async function lookupConversationInIdb(mids: string[]): Promise<string | null> {
             }
           }
 
+          console.log('[API] IDB lookup: no match across',
+            records.length, 'records for',
+            mids.length, 'visible data-mid(s); sample mid:', mids[0]);
           db.close();
           resolve(null);
         };
-        getAll.onerror = () => { db.close(); resolve(null); };
+        getAll.onerror = () => {
+          console.log('[API] IDB getAll error for replychains store');
+          db.close();
+          resolve(null);
+        };
       } catch {
         db.close();
         resolve(null);
