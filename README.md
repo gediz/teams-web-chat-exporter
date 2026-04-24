@@ -8,16 +8,18 @@ Supports Chrome, Edge, and Firefox. Works with commercial, GCC High, and MCAS-pr
 
 ## What it exports
 
-- Formats: JSON, CSV, HTML, TXT
+- Formats: JSON, CSV, HTML, TXT, PDF (pick any one, or several together — multi-format runs are packaged as a single `bundle.zip`)
 - Sources: chat conversations and team channels
 - Date range filtering
 - Toggleable per export: replies, reactions, system messages, avatars, inline images
 
-Every message includes text, timestamp, and author. Forwarded messages, mentions, and file metadata (name, type, size, link) are captured where the format supports it. Files themselves are not downloaded.
+Every message includes text, timestamp, and author. Forwarded messages, mentions, reactions (with reactor names when available), and file metadata (name, type, size, link) are captured where the format supports it. Files themselves are not downloaded.
 
-When the inline images option is enabled for HTML format, images, GIFs, and audio (voice messages) are embedded in the output. Video thumbnails are embedded but the video itself is only linked. The output is a zip containing the HTML file and an images folder. For other formats, only the URLs are kept.
+Inline images, GIFs, and audio (voice messages) are embedded when the "Inline images" toggle is on. HTML embeds them via `<img src="data:...">` by default; Settings → Avatars in HTML → "Save as separate files" switches HTML output to a `.zip` that contains the HTML file plus `images/` and `avatars/` folders. PDF always embeds inline image attachments it can decode (PNG, JPEG) and rasterized Twemoji for emoji. Video thumbnails are embedded across formats; the video file itself is only linked.
 
-HTML and JSON include the richest data. CSV and TXT include the basics.
+HTML and JSON include the richest data. PDF offers a page-ready layout with colour emoji, clickable URLs, and avatars. CSV and TXT include the basics.
+
+Exports completed in the session are listed on the History page inside the popup, where you can re-open the saved file or show it in its folder.
 
 ## How it works
 

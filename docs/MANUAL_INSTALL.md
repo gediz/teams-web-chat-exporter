@@ -7,17 +7,19 @@ Use this when testing from source or from release files.
 ### 1) Install dependencies
 
 ```bash
-npm install
+pnpm install
 ```
+
+If you don't have pnpm yet, `npm install -g pnpm` or Corepack (`corepack enable && corepack prepare pnpm@latest --activate`) both work.
 
 ### 2) Build the target you need
 
 ```bash
 # Chrome/Edge
-npm run build
+pnpm build
 
 # Firefox
-npm run build:firefox
+pnpm build:firefox
 ```
 
 ## Load in Chrome / Edge

@@ -8,14 +8,15 @@
 
 - [ ] Tested in Chrome
 - [ ] Tested in Firefox
-- [ ] `npm run check` passes
-- [ ] `npm run build` passes
+- [ ] `pnpm check` passes
+- [ ] `pnpm build` passes
+- [ ] `pnpm build:firefox` passes
 
 ## Checklist
 
 - [ ] No new `any` types (use `unknown` if needed)
 - [ ] New UI strings added to all 24 locale files (if applicable)
-- [ ] No console.log or debugging code left in
+- [ ] No stray `console.log` or debugging code left in
 
 ## Screenshots
 

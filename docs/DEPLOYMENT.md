@@ -9,12 +9,12 @@
 
 ```bash
 # Build
-npm run build
-npm run build:firefox
+pnpm build
+pnpm build:firefox
 
 # Zip packages
-npm run zip
-npm run zip:firefox
+pnpm zip
+pnpm zip:firefox
 ```
 
 ## Version update
@@ -26,9 +26,9 @@ Update version in both files before release:
 
 ## Store uploads
 
-- Chrome Web Store: upload Chrome zip (`npm run zip` output)
+- Chrome Web Store: upload Chrome zip (`pnpm zip` output)
 - Edge Add-ons: use same Chrome zip
-- Firefox Add-ons (AMO): upload Firefox zip (`npm run zip:firefox` output)
+- Firefox Add-ons (AMO): upload Firefox zip (`pnpm zip:firefox` output)
 
 ## AMO reviewer notes
 
@@ -36,11 +36,11 @@ If Firefox review asks for build steps or data collection info, paste this:
 
 ```
 Source: https://github.com/gediz/teams-web-chat-exporter
-Requires: Node.js LTS, npm
+Requires: Node.js 24+, pnpm 10+
 
 Build steps:
-1. npm install
-2. npm run build:firefox
+1. pnpm install
+2. pnpm build:firefox
 3. Output: .output/firefox-mv2/
 
 Data collection: None. The extension reads messages from the Teams Chat Service
@@ -51,10 +51,10 @@ to the extension developer.
 
 ## Release checklist
 
-1. Update versions.
-2. Run `npm run check`.
-3. Build both targets.
-4. Create both zip packages.
+1. Update versions in both `package.json` and `wxt.config.ts`.
+2. Run `pnpm check`.
+3. Build both targets (`pnpm build` and `pnpm build:firefox`).
+4. Create both zip packages (`pnpm zip` and `pnpm zip:firefox`).
 5. Verify install in target browsers.
 6. Upload to stores.
 7. Tag and publish release notes.
