@@ -81,10 +81,6 @@ export type FetchBlobRequest = {
   maxBytes?: number;
   minBytes?: number;
 };
-export type FetchBlobResponse =
-  | { ok: true; dataUrl: string; size: number }
-  | { ok: false; cancelled?: boolean; status?: number; statusText?: string; error?: string; sizeReason?: number };
-
 export type StopExportRequest = { type: 'STOP_EXPORT'; tabId?: number | null };
 export type StopExportResponse = { ok: boolean; error?: string };
 
@@ -92,14 +88,6 @@ export type StopExportResponse = { ok: boolean; error?: string };
 // calling chrome.downloads.open / .show directly. Routing through the
 // service worker broke the user-activation requirement on downloads.open
 // in MV3. See openSavedDownload in App.svelte.
-
-// Ask the content script for the current Teams conversation id. Sent to a
-// specific tab via `chrome.tabs.sendMessage` (not runtime.sendMessage), since
-// the response depends on per-tab DOM/IndexedDB state.
-// Returns `null` when the page isn't showing a conversation yet (e.g. Teams
-// landing) or when extraction fails.
-export type GetConvIdRequest = { type: 'GET_CONV_ID' };
-export type GetConvIdResponse = { convId: string | null };
 
 // Ask the content script to fetch the user's conversation list via the
 // Teams chat service API. Popup uses the result to populate its picker.
@@ -154,7 +142,6 @@ export type BackgroundIncomingMessage =
   | FetchBlobRequest
   | ListConversationsRequest
   | ListConversationsQuickRequest;
-export type PopupIncomingMessage = ExportStatusMessage | ScrapeProgressMessage;
 
 export type RuntimeResponse<T extends RuntimeRequest> =
   T extends PingSWRequest ? PingSWResponse :

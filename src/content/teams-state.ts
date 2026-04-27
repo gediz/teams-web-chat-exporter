@@ -111,20 +111,6 @@ async function findTeamsDbs(prefix: string): Promise<{ name: string; version: nu
   } catch { return []; }
 }
 
-/** Pick the most-relevant DB from a candidate list. We prefer a name
- *  matching the navigator's user-region locale, then any match. */
-function pickPreferredDb(dbs: { name: string }[]): string | null {
-  if (dbs.length === 0) return null;
-  const lang = (navigator.language || 'en-us').toLowerCase();
-  const exact = dbs.find(d => d.name.toLowerCase().endsWith(`:${lang}`));
-  if (exact) return exact.name;
-  // Fall back to language-only prefix (e.g. "en-gb" matches "en")
-  const langOnly = lang.split('-')[0];
-  const partial = dbs.find(d => d.name.toLowerCase().endsWith(`:${langOnly}-${langOnly === 'en' ? 'us' : langOnly}`));
-  if (partial) return partial.name;
-  return dbs[0].name;
-}
-
 /** Open a database read-only. Returns null on any failure. */
 function openDbRO(name: string): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {

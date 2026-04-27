@@ -5,7 +5,7 @@
  * used by the extension's builders (JSON, CSV, HTML, TXT).
  */
 
-import type { ExportMessage, ExportMeta, ForwardContext, Reaction, ReactorInfo, Attachment, ReplyContext, ScrapeOptions, RecordingDetails } from '../types/shared';
+import type { ExportMessage, ForwardContext, Reaction, ReactorInfo, Attachment, ReplyContext, ScrapeOptions, RecordingDetails } from '../types/shared';
 import type { TeamsApiMessage } from './api-client';
 
 // ── Reaction Emoji Map ─────────────────────────────────────────────────
@@ -1247,20 +1247,3 @@ function pairRecordingsWithMeetings(messages: ExportMessage[], apiMessages: Team
   }
 }
 
-/**
- * Build ExportMeta from API messages and conversation info.
- */
-export function buildApiMeta(
-  messages: ExportMessage[],
-  title: string | null,
-  opts: ScrapeOptions,
-): ExportMeta {
-  const first = messages[0];
-  const last = messages[messages.length - 1];
-  return {
-    title,
-    startAt: first?.timestamp || opts.startAtISO || null,
-    endAt: last?.timestamp || opts.endAtISO || null,
-    timeRange: null,
-  };
-}

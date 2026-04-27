@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 import { defineContentScript } from 'wxt/sandbox';
-import { $, $$ } from '../utils/dom';
+import { $ } from '../utils/dom';
 import { makeDayDivider as buildDayDivider } from '../utils/messages';
 import { cssEscape, isPlaceholderText, textFrom } from '../utils/text';
 import { formatElapsed, parseTimeStamp } from '../utils/time';
@@ -12,9 +12,9 @@ import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scr
 import { extractChatTitle, extractChannelTitle } from '../content/title';
 import { extractAvatarId } from '../utils/avatars';
 import { TEAMS_MATCH_PATTERNS } from '../utils/teams-urls';
-import { apiScrape, discover, extractConversationId, getCurrentUserUuid, getGraphToken, getIc3Token, getSkypeToken, listConversationsFromIdb, listConversationsFromIdbQuick } from '../content/api-client';
-import { convertApiMessages, buildApiMeta } from '../content/api-converter';
-import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ReplyContext, ScrapeOptions } from '../types/shared';
+import { apiScrape, discover, extractConversationId, getGraphToken, getIc3Token, getSkypeToken, listConversationsFromIdb, listConversationsFromIdbQuick } from '../content/api-client';
+import { convertApiMessages } from '../content/api-converter';
+import type { AggregatedItem, ExportMessage, OrderContext, ReplyContext, ScrapeOptions } from '../types/shared';
 
 // Typed globals for Firefox builds
 declare const browser: typeof chrome | undefined;

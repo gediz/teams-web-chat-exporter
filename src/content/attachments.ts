@@ -1,7 +1,7 @@
 import type { Attachment } from '../types/shared';
 import { textFrom } from '../utils/text';
 
-export async function extractAttachments(item: Element, body: Element): Promise<Attachment[]> {
+export async function extractAttachments(_item: Element, body: Element): Promise<Attachment[]> {
   const map = new Map<string, Attachment>();
   const pending: Promise<void>[] = [];
   const fetchCache = new Map<string, Promise<string | null>>();

@@ -1,6 +1,6 @@
 import { defineBackground } from 'wxt/sandbox';
 import { createBadgeManager } from '../utils/badge';
-import { isTeamsUrl, TEAMS_MATCH_PATTERNS } from '../utils/teams-urls';
+import { isTeamsUrl } from '../utils/teams-urls';
 import {
   buildAndDownload,
   buildAndDownloadBundle,
@@ -12,7 +12,6 @@ import {
   type BundleFailure,
 } from '../background/download';
 import { revokeDownloadUrl, textToDownloadUrl } from '../background/builders';
-import { formatDayLabelForExport, parseTimeStamp } from '../utils/time';
 import { ACTIVE_EXPORTS_STORAGE_KEY, FIRST_INSTALL_STORAGE_KEY, appendHistoryEntry } from '../utils/options';
 import type { BackgroundIncomingMessage } from '../types/messaging';
 import type {
@@ -22,7 +21,6 @@ import type {
   ExportMeta,
   ExportStatusPayload,
   HistoryEntry,
-  Reaction,
   ScrapeOptions,
   ScrapeResult,
 } from '../types/shared';
@@ -44,7 +42,7 @@ const downloads = typeof browser !== 'undefined' ? browser.downloads : chrome.do
 const scripting = typeof browser !== 'undefined' ? browser.scripting : chrome.scripting;
 const storage = typeof browser !== 'undefined' ? browser.storage : chrome.storage;
 const badge = createBadgeManager(action);
-const { set: setBadge, reset: resetBadge, clearSoon: clearBadgeSoon, updateForStatus: updateBadgeForStatus, updateForProgress: updateBadgeForProgress } = badge;
+const { reset: resetBadge, updateForStatus: updateBadgeForStatus, updateForProgress: updateBadgeForProgress } = badge;
 const isFirefox = typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox');
 
 function log(...a: unknown[]) { try { console.log("[Teams Exporter SW]", ...a) } catch { } }

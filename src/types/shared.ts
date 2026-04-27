@@ -195,19 +195,6 @@ export type ExportStatusPayload = {
   bundleFailedCount?: number;
 };
 
-// What the popup shows in the ExportButton's right zone after an export
-// finishes. For 'success', the action buttons render when downloadId is set;
-// otherwise the sticky "primary/secondary" tile falls back.
-export type ExportOutcome = {
-  kind: 'success' | 'cancelled';
-  primary: string;
-  secondary: string;
-  downloadId?: number;
-  // When true, the post-export actions swap roles: 'Show in folder' becomes
-  // the primary action (safer across platforms for .zip).
-  isZip?: boolean;
-};
-
 // One row in the export history. Written on phase='complete'|'cancelled'
 // and rendered by the HistoryPage. Metadata only — no message content,
 // no avatars, no file bytes.

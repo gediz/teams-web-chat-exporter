@@ -717,7 +717,6 @@ function segmentText(
       // Known key but rasterization failed, OR not prewarmed. Skip the
       // whole sequence as raw text runs.
       for (let k = 0; k < seq.len;) {
-        const ch = text[i + k];
         // Preserve surrogate pairs.
         const cp = text.codePointAt(i + k);
         const chLen = cp !== undefined && cp > 0xFFFF ? 2 : 1;

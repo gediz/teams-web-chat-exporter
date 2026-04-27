@@ -4,7 +4,7 @@ import { binaryToDownloadUrl, removeAvatars, revokeDownloadUrl, textToDownloadUr
 // memory for large bundles (see zip.ts comments + take3 OOM trace).
 import { buildPdf } from './pdf';
 import { formatRangeLabel, sanitizeBase } from '../utils/messages';
-import { buildZip, buildZipAsync } from './zip';
+import { buildZipAsync } from './zip';
 import type { Attachment, ExportMessage, ExportMeta } from '../types/shared';
 
 type DownloadsApi = Pick<typeof chrome.downloads, 'download'>;
@@ -237,7 +237,6 @@ function applyInlineImages(messages: ExportMessage[], mode: ImageMode) {
 function prepareMessages(messages: ExportMessage[], meta: ExportMeta, format: BuildExportOptions['format'], embedAvatars: boolean) {
   let processedMessages = messages;
   let enrichedMeta = { ...meta };
-  const avatarMap = meta.avatars || {};
 
   if (embedAvatars && (format === 'json' || format === 'html')) {
     if (format === 'json') {

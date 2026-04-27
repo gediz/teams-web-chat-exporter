@@ -1,66 +1,4 @@
 import type { ExportMessage, ExportMeta, Reaction } from '../types/shared';
-import { extractAvatarId } from '../utils/avatars';
-
-/**
- * Converts avatar HTTP URLs to base64 data URLs for offline viewing.
- * Returns both the converted messages and a map of unique avatars.
- */
-export async function embedAvatarsInRows(rows: ExportMessage[]) {
-  const map = new Map<string, string | null>(); // url -> dataURL|null (if failed)
-  for (const m of rows) {
-    const u = m.avatar;
-    if (!u || u.startsWith('data:')) continue;
-    if (!map.has(u)) {
-      try {
-        const dataUrl = await fetchAsDataURL(u);
-        map.set(u, dataUrl);
-      } catch (err) {
-        console.error(`[Avatar Fetch] FAILED for ${u.substring(0, 100)}...`, err);
-        map.set(u, null);
-      }
-    }
-  }
-  const converted = rows.map(m => {
-    const u = m.avatar;
-    if (!u || u.startsWith('data:')) return m;
-    const inlined = map.get(u);
-    return { ...m, avatar: inlined || null };
-  });
-  return { messages: converted, avatarMap: map };
-}
-
-/**
- * Normalizes avatars by moving them to a meta.avatars map with IDs.
- * Returns messages with avatarId instead of avatar URL.
- */
-export function normalizeAvatars(messages: ExportMessage[], avatarMap: Map<string, string | null>) {
-  const avatars: Record<string, string> = {};
-  const urlToId = new Map<string, string>();
-
-  // Build avatars map with stable IDs
-  avatarMap.forEach((dataUrl, url) => {
-    if (dataUrl) {
-      const id = extractAvatarId(url);
-      avatars[id] = dataUrl;
-      urlToId.set(url, id);
-    }
-  });
-
-  // Replace avatar URLs with avatarId references
-  const normalized = messages.map(m => {
-    if (!m.avatar) return m;
-    const id = urlToId.get(m.avatar);
-    if (id) {
-      const { avatar, ...rest } = m;
-      return { ...rest, avatarId: id };
-    }
-    // If avatar failed to convert, remove it
-    const { avatar, ...rest } = m;
-    return rest;
-  });
-
-  return { messages: normalized, avatars };
-}
 
 /**
  * Removes avatar data entirely from messages.
@@ -71,18 +9,6 @@ export function removeAvatars(messages: ExportMessage[]) {
     const { avatar, avatarId, ...rest } = m;
     return rest;
   });
-}
-
-async function fetchAsDataURL(url: string) {
-  const res = await fetch(url, { credentials: 'include' });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const buf = await res.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  const b64 = btoa(bin);
-  const ct = res.headers.get('content-type') || 'image/png';
-  return `data:${ct};base64,${b64}`;
 }
 
 export function toCSV(messages: ExportMessage[]) {
@@ -221,7 +147,6 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     }
     return formatWithQuotes(raw);
   };
-  const initials = (name = '') => (name.trim().split(/\s+/).map(p => p[0]).join('').slice(0, 2) || '?');
   const avatarMap = meta.avatars || {};
   const safeCssId = (id: string) => id.replace(/[^a-zA-Z0-9_-]/g, '');
 

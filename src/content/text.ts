@@ -1,5 +1,3 @@
-import { textFrom } from '../utils/text';
-
 // Extract text including emojis (IMG alt) and preserve basic block breaks.
 export function extractTextWithEmojis(root: Element | null): string {
   if (!root) return '';
@@ -195,9 +193,4 @@ export function normalizeMentions(root: Element) {
     }
     wrapper.replaceWith(replacement);
   }
-}
-
-// Fallbacks for reply headers use this to grab text.
-export function textFromHeading(heading: Element | null): string {
-  return textFrom(heading);
 }

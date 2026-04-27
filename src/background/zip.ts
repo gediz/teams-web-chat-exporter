@@ -1,19 +1,6 @@
-import { Zip, ZipDeflate, zipSync } from 'fflate';
+import { Zip, ZipDeflate } from 'fflate';
 
 type ZipFile = { path: string; data: Uint8Array };
-
-function entriesFromFiles(files: ZipFile[]): Record<string, Uint8Array> {
-  const entries: Record<string, Uint8Array> = {};
-  for (const file of files) {
-    const path = file.path.replace(/\\/g, '/');
-    entries[path] = file.data;
-  }
-  return entries;
-}
-
-export function buildZip(files: ZipFile[]) {
-  return zipSync(entriesFromFiles(files));
-}
 
 // Files whose bytes are already compressed (PDF streams, JPEG/PNG/WebP,
 // nested zips, MP3/MP4/WebM audio-video, gzipped archives). Re-deflating
@@ -28,10 +15,9 @@ function pickLevel(path: string): 0 | 6 {
 }
 
 /**
- * Async sister of buildZip. Use for large bundles (multi-chat outer zip,
- * any single zip > ~50 MB). Yields to the event loop between every file
- * so the SW thread isn't pinned for many seconds straight, which would
- * freeze any popup that's open.
+ * Async, streaming zip builder. Yields to the event loop between every
+ * file so the SW thread isn't pinned for many seconds straight, which
+ * would freeze any popup that's open.
  *
  * Returns a Blob, NOT a Uint8Array. This is load-bearing for large
  * bundles: a contiguous Uint8Array of the final zip bytes (followed by

@@ -1,4 +1,4 @@
-import type { AggregatedItem, Attachment, ExportMessage } from '../types/shared';
+import type { AggregatedItem } from '../types/shared';
 import { formatDayLabelForExport, parseTimeStamp } from './time';
 
 export const makeDayDivider = (dayKey: number, ts: number): AggregatedItem => {
@@ -79,19 +79,6 @@ export const formatRangeLabel = (startISO?: string | null, endISO?: string | nul
   if (start) return `Since ${start}`;
   if (end) return `Until ${end}`;
   return null;
-};
-
-export const mergeAttachments = (existing: Attachment[] | undefined, next: Attachment[] | undefined): Attachment[] => {
-  const map = new Map<string, Attachment>();
-  const mergeOne = (att: Attachment | undefined) => {
-    if (!att) return;
-    const key = `${att.href || ''}@@${att.label || ''}`;
-    const prev = map.get(key) || {};
-    map.set(key, { ...prev, ...att });
-  };
-  (existing || []).forEach(mergeOne);
-  (next || []).forEach(mergeOne);
-  return Array.from(map.values());
 };
 
 export const ensureMessageTs = (entry: AggregatedItem) => {
