@@ -361,7 +361,7 @@ export async function buildAndDownload(
   const url = textToDownloadUrl(built.content, built.mime);
   try {
     const id = await downloads.download({ url, filename: built.filename, saveAs });
-    setTimeout(() => revokeDownloadUrl(url), 60000);
+    setTimeout(() => revokeDownloadUrl(url), 60_000);
     return { ok: true, filename: built.filename, id };
   } catch (e: any) {
     const safe = `${sanitizeBase('teams-chat')}-${Date.now()}.${format === 'html' ? 'html' : format === 'csv' ? 'csv' : format === 'txt' ? 'txt' : 'json'}`;
@@ -369,7 +369,7 @@ export async function buildAndDownload(
     try {
       const url2 = textToDownloadUrl(built.content, built.mime);
       const id2 = await downloads.download({ url: url2, filename: safe, saveAs });
-      setTimeout(() => URL.revokeObjectURL(url2), 60000);
+      setTimeout(() => URL.revokeObjectURL(url2), 60_000);
       return { ok: true, filename: safe, id: id2 };
     } catch (e2: any) {
       throw new Error(e2?.message || String(e2));

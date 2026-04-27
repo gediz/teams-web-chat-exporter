@@ -1784,10 +1784,14 @@ export default defineContentScript({
 
             let replyTo = opts.includeReplies === false ? null : extractReplyContext(item, body);
 
-            // Timestamp fallback from mid (some mids are ms since epoch)
+            // Timestamp fallback from mid (some mids are ms since epoch).
+            // 1e11 ms ≈ March 1973 — anything smaller can't be a real
+            // Teams message timestamp, so it's a non-timestamp mid we
+            // shouldn't accidentally interpret as a date.
+            const MIN_PLAUSIBLE_MS_TIMESTAMP = 1e11;
             if ((!ts || Number.isNaN(tms)) && mid) {
                 const midMs = Number(mid);
-                if (Number.isFinite(midMs) && midMs > 100000000000) {
+                if (Number.isFinite(midMs) && midMs > MIN_PLAUSIBLE_MS_TIMESTAMP) {
                     tms = midMs;
                     ts = new Date(midMs).toISOString();
                 }

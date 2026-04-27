@@ -51,10 +51,6 @@ export type StartBundleExportResponse = {
   code?: string;
 };
 
-// START_EXPORT_ZIP was removed in the multi-format migration. The popup no
-// longer pre-routes by format; the service worker decides single-file vs
-// HTML.zip vs bundle.zip from `buildOptions.formats` + `downloadImages`.
-
 // Low-level "I have a payload, write a file" entry. Single-format only —
 // multi-format end-user exports go through START_EXPORT (which routes to
 // buildAndDownloadBundle in the SW). If a future caller needs bundle

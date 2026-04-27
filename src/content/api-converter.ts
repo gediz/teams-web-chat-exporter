@@ -8,6 +8,15 @@
 import type { ExportMessage, ForwardContext, Reaction, ReactorInfo, Attachment, ReplyContext, ScrapeOptions, RecordingDetails } from '../types/shared';
 import type { TeamsApiMessage } from './api-client';
 
+// Parse an HTML fragment into a detached, inert <body> for safe traversal.
+// DOMParser produces an inert document, so script tags do not execute,
+// image/video/iframe sources do not trigger network requests, and inline
+// event handlers do not fire. We only ever read structure / textContent
+// from the result; never attach it to the live DOM.
+function parseHtmlFragment(html: string): HTMLElement {
+  return new DOMParser().parseFromString(html, 'text/html').body;
+}
+
 // ── Reaction Emoji Map ─────────────────────────────────────────────────
 
 const REACTION_EMOJI: Record<string, string> = {
@@ -106,8 +115,7 @@ function isSystemMessageType(messageType: string): boolean {
 function htmlToText(html: string): string {
   if (!html) return '';
 
-  const temp = document.createElement('div');
-  temp.innerHTML = html;
+  const temp = parseHtmlFragment(html);
 
   // Remove script/style
   temp.querySelectorAll('script, style').forEach(el => el.remove());
@@ -394,8 +402,7 @@ function resolveForwardAuthor(properties: Record<string, unknown>, mriMap: Map<s
  */
 function extractForwardParts(html: string): { comment: string; forwardedText: string } | null {
   if (!html || !html.includes('schema.skype.com/Forward')) return null;
-  const temp = document.createElement('div');
-  temp.innerHTML = html;
+  const temp = parseHtmlFragment(html);
   const bq = temp.querySelector('blockquote[itemtype*="Forward"]');
   if (!bq) return null;
 
@@ -415,8 +422,7 @@ function extractForwardParts(html: string): { comment: string; forwardedText: st
 function extractReplyFromHtml(html: string): { replyTo: ReplyContext; cleanHtml: string } | null {
   if (!html || !html.includes('<blockquote')) return null;
 
-  const temp = document.createElement('div');
-  temp.innerHTML = html;
+  const temp = parseHtmlFragment(html);
 
   const blockquote = temp.querySelector('blockquote[itemtype*="Reply"], blockquote[itemscope]');
   if (!blockquote) return null;
