@@ -6,21 +6,33 @@
 - [ ] Add unit tests for utility and builder modules.
 - [ ] Add popup UI tests.
 - [ ] Add content-script tests with mocked DOM.
-- [ ] Improve handling when long exports stall (auto-retry / diagnostics hint).
+- [ ] Improve handling when long exports stall (the existing `fetchPageWithRetry` covers transient 403/429/5xx; this would be a separate watchdog for the case where the API keeps returning 200s but no progress is made).
 - [ ] Add participant filtering (export only messages from selected authors).
-- [ ] Add README media (screenshots or GIF).
 - [ ] Add user-configurable image-fetch domain allowlist (currently hardcoded in `src/content/attachments.ts`).
 - [ ] Add user-configurable per-image pixel cap for embedded images (currently the filter drops anything over `4096 * 4096` total pixels in `src/content/attachments.ts`).
-- [ ] Localize PDF timestamps per `options.lang` (currently fixed `YYYY-MM-DD HH:MM`). Small — use `Intl.DateTimeFormat` with the user's lang.
+- [ ] Localize PDF timestamps per `options.lang` (currently fixed `YYYY-MM-DD HH:MM`). Use `Intl.DateTimeFormat` with the user's lang.
 - [ ] Shrink CJK coverage further. Runtime HarfBuzz subsetting already trims the bundled `NotoSansSC` per-export; open question is whether to ship a smaller CJK base font or fetch glyphs on demand for users who never export CJK content.
-- [ ] Native-speaker review pass over the 22 non-English, non-Turkish locales (they're at full parity but translations are my own, not native).
+- [ ] Native-speaker review pass over the 22 non-English, non-Turkish locales (they're at full parity but translations are AI-assisted, not native).
 - [ ] TXT format silently drops attachment markers — image-only messages render as blank lines. Add a placeholder so users know the message had content.
 - [ ] Optional advanced setting to expose `MutedChats` system folder in the picker rail (the only system folder that adds new filtering not covered by the kind tabs).
 - [ ] Layer B chunking inside `toHTML` / `toCSV` / `toPlainText` if heavy single-format exports show popup-stall symptoms after the v1.4 between-format yields.
 
 ## Done
 
-- [x] **v1.4** Conversation picker — IDB-source list, kind + folder rail filter (P1), persistence for both axes, smart IDB-diff refresh.
+### Post-v1.4 fixes (on `main`, unreleased at time of writing)
+
+- [x] **Outer-zip OOM fix.** `buildZipAsync` now resolves a `Blob` constructed directly from the chunk array; downloads consume the Blob via `URL.createObjectURL`. The previous contiguous-`Uint8Array` finalize plus `new Blob([uint8])` in `binaryToDownloadUrl` doubled peak memory at the worst moment and blew Firefox's allocation cap on a 2.5 GB / 289-chat bundle. Verified end-to-end on the same workload.
+- [x] **Smart per-extension deflate level.** Already-compressed inputs (`.zip`, `.pdf`, `.jpg`, `.png`, `.gif`, `.webp`, `.mp3`, `.mp4`, `.webm`, `.gz`, `.7z`, `.rar`, `.bz2`, `.xz`) get level 0 (store); raw text gets level 6. Same final size, ~3× faster outer-zip step on real bundles.
+- [x] **Bounded retry on transient 403 / 5xx in `fetchPageWithRetry`.** 3 attempts at 1s / 2s / 4s. The 5-attempt 429 policy is unchanged.
+- [x] **`ScrapeOptions.noDomFallback` for multi-chat bundles.** Bundle iteration sets it per-chat. The content script reports a clean error instead of falling back to DOM scrolling, which would scrape whichever chat is currently visible in the user's tab — not the target chat. Failed chats land in `FAILURES.txt`.
+- [x] **All-failed bundle UX.** When 0 chats succeed, skip the .zip wrapper and save `TeamsExport_bundle_<stamp>_FAILURES.txt` directly. New `HistoryEntry.kind = 'failed'` renders with an amber badge and "all failed" pill in the popup history; Open / Show in folder still work because the file is real on disk.
+- [x] Picker now shows a clear "Open Teams web first" message when the popup opens on a non-Teams tab (instead of the misleading "No matches" empty-state).
+- [x] Auto-default selection (the active chat) seeds at most once per popup open. Once the user touches the selection, later refresh phases never reinstate the original auto-pick.
+- [x] Dead-code cleanup pass: tsc `--noUnusedLocals --noUnusedParameters` + un-export of internal-only symbols + an exports-never-imported scan. ~190 lines net removed across utils, types, and content modules.
+
+### v1.4
+
+- [x] **v1.4** Conversation picker — IDB-source list, kind + folder rail filter (P1), persistence for both axes, smart IDB-diff refresh, bulk-select via head pill dropdown + icon action bar.
 - [x] **v1.4** Multi-chat bundle export — pick N chats, get one outer zip with per-chat folders + `FAILURES.txt` for any chat that errored. Hard-abort on cancel; CPU yield between formats.
 - [x] **v1.4** System-event leak fixed — `ThreadActivity/*` (incl. `JoiningEnabledUpdate`) are now classified as system rather than leaking XML inner-text into TXT/CSV/HTML rows.
 - [x] **v1.4** HTML code-block long-line wrap — `pre.code-block` switched from `white-space: pre` to `pre-wrap` so long commands don't push the page into horizontal scroll.

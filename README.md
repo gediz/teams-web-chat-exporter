@@ -25,7 +25,9 @@ Exports completed in the session are listed on the History page inside the popup
 
 ## How it works
 
-The extension fetches messages through the Teams Chat Service API using your existing session tokens. If the API is unavailable, it falls back to scrolling the Teams web UI and reading messages from the DOM. The result is built into your chosen format and downloaded locally. No data is sent to any third-party server.
+The extension fetches messages through the Teams Chat Service API using your existing session tokens. For single-chat exports, if the API fails, it falls back to scrolling the Teams web UI and reading messages from the DOM. For multi-chat bundles, any chat the API can't reach is recorded in `FAILURES.txt` inside the bundle and the run continues with the remaining chats — DOM fallback is intentionally disabled in bundle mode because it would scrape whichever chat is currently visible in your tab, not the target chat.
+
+The result is built into your chosen format and downloaded locally. No data is sent to any third-party server.
 
 ## Install
 

@@ -246,25 +246,9 @@ function findFields(obj, target, path = '') {
 
 ## Open questions / followups
 
-- **Multi-account**: Teams supports account switching. `selfUuid`
-  in DB names changes; reader must look up the active account.
-- **`tmp.session.*` keys missing in early tab load** — sessionStorage
-  isn't populated until Teams' own boot completes. Brief fall-through
-  to title-DOM still useful as a safety net.
-- **Hidden-chats toggle UX** — currently we show all 290+ entries.
-  Could expose a "Recent only" filter using `lastMessageTimeUtc`.
-- **Folder rail in picker** — we read folder data but don't yet expose
-  it as a filter axis.
-
-## Removal of legacy paths
-
-Once IDB readers ship and stabilise:
-
-- `extractConversationId` in `src/content/api-client.ts` — DOM heuristics
-- `listConversations` (chat-service API path) — IDB version covers it
-- `fetchSingleConversation` — fetch-on-miss workaround, redundant
-- `src/dev/` probe scaffolding + `dev-probe-*.content.ts` entrypoints
-- The `mergeWithExtras` / `discoveredExtras` machinery in App.svelte
+- **Multi-account**: Teams supports account switching. `selfUuid` in DB names changes; reader must look up the active account.
+- **`tmp.session.*` keys missing in early tab load** — sessionStorage isn't populated until Teams' own boot completes. A brief fall-through to a DOM-based reader is still useful as a safety net.
+- **Hidden-chats toggle UX** — currently we show all entries. A "Recent only" filter using `lastMessageTimeUtc` could shorten the list.
 
 ## Reference
 

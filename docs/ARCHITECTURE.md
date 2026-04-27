@@ -94,7 +94,7 @@ src/
 └─────────────┘
 ```
 
-All end-user export runs flow through `START_EXPORT`; the `START_EXPORT_ZIP` message type was removed in the multi-format migration.
+Single-chat export runs go through `START_EXPORT`. Multi-chat bundle runs go through `START_BUNDLE_EXPORT`, which carries an array of conversation IDs and runs the per-chat scrape pipeline serially.
 
 ## Runtime flow
 
@@ -122,6 +122,25 @@ All end-user export runs flow through `START_EXPORT`; the `START_EXPORT_ZIP` mes
    - Multiple formats → `bundle.zip` containing each format side by side, with shared `images/` / `avatars/` folders when relevant.
 8. After a successful download (or cancel) background appends a `HistoryEntry` to `chrome.storage.local` under `teamsExporterHistory` and honors `afterExport: 'show' | 'manual'` to auto-show the file in its folder.
 9. Background sends progress/status updates back to popup via `EXPORT_STATUS` and forwards scrape progress as `EXPORT_PROGRESS`. The current `activeExports` map is mirrored to `teamsExporterActiveExports` in storage so a reopened popup can rehydrate its state without waiting for a message round-trip.
+
+## Multi-chat bundle export
+
+When the picker has 2+ conversations selected, the popup sends `START_BUNDLE_EXPORT` instead of `START_EXPORT`. The background handler runs the per-chat scrape pipeline serially:
+
+1. For each conversation: `requestScrape` runs the same API/DOM logic as a single export, but `ScrapeOptions.noDomFallback = true` is set. This refuses the DOM fallback because DOM scroll always operates on whichever conversation is currently visible in the user's tab — almost never the target conversation in bundle mode.
+2. The API client retries transient `403` and `5xx` responses on a tight budget — 3 attempts at 1s / 2s / 4s — before surfacing the failure (`fetchPageWithRetry` in `src/content/api-client.ts`). `429` keeps its existing 5-attempt policy.
+3. Successful chats accumulate as `BundleEntry` records. Failed chats accumulate as `BundleFailure` records (folder name, conversation id, reason).
+4. After the loop, the bundle is finalized:
+   - Folder name collisions are deduped by `pickBundleFolderName` (appends `(2)`, `(3)`, …).
+   - **All chats failed** (`entries.length === 0`): skip the .zip wrapper. `FAILURES.txt` is saved directly as `TeamsExport_bundle_<stamp>_FAILURES.txt`. The history entry uses `kind: 'failed'`.
+   - **Otherwise**: the outer .zip is built by `buildAndDownloadBundlesZip`. Layout: `TeamsExport_bundle_<stamp>.zip/<chat-folder>/messages.{json,csv,html,txt,pdf}` + per-chat `images/` / `avatars/` folders + a top-level `FAILURES.txt` if any chat failed.
+
+The outer zip pipeline uses `buildZipAsync` from `src/background/zip.ts`, which:
+
+- Resolves a `Blob` constructed directly from the chunk array (no contiguous `Uint8Array` copy + no `new Blob([uint8])` step). For a multi-GB bundle this avoids doubling peak memory at finalize time, which previously caused "allocation size overflow" on Firefox MV2.
+- Picks the per-file deflate level by extension: level 0 (store) for already-compressed inputs (`.zip`, `.pdf`, `.jpg`, `.png`, `.gif`, `.webp`, `.mp3`, `.mp4`, `.webm`, `.gz`, etc.), level 6 for everything else. Same final size as level-6-everywhere; ~3× faster on the outer-zip step.
+- Yields to the event loop with `setTimeout(0)` between every file so the popup stays responsive during long zips.
+- Routes through fflate's streaming `Zip` + `ZipDeflate` classes, never the higher-level `zip()` function. fflate's `zip()` spawns a Web Worker via `blob:` URLs, which Firefox extension CSP forbids.
 
 ## Key data types
 
@@ -199,6 +218,10 @@ Authoritative definition: `ExportMessage` in `src/types/shared.ts`.
   - `teamsExporterHistoryViewedAt` — timestamp used to compute the "new since last visit" count.
   - `teamsExporterLastPage` — `'main' | 'settings' | 'history'`, restored on popup reopen.
   - `teamsExporterActiveExports` — mirror of the background's `activeExports` map so the popup can rehydrate its export-button state on first render without waiting for the `GET_EXPORT_STATUS` round-trip.
+  - `teamsExporterFirstInstalledAt` — install timestamp; gates the post-export rating prompt.
+  - `teamsExporterReviewPrompt` — state of the rating prompt (dismissed / snoozed / etc).
+  - `teamsExporterPickerFolder` — last selected folder filter in the conversation picker.
+  - `teamsExporterPickerKind` — last selected kind filter (`'all' | 'chat' | 'group' | 'meeting' | 'channel'`).
 
 ## Supported Teams environments
 
