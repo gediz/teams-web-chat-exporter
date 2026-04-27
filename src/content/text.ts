@@ -1,3 +1,33 @@
+// Defensive sanitiser for Teams' web-paste alt-text leak. When a user
+// pastes an image from a webpage via right-click -> Copy Image, Teams
+// occasionally copies surrounding HTML attributes into the alt itself.
+// The result looks like:  URL" class="transparent
+// — a closing quote followed by adjacent attribute syntax (class, id,
+// title, style, ...). Truncate at the leak boundary so the user's
+// export doesn't show the broken fragment as message text or as the
+// inline-image label.
+//
+// The match list is restricted to a fixed set of HTML attribute names
+// so legitimate alt text containing quoted phrases (e.g. `she said
+// "hello"`) is left alone — no leak shape, no truncation.
+const ALT_LEAK_PATTERN = /^([^"]+)"\s+(class|id|alt|title|src|href|style|width|height|aria-[\w-]+|data-[\w-]+)\s*=/;
+
+export function cleanAltText(rawAlt: string | null | undefined): string {
+  if (!rawAlt) return '';
+  // Decode the entities most likely to appear when alt comes from raw
+  // HTML (regex-extracted) rather than from Element.getAttribute (which
+  // hands back already-decoded text). Apply the leak detector to the
+  // decoded form so it matches the same way in both call paths.
+  const decoded = rawAlt
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+  const m = decoded.match(ALT_LEAK_PATTERN);
+  return (m ? m[1] : decoded).trim();
+}
+
 // Extract text including emojis (IMG alt) and preserve basic block breaks.
 export function extractTextWithEmojis(root: Element | null): string {
   if (!root) return '';
@@ -17,7 +47,7 @@ export function extractTextWithEmojis(root: Element | null): string {
         return;
       }
       if (tagName === 'IMG') {
-        code += (child.getAttribute('alt') || child.getAttribute('aria-label') || '');
+        code += cleanAltText(child.getAttribute('alt') || child.getAttribute('aria-label'));
         return;
       }
       for (const c of child.childNodes) walkCode(c);
@@ -41,7 +71,7 @@ export function extractTextWithEmojis(root: Element | null): string {
         return;
       }
       if (tag === 'IMG') {
-        buf += (el.getAttribute('alt') || el.getAttribute('aria-label') || '');
+        buf += cleanAltText(el.getAttribute('alt') || el.getAttribute('aria-label'));
         return;
       }
       if (tag === 'CODE') {
@@ -76,7 +106,7 @@ export function extractTextWithEmojis(root: Element | null): string {
       return;
     }
     if (tag === 'IMG') {
-      out += (el.getAttribute('alt') || el.getAttribute('aria-label') || '');
+      out += cleanAltText(el.getAttribute('alt') || el.getAttribute('aria-label'));
       return;
     }
     if (tag === 'CODE') {

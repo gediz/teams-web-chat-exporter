@@ -9,7 +9,12 @@
 - [ ] Improve handling when long exports stall (the existing `fetchPageWithRetry` covers transient 403/429/5xx; this would be a separate watchdog for the case where the API keeps returning 200s but no progress is made).
 - [ ] Add participant filtering (export only messages from selected authors).
 - [ ] Add user-configurable image-fetch domain allowlist (currently hardcoded in `src/content/attachments.ts`).
-- [ ] Add user-configurable per-image pixel cap for embedded images (currently the filter drops anything over `4096 * 4096` total pixels in `src/content/attachments.ts`).
+- [ ] Expose tunable scrape constants in Settings. Currently hardcoded:
+   - `MAX_IMAGE_BYTES = 5 MB` per-image cap (drops oversize embeds; `attachments.ts` and `content.ts`).
+   - `4096 × 4096` per-image pixel cap (`attachments.ts`).
+   - `MAX_PAGES = 500` API pagination ceiling (`api-client.ts`); not tight in practice but could be useful for users with very large channel histories.
+   - DOM-scroll stagnation thresholds (12/20 default, 30/35 for team channels in `content.ts`); slow networks may need higher.
+   These are all defensive defaults today. Surfacing them as advanced settings would let power users tune for very large or media-heavy chats without a code change.
 - [ ] Localize PDF timestamps per `options.lang` (currently fixed `YYYY-MM-DD HH:MM`). Use `Intl.DateTimeFormat` with the user's lang.
 - [ ] Shrink CJK coverage further. Runtime HarfBuzz subsetting already trims the bundled `NotoSansSC` per-export; open question is whether to ship a smaller CJK base font or fetch glyphs on demand for users who never export CJK content.
 - [ ] Native-speaker review pass over the 22 non-English, non-Turkish locales (they're at full parity but translations are AI-assisted, not native).

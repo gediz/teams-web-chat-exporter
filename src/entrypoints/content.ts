@@ -7,7 +7,7 @@ import { formatElapsed, parseTimeStamp } from '../utils/time';
 import { extractAttachments } from '../content/attachments';
 import { extractReactions } from '../content/reactions';
 import { extractReplyContext } from '../content/replies';
-import { extractTables, extractTextWithEmojis, normalizeMentions } from '../content/text';
+import { cleanAltText, extractTables, extractTextWithEmojis, normalizeMentions } from '../content/text';
 import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scroll';
 import { extractChatTitle, extractChannelTitle } from '../content/title';
 import { extractAvatarId } from '../utils/avatars';
@@ -765,7 +765,7 @@ export default defineContentScript({
                 const child = n as Element;
                 const tagName = child.tagName;
                 if (tagName === 'BR') { code += '\n'; return; }
-                if (tagName === 'IMG') { code += (child.getAttribute('alt') || child.getAttribute('aria-label') || ''); return; }
+                if (tagName === 'IMG') { code += cleanAltText(child.getAttribute('alt') || child.getAttribute('aria-label')); return; }
                 for (const c of child.childNodes) walkCode(c);
             };
             walkCode(el);
@@ -826,7 +826,7 @@ export default defineContentScript({
           
               // emojis / inline images
               if (tag === "IMG") {
-                out += (el.getAttribute("alt") || el.getAttribute("aria-label") || "");
+                out += cleanAltText(el.getAttribute("alt") || el.getAttribute("aria-label"));
                 return;
               }
           

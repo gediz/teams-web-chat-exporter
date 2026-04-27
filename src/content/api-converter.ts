@@ -7,6 +7,7 @@
 
 import type { ExportMessage, ForwardContext, Reaction, ReactorInfo, Attachment, ReplyContext, ScrapeOptions, RecordingDetails } from '../types/shared';
 import type { TeamsApiMessage } from './api-client';
+import { cleanAltText } from './text';
 
 // Parse an HTML fragment into a detached, inert <body> for safe traversal.
 // DOMParser produces an inert document, so script tags do not execute,
@@ -124,7 +125,7 @@ function htmlToText(html: string): string {
   // Skip generic placeholder alt text on AMS images (e.g. "image", "resim", "Medya")
   const GENERIC_IMG_ALT = new Set(['image', 'resim', 'medya', 'media', 'shared image', 'image preview', 'undefined', '图像', '影像']);
   temp.querySelectorAll('img').forEach(img => {
-    const alt = img.getAttribute('alt') || img.getAttribute('title') || '';
+    const alt = cleanAltText(img.getAttribute('alt') || img.getAttribute('title'));
     if (alt && !GENERIC_IMG_ALT.has(alt.toLowerCase().trim())) {
       img.replaceWith(document.createTextNode(alt));
     } else {
@@ -134,7 +135,7 @@ function htmlToText(html: string): string {
 
   // Replace <video> tags with descriptive text
   temp.querySelectorAll('video').forEach(video => {
-    const alt = video.getAttribute('alt') || '';
+    const alt = cleanAltText(video.getAttribute('alt'));
     const duration = video.getAttribute('data-duration') || '';
     let label = alt || 'Video';
     if (duration) {
@@ -584,9 +585,12 @@ function extractInlineImages(content: string, existingHrefs: Set<string>): Attac
     if (!href || existingHrefs.has(href)) continue;
     existingHrefs.add(href);
 
-    // Try to extract alt text for label
+    // Try to extract alt text for label.  cleanAltText decodes HTML
+    // entities and strips Teams' web-paste leak (e.g. `URL" class="...`)
+    // so the attachment label and any downstream filename derived from
+    // it stay sane.
     const altMatch = match[0].match(/alt="([^"]+)"/);
-    const label = altMatch ? altMatch[1] : 'image';
+    const label = (altMatch && cleanAltText(altMatch[1])) || 'image';
 
     images.push({
       href,
@@ -621,7 +625,7 @@ function extractGifs(content: string, existingHrefs: Set<string>): Attachment[] 
     existingHrefs.add(href);
 
     const altMatch = match[0].match(/alt="([^"]+)"/);
-    const label = altMatch ? altMatch[1] : 'GIF';
+    const label = (altMatch && cleanAltText(altMatch[1])) || 'GIF';
 
     gifs.push({
       href,
@@ -669,7 +673,8 @@ function extractVideos(content: string, existingHrefs: Set<string>): Attachment[
     }
 
     const altMatch = match[0].match(/alt="([^"]+)"/);
-    const label = `Video${durationLabel}${altMatch ? ' — ' + altMatch[1] : ''}`;
+    const cleanedAlt = altMatch ? cleanAltText(altMatch[1]) : '';
+    const label = `Video${durationLabel}${cleanedAlt ? ' — ' + cleanedAlt : ''}`;
 
     // Use thumbnail as href (fetchable as image), store video URL in metaText for the link
     videos.push({

@@ -1,5 +1,6 @@
 import type { Attachment } from '../types/shared';
 import { textFrom } from '../utils/text';
+import { cleanAltText } from './text';
 
 export async function extractAttachments(_item: Element, body: Element): Promise<Attachment[]> {
   const map = new Map<string, Attachment>();
@@ -274,9 +275,9 @@ export async function extractAttachments(_item: Element, body: Element): Promise
         if (!href) return;
 
         const label =
-          img.getAttribute('alt') ||
-          img.getAttribute('aria-label') ||
-          img.getAttribute('title') ||
+          cleanAltText(img.getAttribute('alt')) ||
+          cleanAltText(img.getAttribute('aria-label')) ||
+          cleanAltText(img.getAttribute('title')) ||
           'image';
 
         const dataUrl = imageToDataUrl(img);
