@@ -25,6 +25,11 @@
   export let lang = 'en';
   // Idle subtitle (e.g. options summary like "Chat · JSON · with replies")
   export let summary = '';
+  // How many chats the user has selected. <=1 → single-chat label.
+  // >=2 → "Export N chats" so the button signals the bundle behaviour
+  // before the user clicks. The bundle output goes to one zip with
+  // a per-chat folder structure (see SW handleStartBundleExportMessage).
+  export let selectionCount = 0;
 
   // Phase + progress (passed from App.svelte while busy).
   export let phaseLabel = '';            // e.g. "Fetching messages · 0:12"
@@ -49,7 +54,9 @@
     if (!disabled) { dispatch('run'); }
   }
 
-  $: idleLabel = t('actions.export', {}, lang);
+  $: idleLabel = selectionCount >= 2
+    ? (t('actions.exportBundle', { n: selectionCount }, lang) || `Export ${selectionCount} chats`)
+    : t('actions.export', {}, lang);
   $: stopLabel = t('actions.stop', {}, lang) || 'Stop export';
   $: checkingLabel = t('status.checking', {}, lang) || 'Checking status…';
 

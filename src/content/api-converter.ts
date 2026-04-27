@@ -89,6 +89,17 @@ const SYSTEM_MESSAGE_TYPES = new Set([
   'ThreadActivity/TopicUpdate',
 ]);
 
+// Catch-all for ThreadActivity/* types we haven't enumerated explicitly
+// (e.g. JoiningEnabledUpdate, HistoryDisclosedUpdate, RoleUpdate).
+// They all carry XML-shaped admin/state-change payloads that have no
+// place in the conversation as user content; without this, they fall
+// through to the RichText branch and render as cryptic XML inner-text
+// like "17471249313238:orgid:<uuid>True" with an empty author.
+function isSystemMessageType(messageType: string): boolean {
+  return SYSTEM_MESSAGE_TYPES.has(messageType)
+    || messageType.startsWith('ThreadActivity/');
+}
+
 // ── HTML → Plain Text ──────────────────────────────────────────────────
 
 /** Convert HTML content to plain text, preserving basic structure. */
@@ -307,6 +318,25 @@ function parseSystemContent(content: string, messageType: string, mriMap: Map<st
 
     if (messageType === 'ThreadActivity/PinnedItemsUpdate') {
       return 'Pinned items updated';
+    }
+
+    if (messageType === 'ThreadActivity/JoiningEnabledUpdate') {
+      const initiator = resolveName(xmlText(content, 'initiator'));
+      const enabled = (xmlText(content, 'value') || '').toLowerCase() === 'true';
+      return `${initiator} ${enabled ? 'enabled' : 'disabled'} external joining`;
+    }
+
+    // Generic catch-all for any other ThreadActivity/* — a bare label
+    // beats leaking XML inner-text into the export.
+    if (messageType.startsWith('ThreadActivity/')) {
+      const kind = messageType.split('/').pop() || 'setting';
+      const initiator = resolveName(xmlText(content, 'initiator'));
+      // Some ThreadActivity types carry an <initiator>; if absent, fall
+      // back to a passive description so we still produce something
+      // readable instead of an XML dump.
+      return initiator
+        ? `${initiator} updated thread setting (${kind})`
+        : `Thread setting updated (${kind})`;
     }
 
     if (messageType === 'Event/Call') {
@@ -885,7 +915,7 @@ function convertOneMessage(
   selfUserId?: string | null,
 ): ExportMessage | null {
   const messageType = msg.messagetype || '';
-  const isSystem = SYSTEM_MESSAGE_TYPES.has(messageType);
+  const isSystem = isSystemMessageType(messageType);
   const properties = (msg.properties || {}) as Record<string, unknown>;
 
   // Filter system messages if not included

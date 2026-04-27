@@ -10,8 +10,10 @@ Supports Chrome, Edge, and Firefox. Works with commercial, GCC High, and MCAS-pr
 
 - Formats: JSON, CSV, HTML, TXT, PDF (pick any one, or several together — multi-format runs are packaged as a single `bundle.zip`)
 - Sources: chat conversations and team channels
+- Multi-chat bundles: pick several chats in the popup picker, get one outer `TeamsExport_bundle_<stamp>.zip` with a per-chat folder inside (`messages.{json,csv,html,txt,pdf}` + `images/` where applicable, plus `FAILURES.txt` if any chat errored)
 - Date range filtering
 - Toggleable per export: replies, reactions, system messages, avatars, inline images
+- Picker filters: by kind (Chats / Groups / Meetings / Channels) and by Teams folder (Favorites + your custom folders), both axes persist across popup opens
 
 Every message includes text, timestamp, and author. Forwarded messages, mentions, reactions (with reactor names when available), and file metadata (name, type, size, link) are captured where the format supports it. Files themselves are not downloaded.
 

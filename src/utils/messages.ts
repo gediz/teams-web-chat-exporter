@@ -23,30 +23,51 @@ export const makeDayDivider = (dayKey: number, ts: number): AggregatedItem => {
   };
 };
 
+// Windows reserved names (case-insensitive, with or without extension).
+// Using one of these as a base name causes chrome.downloads to fail with
+// "filename must not contain illegal characters" on Windows.
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+
 export const sanitizeBase = (name: string | null | undefined): string => {
   const raw = (name || 'teams-chat').toString();
 
-  // Remove notification counts like "(1) " or "(42) " from the beginning
   let cleaned = raw.replace(/^\(\d+\)\s+/, '');
-
-  // Remove " | Microsoft Teams" and similar suffixes
   cleaned = cleaned.replace(/\s*\|\s*Microsoft Teams.*$/i, '');
   cleaned = cleaned.replace(/\s*\|\s*Teams.*$/i, '');
-
-  // Remove other common suffixes
   cleaned = cleaned.replace(/\s*-\s*Microsoft Teams.*$/i, '');
 
-  // Remove pipe separators and extra content (e.g., "Calendar | Calendar" -> "Calendar")
   const parts = cleaned.split('|').map(p => p.trim());
   if (parts.length > 1) {
-    // Use the first non-empty part
     cleaned = parts.find(p => p.length > 0) || parts[0];
   }
 
-  // Remove invalid filename characters
-  cleaned = cleaned.replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').replace(/\s+/g, ' ').trim().replace(/[. ]+$/g, '');
+  // Strip control chars + characters illegal on common filesystems.
+  // Includes DEL (\x7F) alongside the C0 range.
+  cleaned = cleaned.replace(/[<>:"/\\|?*\x00-\x1F\x7F]/g, '-');
+  // Collapse whitespace.
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  // Strip leading dots (prevents Unix "hidden file" names like ".config")
+  // and leading dashes (avoids names that look like CLI flags).
+  cleaned = cleaned.replace(/^[.\-\s]+/, '');
+  // Trailing dots/spaces are illegal on Windows NTFS.
+  cleaned = cleaned.replace(/[. ]+$/g, '');
+  // Collapse runs of "..", which otherwise reintroduce path traversal in
+  // contexts that glue a subpath (`bundle.zip/<name>/`).
+  cleaned = cleaned.replace(/\.{2,}/g, '.');
 
-  return (cleaned || 'teams-chat').slice(0, 80);
+  // Reject Windows reserved device names by suffixing. Matching is done
+  // on the whole cleaned string; `CON.json` would also be reserved once
+  // an extension is appended, but the extension is added *after* we
+  // return, so we guard the base alone.
+  if (WINDOWS_RESERVED.test(cleaned)) {
+    cleaned = `${cleaned}_`;
+  }
+
+  // Truncate before the final empty check so a pathological input of
+  // all-whitespace or all-dots still falls back to the default.
+  cleaned = cleaned.slice(0, 80);
+
+  return cleaned || 'teams-chat';
 };
 
 export const formatRangeLabel = (startISO?: string | null, endISO?: string | null): string | null => {

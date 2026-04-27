@@ -127,6 +127,20 @@ export type ReviewPromptState = {
 };
 export const REVIEW_PROMPT_STORAGE_KEY = 'teamsExporterReviewPrompt';
 
+// Picker's last-selected folder id. The folder filter sits next to the
+// kind filter in the picker rail; we persist the user's choice across
+// popup opens so they don't have to re-pick "Work" every time. Reset to
+// 'all' (or undefined) when the saved folder no longer exists in the
+// next read (e.g. user deleted it in Teams).
+export const PICKER_FOLDER_STORAGE_KEY = 'teamsExporterPickerFolder';
+
+// Picker's last-selected kind ("all" | "chat" | "group" | "meeting" |
+// "channel"). Persisted alongside the folder choice — both axes of the
+// picker filter survive popup reopens for symmetry. No reconciliation
+// needed because the kind set is fixed; only the persisted value's
+// shape is validated on read.
+export const PICKER_KIND_STORAGE_KEY = 'teamsExporterPickerKind';
+
 export const DEFAULT_OPTIONS: Options = {
   lang: 'en',
   startAt: '',
@@ -306,7 +320,7 @@ const isHistoryEntry = (raw: unknown): raw is HistoryEntry => {
   return typeof e.id === 'string'
       && typeof e.tabId === 'number'
       && typeof e.savedAt === 'number'
-      && (e.kind === 'success' || e.kind === 'cancelled');
+      && (e.kind === 'success' || e.kind === 'cancelled' || e.kind === 'failed');
 };
 
 export async function loadHistory(storage: ExtensionStorage): Promise<HistoryEntry[]> {

@@ -86,7 +86,7 @@
   // after with any change). On Firefox, the returned value is stale for
   // externally-deleted files; we rely on the click-failure path instead.
   const verifyEntry = async (entry: HistoryEntry): Promise<boolean> => {
-    if (entry.kind !== 'success' || entry.downloadId == null) return true;
+    if ((entry.kind !== 'success' && entry.kind !== 'failed') || entry.downloadId == null) return true;
     try {
       const items = await downloads.search({ id: entry.downloadId });
       const item = Array.isArray(items) ? items[0] : undefined;
@@ -119,7 +119,7 @@
   const VERIFY_COOLDOWN_MS = 2000;
   const lastVerifiedAt = new Map<string, number>();
   const verifyOne = (entry: HistoryEntry) => {
-    if (entry.kind !== 'success' || entry.downloadId == null) return;
+    if ((entry.kind !== 'success' && entry.kind !== 'failed') || entry.downloadId == null) return;
     // Already known missing — don't re-ask Firefox for stale "exists: true".
     if (existsById[entry.id] === false) return;
     const now = Date.now();
@@ -285,6 +285,9 @@
   // useful for browsing — "the Project X export"), fall back to the
   // filename if title is missing (older entries before we captured it),
   // and use a fixed "(cancelled)" string for cancelled entries.
+  // Failed entries keep the entry.title (e.g. "0 chats (8 failed)")
+  // because that's already informative — the failed pill alongside it
+  // conveys the state.
   const headlineFor = (entry: HistoryEntry): string => {
     if (entry.kind === 'cancelled') {
       return t('history.cancelledTitle', {}, lang) || '(cancelled — no file saved)';
@@ -349,10 +352,11 @@
   {:else}
     <div class="card history-card" on:scroll={onListScroll}>
       {#each entries as entry (entry.id)}
-        {@const fileExists = entry.kind !== 'success' || entry.downloadId == null
+        {@const hasFile = entry.kind === 'success' || entry.kind === 'failed'}
+        {@const fileExists = !hasFile || entry.downloadId == null
           ? true
           : (existsById[entry.id] ?? true)}
-        {@const isMissing = entry.kind === 'success' && !fileExists}
+        {@const isMissing = hasFile && !fileExists}
         {@const hasMsgCount = typeof entry.messageCount === 'number' && entry.messageCount > 0}
         <!-- The row itself isn't interactive — the buttons inside are.
              role="presentation" tells assistive tech to skip the row
@@ -362,16 +366,18 @@
           class="row"
           role="presentation"
           class:cancelled={entry.kind === 'cancelled'}
+          class:failed={entry.kind === 'failed'}
           class:missing={isMissing}
           on:mouseenter={() => verifyOne(entry)}
         >
           <div
             class="badge badge-{formatClass(entry)}"
             class:badge-cancelled={entry.kind === 'cancelled'}
+            class:badge-failed={entry.kind === 'failed'}
             class:badge-missing={isMissing}
             title={formatBadgeTooltip(entry)}
           >
-            {entry.kind === 'cancelled' ? '✕' : formatLabel(entry)}
+            {#if entry.kind === 'cancelled'}✕{:else if entry.kind === 'failed'}!{:else}{formatLabel(entry)}{/if}
           </div>
           <div class="body">
             <!-- Headline = chat title (more useful than auto filename).
@@ -382,6 +388,8 @@
                 <span class="status-pill status-missing">{t('history.fileMissing', {}, lang) || 'file missing'}</span>
               {:else if entry.kind === 'cancelled'}
                 <span class="status-pill status-cancelled">{t('history.cancelledMeta', {}, lang) || 'cancelled'}</span>
+              {:else if entry.kind === 'failed'}
+                <span class="status-pill status-failed">{t('history.failedMeta', {}, lang) || 'all failed'}</span>
               {/if}
             </div>
             <div class="meta">
@@ -398,7 +406,7 @@
             </div>
           </div>
           <div class="actions">
-            {#if entry.kind === 'success' && !isMissing}
+            {#if hasFile && !isMissing}
               <button class="ico-btn" title={t('actions.open', {}, lang) || 'Open'} on:click={(e) => onOpen(e, entry)}>
                 <ExternalLink size={14} />
               </button>
@@ -482,6 +490,11 @@
   .row.missing { opacity: 0.7; }
   .row.missing .title { text-decoration: line-through; color: var(--color-text-muted); }
   .row.cancelled .title { color: var(--color-text-muted); }
+  /* Failed bundle: a real .txt file IS on disk (FAILURES.txt), so the
+   * row stays full-opacity and the action buttons stay live — but the
+   * amber badge + pill make the all-failed outcome visually distinct
+   * from a clean success row. */
+  .row.failed .title { color: var(--color-text); }
 
   .badge {
     width: 36px; height: 36px;
@@ -512,6 +525,9 @@
     letter-spacing: 0;
   }
   .badge-cancelled { background: rgba(220, 38, 38, 0.10); color: #dc2626; font-size: 14px; }
+  /* Amber for "every chat failed" — distinct from cancelled (red) and
+   * success badges. The "!" character reads as a warning. */
+  .badge-failed { background: rgba(217, 119, 6, 0.12); color: #b45309; font-size: 16px; }
   .badge-missing { background: rgba(0, 0, 0, 0.05); color: var(--color-text-muted); }
 
   .body {
@@ -557,6 +573,10 @@
   .status-cancelled {
     background: rgba(220, 38, 38, 0.10);
     color: #dc2626;
+  }
+  .status-failed {
+    background: rgba(217, 119, 6, 0.12);
+    color: #b45309;
   }
   /* Meta line uses inline-flex with a fixed gap so spacing around
    * separators is structural — no fragile reliance on whitespace inside

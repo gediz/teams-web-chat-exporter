@@ -118,6 +118,24 @@ export type ScrapeOptions = {
   formats?: ('json' | 'csv' | 'html' | 'txt' | 'pdf')[];
   embedAvatars?: boolean;
   downloadImages?: boolean;
+  // Explicit conversation ID chosen by the popup's ConversationPicker.
+  // When set, the API scraper skips DOM/IDB extraction entirely and
+  // fetches this conversation directly. When absent, falls back to the
+  // legacy "guess the currently-visible chat" path via extractConversationId.
+  conversationId?: string | null;
+  // Display name the picker resolved for the chosen conversation. The
+  // content script uses this for meta.title (and thus the export filename)
+  // when set — otherwise the DOM-derived chat title leaks in, which shows
+  // the *currently visible* chat's name instead of the *selected* one.
+  conversationTitle?: string | null;
+  // Multi-chat bundle export sets this true so the content script
+  // refuses to fall back to DOM scrolling when the API path fails. DOM
+  // scroll always operates on whichever chat is *currently visible* in
+  // the user's tab, which in bundle mode is whichever chat the user
+  // happened to leave open — not the chat we're trying to export. The
+  // background loop records that as a per-chat failure (FAILURES.txt
+  // line) and moves on to the next chat.
+  noDomFallback?: boolean;
 };
 
 export type BuildOptions = {
@@ -150,6 +168,11 @@ export type ExportStatusPayload = {
   phase?: string;
   messages?: number;
   messagesExtracted?: number;
+  // Build-phase progress: how many messages have been written to the
+  // output so far (PDF page emit / HTML chunk). Drives the segment-4
+  // determinate fill on the export button.
+  messagesBuilt?: number;
+  messagesTotal?: number;
   filename?: string;
   // Set on the 'complete' status so the popup can wire the Open/Show action
   // buttons to chrome.downloads.open(id) / .show(id).
@@ -162,6 +185,14 @@ export type ExportStatusPayload = {
   error?: string;
   message?: string;
   startedAt?: number | string;
+  // Multi-chat bundle context — present on every status broadcast that
+  // happens inside a START_BUNDLE_EXPORT loop. Lets the popup show
+  // "Chat 3 of 12: <name>" alongside the per-chat phase.
+  bundleCurrentChat?: number;
+  bundleTotalChats?: number;
+  bundleChatName?: string;
+  bundleSuccessCount?: number;
+  bundleFailedCount?: number;
 };
 
 // What the popup shows in the ExportButton's right zone after an export
@@ -185,7 +216,12 @@ export type HistoryEntry = {
   // when the user removes a single entry.
   id: string;
   tabId: number;
-  kind: 'success' | 'cancelled';
+  // 'success'   — the export produced the file the user asked for.
+  // 'cancelled' — user stopped mid-run; nothing was saved (no file on disk).
+  // 'failed'    — bundle export where 0 chats succeeded; FAILURES.txt was
+  //               saved directly (no .zip wrapper since there's nothing
+  //               to wrap). The file IS on disk, so Open/Show still work.
+  kind: 'success' | 'cancelled' | 'failed';
   // Teams conversation id (from the content script's resolver). Optional;
   // present helps verify "this entry belongs to the chat I'm looking at."
   convId?: string;
@@ -220,6 +256,70 @@ export type ActiveExportInfo = {
   lastStatus?: ExportStatusPayload;
   phase?: string;
   completedAt?: number;
+};
+
+// Compact shape returned by listConversations() — just what the popup's
+// picker needs to render an entry and hand an id back for export.
+//
+//   - 'chat'    : OneToOneChat (no topic — name derived from last sender)
+//   - 'group'   : Chat with multiple members (has topic)
+//   - 'meeting' : Meeting-scoped chat (has topic = meeting subject)
+//   - 'channel' : TeamsStandardChannel (has topic = channel name)
+//
+// System-virtual conversations (StreamOfNotes / Mentions / CallLogs /
+// Saved / Drafts / Notifications) are filtered out upstream — they
+// never appear here. If classification fails for a new Teams product
+// thread type we haven't seen yet, the conversation is also dropped.
+export type ConversationKind = 'chat' | 'group' | 'meeting' | 'channel';
+export type ConversationSummary = {
+  id: string;              // e.g. "19:xxxx@unq.gbl.spaces"
+  kind: ConversationKind;
+  // Primary label. For 1:1 chats: the other person's display name
+  // (resolved via Graph MRI lookup). For groups / meetings / channels:
+  // `threadProperties.topic`.
+  //
+  // Empty string ("") is a sentinel meaning "could not resolve a name"
+  // — the popup renders a locale-aware placeholder based on `kind` +
+  // `isSelfChat` + `groupMembers`, keeping all user-facing text out of
+  // the content script (which has no access to the popup's i18n).
+  name: string;
+  // Optional member-name list for unnamed group chats. When set and
+  // non-empty, the popup formats it locale-aware with Intl.ListFormat
+  // and appends a "+N more" remainder from `groupExtraMembers`.
+  groupMembers?: string[];
+  groupExtraMembers?: number;
+  // Already-formatted secondary hint when locale-independent (meeting
+  // date — Intl.DateTimeFormat picks up the user locale automatically;
+  // channel's parent-team name — a display string from the tenant).
+  // The popup may add locale-aware suffixes of its own (self-chat
+  // label, "+N more" from groupExtraMembers) alongside this.
+  subtitle?: string;
+  // True for the "chat with yourself" thread. Popup adds the "(You)"
+  // suffix + "Self-chat" subtitle in the active UI language.
+  isSelfChat?: boolean;
+  lastActivity?: string;   // ISO timestamp (for sort + UX hint)
+  // Picker folder filter — ids of every Folder this conversation appears
+  // in. A chat can be in multiple folders (Favorites overlaps with user
+  // folders). Only Favorites + UserDefined folder ids land here; system
+  // computations (MeetingChats, MutedChats, RecentChats, TeamsAndChannels,
+  // QuickViews) are stripped upstream.
+  folderIds?: string[];
+};
+
+// Compact shape for the picker's folder-filter rail. Mirrors the Teams
+// `folders` IDB store but stripped down to just what the popup renders.
+// Only Favorites + user-created folders are emitted; system-computed
+// folders are filtered out at the source (see listConversationsFromIdb).
+export type FolderSummary = {
+  id: string;
+  name: string;
+  // 'favorites' for the system-curated star folder, 'user' for folders
+  // the user created themselves. Distinguishes the favorite icon (★) from
+  // the generic folder icon in the rail.
+  kind: 'favorites' | 'user';
+  // Number of conversations currently in this folder. Empty folders are
+  // dropped before this point, so count is always >= 1 in practice.
+  count: number;
 };
 
 export type AggregatedItem = {

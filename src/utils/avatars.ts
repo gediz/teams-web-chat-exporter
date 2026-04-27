@@ -1,6 +1,6 @@
 /**
  * Extracts a stable user ID from a Teams avatar URL.
- * E.g., "https://.../8:orgid:cf7134d2-b5df-4b93-bbeb-e68d4545bb89/..." -> "8orgid-cf7134d2"
+ * E.g., "https://.../8:orgid:00000000-aaaa-bbbb-cccc-000000000000/..." -> "8orgid-00000000"
  */
 export function extractAvatarId(url: string): string {
   const match = url.match(/\/([^/]+)\/profilepicturev2/);

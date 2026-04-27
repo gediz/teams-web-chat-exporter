@@ -25,6 +25,8 @@
     ACTIVE_EXPORTS_STORAGE_KEY,
     FIRST_INSTALL_STORAGE_KEY,
     REVIEW_PROMPT_STORAGE_KEY,
+    PICKER_FOLDER_STORAGE_KEY,
+    PICKER_KIND_STORAGE_KEY,
     type OptionFormat,
     type Options,
     type PopupPage,
@@ -41,15 +43,22 @@
   } from "../../utils/time";
   import { runtimeSend } from "../../utils/messaging";
   import { isTeamsUrl } from "../../utils/teams-urls";
+  import { conversationDisplayName } from "../../utils/conversation-labels";
   import type {
     GetExportStatusRequest,
     GetExportStatusResponse,
     PingSWRequest,
     StartExportRequest,
     StartExportResponse,
+    StartBundleExportRequest,
+    StartBundleExportResponse,
     StopExportRequest,
   } from "../../types/messaging";
-  import type { ExportStatusPayload, HistoryEntry } from "../../types/shared";
+  import type { ConversationKind, ConversationSummary, ExportStatusPayload, FolderSummary, HistoryEntry } from "../../types/shared";
+  import type {
+    ListConversationsRequest, ListConversationsResponse,
+    ListConversationsQuickRequest, ListConversationsQuickResponse,
+  } from "../../types/messaging";
   import ExportButton from "./components/ExportButton.svelte";
   import FormatSection from "./components/FormatSection.svelte";
   import TargetSection from "./components/TargetSection.svelte";
@@ -62,6 +71,7 @@
   import HistoryPage from "./components/HistoryPage.svelte";
   import OnboardingOverlay from "./components/OnboardingOverlay.svelte";
   import ReviewPrompt from "./components/ReviewPrompt.svelte";
+  import ConversationPicker from "./components/ConversationPicker.svelte";
   import { t, setLanguage, getLanguage } from "../../i18n/i18n";
 
   const runtime =
@@ -161,6 +171,324 @@
     } catch { /* best-effort; one-shot, worst case user is asked once more */ }
   }
 
+  // ConversationPicker state. The popup fetches the user's chat list
+  // from Teams' API once per open and caches it while the popup stays
+  // mounted. If the API call fails (e.g. no valid token, Teams tab
+  // logged out), we surface a retry button in the picker rather than
+  // silently falling back to auto-detect — explicit failure modes beat
+  // confusing "it exported the wrong chat" behaviour.
+  let conversations: ConversationSummary[] = [];
+  // Folder rail: list of Favorites + user-defined folders the picker
+  // shows. Source of truth comes from the content script's IDB read
+  // (see listConversationsFromIdb). System-computed folders are stripped
+  // upstream — the picker never sees MeetingChats / MutedChats / etc.
+  let folders: FolderSummary[] = [];
+  // Currently selected folder id. 'all' means no folder filter (the
+  // picker shows every conversation regardless of folder membership).
+  // Persisted under PICKER_FOLDER_STORAGE_KEY so reopening the popup
+  // keeps the user's filter; reset to 'all' when the saved id no
+  // longer exists in the next read.
+  let selectedFolderId: string = 'all';
+  // Currently selected kind tab. Persisted under PICKER_KIND_STORAGE_KEY
+  // so reopening the popup keeps the user's filter for symmetry with
+  // the folder. Restored eagerly from storage during init() so the
+  // very first paint reflects the saved choice — no flash of "all".
+  let selectedKind: 'all' | ConversationKind = 'all';
+  // Multi-select: the picker binds this and mutates it on each toggle.
+  // A single-chat export is simply `selectedConversationIds.length === 1`.
+  // The first id is the "primary" selection for backwards-compatible
+  // single-chat paths (export button label, scraper conversationId).
+  let selectedConversationIds: string[] = [];
+  $: selectedConversationId = selectedConversationIds[0] ?? null;
+  let pickerState: 'idle' | 'loading' | 'ok' | 'error' = 'idle';
+  // True when the popup opened on a tab that isn't Teams web — we never
+  // attempt to load conversations in that case, so without this flag the
+  // picker would otherwise fall through to its "No matches" branch (the
+  // default empty-list rendering when state is 'idle' rather than
+  // 'loading' or 'error'). This tells the picker to show a dedicated
+  // "open Teams web first" message instead.
+  let notOnTeamsTab = false;
+  let pickerError = '';
+
+  // Folder persistence — fire-and-forget on every change. The read on
+  // mount happens inside init() once we have the conversation list.
+  async function persistFolderChoice(id: string) {
+    try { await storage.local.set({ [PICKER_FOLDER_STORAGE_KEY]: id }); }
+    catch { /* best-effort */ }
+  }
+  async function readSavedFolderChoice(): Promise<string | null> {
+    try {
+      const obj: any = await storage.local.get(PICKER_FOLDER_STORAGE_KEY);
+      const v = obj?.[PICKER_FOLDER_STORAGE_KEY];
+      return typeof v === 'string' ? v : null;
+    } catch { return null; }
+  }
+  // Same pattern for the kind. Validates against the known set so a
+  // corrupt storage value doesn't propagate through the rest of the
+  // picker (which assumes selectedKind is one of the five literal
+  // strings).
+  const VALID_KINDS: ReadonlyArray<'all' | ConversationKind> = ['all', 'chat', 'group', 'meeting', 'channel'];
+  async function persistKindChoice(k: 'all' | ConversationKind) {
+    try { await storage.local.set({ [PICKER_KIND_STORAGE_KEY]: k }); }
+    catch { /* best-effort */ }
+  }
+  async function readSavedKindChoice(): Promise<'all' | ConversationKind | null> {
+    try {
+      const obj: any = await storage.local.get(PICKER_KIND_STORAGE_KEY);
+      const v = obj?.[PICKER_KIND_STORAGE_KEY];
+      return (typeof v === 'string' && (VALID_KINDS as readonly string[]).includes(v))
+        ? v as ('all' | ConversationKind)
+        : null;
+    } catch { return null; }
+  }
+  // Reconcile the persisted folder against the freshly-loaded folder
+  // list. If the saved id no longer exists (deleted in Teams, or this
+  // is a new install with no saved value), fall back to 'all'.
+  function reconcileFolderChoice(saved: string | null | undefined) {
+    if (!saved || saved === 'all') { selectedFolderId = 'all'; return; }
+    if (folders.some(f => f.id === saved)) { selectedFolderId = saved; return; }
+    selectedFolderId = 'all';
+    void persistFolderChoice('all');
+  }
+
+  // Stale-while-revalidate cache for the conversation list. First cold
+  // fetch on a ~100-conversation account takes ~5–8s (Graph joinedTeams +
+  // per-unnamed roster calls). Persisting the result keyed on the
+  // MSAL-resolved self-UUID lets every subsequent popup open render
+  // instantly; we then fire a refresh in the background and swap in the
+  // updated list when it arrives.
+  const CONV_LIST_CACHE_KEY = 'convListCache';
+  const CONV_LIST_CACHE_TTL_MS = 24 * 60 * 60_000; // 1 day — full discard
+  // Bump when the ConversationSummary shape changes in a way that makes
+  // older cached rows useless (e.g. adding isSelfChat, folders). Old
+  // caches are dropped rather than served stale; users see one cold
+  // fetch after the extension updates, then instant loads again.
+  const CONV_LIST_CACHE_VERSION = 10;
+  let isRefreshingList = false;
+
+  type CachedConvList = {
+    version?: number;
+    at: number;
+    conversations: ConversationSummary[];
+    // Folder rail data — cached alongside conversations so the picker
+    // shows folders on instant cache hit instead of waiting for the
+    // background full refresh (~5–8s).
+    folders?: FolderSummary[];
+  };
+
+  async function readCachedList(): Promise<CachedConvList | null> {
+    try {
+      const obj: any = await storage.local.get(CONV_LIST_CACHE_KEY);
+      const c = obj?.[CONV_LIST_CACHE_KEY];
+      if (!c || typeof c.at !== 'number' || !Array.isArray(c.conversations)) return null;
+      if (c.version !== CONV_LIST_CACHE_VERSION) return null;
+      if (Date.now() - c.at > CONV_LIST_CACHE_TTL_MS) return null;
+      return c as CachedConvList;
+    } catch { return null; }
+  }
+  async function writeCachedList(list: ConversationSummary[], folderList: FolderSummary[]) {
+    try {
+      await storage.local.set({
+        [CONV_LIST_CACHE_KEY]: {
+          version: CONV_LIST_CACHE_VERSION,
+          at: Date.now(),
+          conversations: list,
+          folders: folderList,
+        } satisfies CachedConvList,
+      });
+    } catch { /* best-effort */ }
+  }
+
+  // Ask the content script for the active-chat hint, with a short
+  // retry budget for cases where the Teams sidebar hadn't finished
+  // rendering its rows on first call (extractConversationId returns
+  // null until the sidebar's data-tabster attributes are populated).
+  // Three quick attempts is enough to cover the post-tab-switch
+  // animation window without making the user wait when the hint
+  // genuinely isn't available.
+  async function fetchActiveHint(tab: number): Promise<string | null> {
+    const delays = [0, 250, 600];
+    for (const delay of delays) {
+      if (delay > 0) await new Promise(r => setTimeout(r, delay));
+      try {
+        const idResp = await tabs.sendMessage(tab, { type: 'GET_CONV_ID' });
+        const hint: string | null = idResp?.convId || null;
+        if (hint) return hint;
+      } catch { return null; }
+    }
+    return null;
+  }
+
+  // Resolves the default selection using the Teams-tab active-chat
+  // hint (extractConversationId in the content script). Safe to call
+  // on both cache-hit and after-refresh — if the hint matches a row
+  // in the latest list, we align the selection; otherwise we don't
+  // touch it. This matters because the hint might initially miss a
+  // stale cache (e.g. self-chat absent from v1 cached rows) and only
+  // match once the fresh list arrives.
+  //
+  // Fires at most ONCE per popup open: the cache, IDB-quick, and full-Graph
+  // phases each call this, but only the first one that finds the active
+  // chat actually seeds the selection. After that the user owns the
+  // selection — even if they unselect the auto-pick, the next refresh
+  // phase MUST NOT silently reinstate it.
+  let didAutoPickDefault = false;
+  async function pickDefaultSelection(list: ConversationSummary[]) {
+    if (didAutoPickDefault) return;
+    if (selectedConversationIds.length > 0) {
+      // User already picked something (or unpicked the prior auto-default).
+      // Lock in: never auto-modify their selection from here on.
+      didAutoPickDefault = true;
+      return;
+    }
+    try {
+      const tab = currentTabId;
+      if (typeof tab !== 'number') return;
+      const hint = await fetchActiveHint(tab);
+      if (!hint) return;
+      const hit = list.find(c => c.id === hint);
+      if (!hit) return;
+      // Re-check selection length — a refresh phase could resolve between
+      // the await above and this assignment, and the user might have
+      // touched the picker in the meantime.
+      if (selectedConversationIds.length === 0) {
+        selectedConversationIds = [hit.id];
+      }
+      didAutoPickDefault = true;
+    } catch { /* best-effort — leave whatever selection exists */ }
+  }
+
+  async function loadConversations(opts: { forceRefresh?: boolean } = {}) {
+    if (currentTabId == null) return;
+
+    // Hydrate from cache immediately when available. The user sees a
+    // populated picker within a few ms.
+    const cached = opts.forceRefresh ? null : await readCachedList();
+    if (cached && cached.conversations.length > 0) {
+      conversations = cached.conversations;
+      folders = Array.isArray(cached.folders) ? cached.folders : [];
+      const savedCached = await readSavedFolderChoice();
+      reconcileFolderChoice(savedCached);
+      pickerState = 'ok';
+      await pickDefaultSelection(conversations);
+    } else {
+      pickerState = 'loading';
+    }
+    pickerError = '';
+
+    // ALWAYS run the IDB-quick read on every open. It's ~50 ms and tells
+    // us exactly which conversations exist + their last-activity stamps
+    // — that's what the user perceives as "is the picker fresh?". The
+    // expensive part (Graph + roster name resolution) is the FULL refresh
+    // below; we only fire that when the IDB diff says we need it.
+    let quickResult: { conversations: ConversationSummary[]; folders: FolderSummary[] } | null = null;
+    try {
+      const quick = await runtimeSend<ListConversationsQuickRequest>(runtime, {
+        type: 'LIST_CONVERSATIONS_QUICK',
+        tabId: currentTabId,
+      }) as ListConversationsQuickResponse;
+      if (quick && quick.ok === true) {
+        quickResult = {
+          conversations: quick.conversations,
+          folders: Array.isArray(quick.folders) ? quick.folders : [],
+        };
+      }
+    } catch { /* fall through — full refresh below covers cold-IDB cases */ }
+
+    // Apply the quick result on top of cache: take IDB's truth for the
+    // conversation set + activity timestamps + folder list, but PATCH
+    // names from cache (cache holds Graph-resolved names, quick does not
+    // unless the chat has chatTitle.shortTitle in IDB). This is what
+    // makes "open popup" feel instant for repeat opens — no Graph spin
+    // on a chat we already know the name of.
+    let needsFullRefresh = !!opts.forceRefresh;
+    if (quickResult && quickResult.conversations.length > 0) {
+      const cachedById = new Map<string, ConversationSummary>(
+        (cached?.conversations || []).map(c => [c.id, c]),
+      );
+      const merged: ConversationSummary[] = quickResult.conversations.map(qc => {
+        const cc = cachedById.get(qc.id);
+        if (!cc) return qc; // genuinely new — keep IDB's (possibly empty) name
+        // Prefer cached enriched fields, but always take IDB's
+        // lastActivity (it's the freshest) and folderIds (folder
+        // membership lives in IDB and may have changed).
+        return {
+          ...cc,
+          lastActivity: qc.lastActivity || cc.lastActivity,
+          folderIds: qc.folderIds,
+        };
+      });
+      conversations = merged;
+      folders = quickResult.folders;
+      const savedQuick = await readSavedFolderChoice();
+      reconcileFolderChoice(savedQuick);
+      pickerState = 'ok';
+      await pickDefaultSelection(conversations);
+
+      // Decide whether the slow Graph refresh is worth running. If
+      // every IDB chat already has a cached name AND the folder set
+      // hasn't changed, the cache covers everything — skip the
+      // expensive call. Self-chat is allowed to have an empty name
+      // (the popup renders a localised "(You)" label).
+      const anyMissingName = merged.some(c => !c.name && !c.isSelfChat);
+      const cachedFolderIds = new Set((cached?.folders || []).map(f => f.id));
+      const newFolderIds = quickResult.folders.filter(f => !cachedFolderIds.has(f.id));
+      const removedFolders = (cached?.folders || []).some(f => !quickResult!.folders.some(qf => qf.id === f.id));
+      if (anyMissingName || newFolderIds.length > 0 || removedFolders) needsFullRefresh = true;
+
+      // Even when we skip the full refresh, persist the merged result
+      // so the cache stays current with IDB activity timestamps and
+      // folder-set changes that don't require Graph.
+      if (!needsFullRefresh) {
+        await writeCachedList(conversations, folders);
+      }
+    } else if (!cached) {
+      // Quick failed AND no cache — must run the full refresh to have
+      // anything to show.
+      needsFullRefresh = true;
+    }
+
+    if (!needsFullRefresh) {
+      isRefreshingList = false;
+      return;
+    }
+
+    isRefreshingList = true;
+    try {
+      const resp = await runtimeSend<ListConversationsRequest>(runtime, {
+        type: 'LIST_CONVERSATIONS',
+        tabId: currentTabId,
+      }) as ListConversationsResponse;
+      if (!resp || resp.ok !== true) {
+        // If we already showed cached/quick data, keep it visible —
+        // don't flip the user back to an error screen just because a
+        // background refresh failed. Only surface error when the
+        // picker was empty.
+        if (conversations.length === 0) {
+          pickerState = 'error';
+          pickerError = (resp && 'error' in resp ? resp.error : '') || 'load-failed';
+        }
+        return;
+      }
+      conversations = resp.conversations;
+      folders = Array.isArray(resp.folders) ? resp.folders : [];
+      // Re-reconcile after the full enrichment lands — the folder set
+      // can change (e.g. quick path saw stale IDB before refresh).
+      const savedFull = await readSavedFolderChoice();
+      reconcileFolderChoice(savedFull);
+      pickerState = 'ok';
+      await writeCachedList(conversations, folders);
+      await pickDefaultSelection(conversations);
+    } catch (e: any) {
+      if (conversations.length === 0) {
+        pickerState = 'error';
+        pickerError = String(e?.message || e);
+      }
+    } finally {
+      isRefreshingList = false;
+    }
+  }
+
   // History state. Loaded once on mount, refreshed when an entry is appended
   // (popup hears phase=complete or phase=cancelled), and after the user opens
   // the History page (which marks them all as seen).
@@ -221,12 +549,23 @@
   let counterLabel = '';
   let segments: SegState[] = [null, null, null, null];
 
+  // Bundle context — present while a multi-chat export is running. Drives
+  // the "Chat 3 of 12: <name>" prefix on the phase tracker label so the
+  // user sees per-chat progress AND overall position in the bundle.
+  type BundleContext = {
+    current: number;
+    total: number;
+    name: string;
+  };
+  let bundleContext: BundleContext | null = null;
+
   const resetPhaseTracker = () => {
     phaseLabel = '';
     phaseBaseLabel = '';
     counterValue = '—';
     counterLabel = '';
     segments = [null, null, null, null];
+    bundleContext = null;
   };
 
   // Re-read history from storage (called after a phase=complete / cancelled
@@ -248,7 +587,19 @@
   const refreshPhaseLabel = () => {
     if (!phaseBaseLabel) return;
     const elapsed = elapsedNow();
-    phaseLabel = elapsed ? `${phaseBaseLabel} · ${elapsed}` : phaseBaseLabel;
+    const parts: string[] = [];
+    if (bundleContext) {
+      const lang = currentLang();
+      const prefix = t(
+        'status.bundleProgress',
+        { current: bundleContext.current, total: bundleContext.total, name: bundleContext.name },
+        lang,
+      ) || `Chat ${bundleContext.current} of ${bundleContext.total}: ${bundleContext.name}`;
+      parts.push(prefix);
+    }
+    parts.push(phaseBaseLabel);
+    if (elapsed) parts.push(elapsed);
+    phaseLabel = parts.join(' · ');
   };
 
   const setPhase = (
@@ -264,7 +615,13 @@
       else if (i === idx) next[i] = activeProgress;
       else next[i] = null;
     }
-    segments = next;
+    // Skip the reassignment when nothing changed. Without this guard,
+    // every progress tick fires a new array reference and Svelte
+    // re-applies inline styles on .seg-fill, which restarts the CSS
+    // stripe animation on indeterminate segments — the user perceives
+    // this as the bar repeatedly "resetting and starting over".
+    const changed = next.some((v, i) => v !== segments[i]);
+    if (changed) segments = next;
     phaseBaseLabel = label;
     refreshPhaseLabel();
     counterValue = value;
@@ -619,6 +976,17 @@
       if (!currentTabId) currentTabId = tabId;
     }
     const phase = msg?.phase;
+    // Capture bundle context from any status payload that carries it.
+    // The SW broadcasts these fields on every per-chat status during a
+    // bundle run; capturing them here lets refreshPhaseLabel render
+    // "Chat N of M: <name>" without a separate code path per phase.
+    if (typeof msg?.bundleCurrentChat === 'number' && typeof msg?.bundleTotalChats === 'number') {
+      bundleContext = {
+        current: msg.bundleCurrentChat,
+        total: msg.bundleTotalChats,
+        name: msg.bundleChatName ?? '',
+      };
+    }
     if (phase === "starting") {
       hideErrorBanner(true);
       const startedAt = normalizeStart(msg.startedAt);
@@ -649,6 +1017,10 @@
     } else if (phase === "complete") {
       setBusy(false);
       segments = [100, 100, 100, 100];
+      // Drop the bundle prefix on success so a future "show last phase
+      // even when idle" path doesn't render stale "Chat 12 of 12" text.
+      // The user-facing status is now the bundle-summary line set above.
+      bundleContext = null;
       setStatus(t("status.complete", {}, langNow), { stopElapsed: true });
       hideErrorBanner(true);
       // The success path no longer renders an inline outcome tile. The
@@ -661,6 +1033,7 @@
       pulseHistoryIcon += 1;
     } else if (phase === "error") {
       setBusy(false);
+      bundleContext = null;
       setStatus(msg.error || t("status.error", {}, langNow), {
         stopElapsed: true,
       });
@@ -689,6 +1062,13 @@
   };
 
   const onRuntimeMessage = (msg: any) => {
+    // Count EXPORT_STATUS / EXPORT_PROGRESS / SCRAPE_PROGRESS arrivals so
+    // __reportExportStatusRate can log the per-second rate. A high rate
+    // (> ~50/s) during a bundle export points at a broadcast storm — the
+    // suspected cause of the popup white-pixel symptom.
+    if (msg?.type === "EXPORT_STATUS" || msg?.type === "EXPORT_PROGRESS" || msg?.type === "SCRAPE_PROGRESS") {
+      __exportStatusCount += 1;
+    }
     if (msg?.type === "SCRAPE_PROGRESS" || msg?.type === "EXPORT_PROGRESS") {
       const langNow = currentLang();
       const p = msg?.type === "EXPORT_PROGRESS" ? msg : (msg.payload || {});
@@ -718,8 +1098,12 @@
           setStatus(`${label}…`, { countLabel: `${done}/${total}` });
           setPhase(1, Math.round((done / total) * 100), label, `${done} / ${total}`, lbl);
         } else {
+          // No total yet — show 0% fill rather than an indeterminate
+          // full-width stripe. Otherwise the bar appears "full", then
+          // snaps back to the real percentage on the next event,
+          // which reads like a regression instead of early progress.
           setStatus(`${label}…`);
-          setPhase(1, -1, label, '—', lbl);
+          setPhase(1, 0, label, '—', lbl);
         }
       } else if (p.phase === "avatars") {
         const done = p.avatarsDone ?? 0;
@@ -730,8 +1114,9 @@
           setStatus(`${label}…`, { countLabel: `${done}/${total}` });
           setPhase(2, Math.round((done / total) * 100), label, `${done} / ${total}`, lbl);
         } else {
+          // Same reasoning as 'images' above — start at 0%, not 100%.
           setStatus(`${label}…`);
-          setPhase(2, -1, label, '—', lbl);
+          setPhase(2, 0, label, '—', lbl);
         }
       } else if (p.phase === "build") {
         const done = p.messagesBuilt ?? 0;
@@ -794,6 +1179,88 @@
         exportTarget,
       } = options;
       setStatus(t("status.running", {}, currentLang()));
+
+      // Multi-chat bundle path. When the picker has 2+ selections we
+      // route to START_BUNDLE_EXPORT instead — same per-chat scrape
+      // pipeline runs serially in the SW, output packed into one outer
+      // zip with FAILURES.txt for any chat that errored.
+      if (selectedConversationIds.length > 1) {
+        const langNow = options.lang || 'en';
+        const conversationsPayload = selectedConversationIds.map((id) => {
+          const sel = conversations.find(c => c.id === id);
+          const title = sel ? conversationDisplayName(sel, langNow, t) : id;
+          return { id, title };
+        });
+        const bundleData = {
+          tabId: tab.id,
+          conversations: conversationsPayload,
+          scrapeOptions: {
+            startAt: range.startISO,
+            endAt: range.endISO,
+            includeReplies,
+            includeReactions,
+            includeSystem,
+            showHud,
+            exportTarget,
+            formats,
+            embedAvatars,
+            downloadImages,
+            // No conversationId / conversationTitle here — the SW injects
+            // them per-iteration from `conversations`.
+          },
+          buildOptions: {
+            formats,
+            saveAs: true,
+            embedAvatars,
+            downloadImages,
+            afterExport: options.afterExport,
+            avatarMode: options.avatarMode,
+            pdfPageSize: options.pdfPageSize,
+            pdfBodyFontSize: options.pdfBodyFontSize,
+            pdfShowPageNumbers: options.pdfShowPageNumbers,
+            pdfIncludeAvatars: options.pdfIncludeAvatars,
+          },
+        };
+        const bundleResp: StartBundleExportResponse =
+          await runtimeSend<StartBundleExportRequest>(runtime, {
+            type: "START_BUNDLE_EXPORT",
+            data: bundleData,
+          });
+        if (bundleResp?.code === "EMPTY_RESULTS") {
+          const message = bundleResp.error || emptyLabel();
+          setStatus(message, { stopElapsed: true });
+          showErrorBanner(message, false);
+          await clearLastError(storage);
+          return;
+        }
+        if (bundleResp?.cancelled) {
+          setStatus(
+            t("status.cancelled", {}, currentLang()) || "Cancelled",
+            { stopElapsed: true },
+          );
+          return;
+        }
+        if (!bundleResp || bundleResp.error) {
+          throw new Error(
+            bundleResp?.error || t("status.error", {}, currentLang()),
+          );
+        }
+        const langNow2 = currentLang();
+        const success = bundleResp.successChats ?? 0;
+        const total = bundleResp.totalChats ?? success;
+        const failed = bundleResp.failedChats ?? 0;
+        const summaryKey = failed > 0 ? 'status.bundleCompleteWithFailures' : 'status.bundleComplete';
+        const summaryText = t(summaryKey, { success, total, failed }, langNow2)
+          || `Bundle export complete: ${success} of ${total} chats${failed ? ` (${failed} failed)` : ''}.`;
+        setStatus(
+          bundleResp.filename
+            ? `${summaryText} (${bundleResp.filename})`
+            : summaryText,
+        );
+        hideErrorBanner(true);
+        return;
+      }
+
       const requestData = {
         tabId: tab.id,
         scrapeOptions: {
@@ -810,6 +1277,23 @@
           formats,
           embedAvatars,
           downloadImages,
+          // Explicit conversation chosen by the picker. When set, the
+          // scraper skips its DOM/IDB auto-detection and targets this
+          // conversation directly.
+          conversationId: selectedConversationId,
+          // Picker-resolved display name, so the scraper stamps the
+          // chosen chat's name on meta.title (and thus the filename)
+          // instead of pulling whichever chat is currently visible in
+          // the Teams tab DOM. Mirrors the picker's locale-aware
+          // placeholder logic: resolves "(You)" suffixes, unnamed-
+          // group member lists, and kind-specific fallbacks in the
+          // active UI language so filenames don't collide and stay
+          // consistent with what the user selected in the picker.
+          conversationTitle: (() => {
+            const sel = conversations.find(c => c.id === selectedConversationId);
+            if (!sel) return null;
+            return conversationDisplayName(sel, options.lang || 'en', t);
+          })(),
         },
         buildOptions: {
           formats,
@@ -897,12 +1381,45 @@
     lastHistoryViewedAt = Date.now();
   };
 
+  // Debug: timestamped popup-mount tracer + EXPORT_STATUS broadcast rate
+  // counter. Helps diagnose the "popup opens to a white pixel" symptom
+  // observed during heavy bundle exports — the symptom is consistent with
+  // a render/init exception OR a broadcast-storm starving the main thread.
+  // Both are now visible:
+  //   1. mount boundaries print "[POPUP] <stage> +<ms-since-mount>"
+  //   2. EXPORT_STATUS message rate logs every 2s when > 0
+  //   3. The init() body is wrapped in try/catch — any synchronous throw
+  //      that would otherwise leave the popup blank now prints to console
+  //      AND surfaces a visible error banner.
+  const __popupMountStart = performance.now();
+  const __popupTrace = (stage: string) => {
+    try {
+      const dt = (performance.now() - __popupMountStart).toFixed(1);
+      console.log(`[POPUP] ${stage} +${dt}ms`);
+    } catch { /* console may be unavailable in odd contexts */ }
+  };
+  let __exportStatusCount = 0;
+  let __exportStatusWindowStart = performance.now();
+  const __reportExportStatusRate = setInterval(() => {
+    if (__exportStatusCount === 0) return;
+    const elapsedSec = (performance.now() - __exportStatusWindowStart) / 1000;
+    const rate = (__exportStatusCount / elapsedSec).toFixed(1);
+    console.log(`[POPUP] EXPORT_STATUS rate ${rate}/s (${__exportStatusCount} in ${elapsedSec.toFixed(1)}s)`);
+    __exportStatusCount = 0;
+    __exportStatusWindowStart = performance.now();
+  }, 2000);
+  __popupTrace('script-eval');
+
   onMount(() => {
+    __popupTrace('onMount-enter');
     const init = async () => {
+      __popupTrace('init-enter');
+      try {
       setBusy(false);
       const loaded = await loadStoredOptions();
       if (!alive) return;
       options = loaded;
+      __popupTrace('options-loaded');
       await applyLanguage(options.lang || "en");
       applyTheme(options.theme || "light");
       updateQuickRangeActive();
@@ -962,6 +1479,24 @@
         const tab = await getActiveTeamsTab();
         currentTabId = tab.id ?? null;
 
+        // Restore the saved picker kind BEFORE loadConversations fires —
+        // the picker reads selectedKind during its first render, and we
+        // want that render to reflect the saved choice rather than flash
+        // "all" for one frame and then snap to e.g. "Chats". The folder
+        // gets reconciled inside loadConversations after the folder list
+        // is known; the kind set is fixed so we can restore it eagerly.
+        try {
+          const savedKind = await readSavedKindChoice();
+          if (savedKind) selectedKind = savedKind;
+        } catch { /* keep default 'all' */ }
+
+        // Kick off conversation list load in parallel — the picker needs
+        // it before an export can be started, but it's independent of the
+        // status/history hydration below, so firing here gets the list
+        // ready as early as possible. Errors render as a retry button in
+        // the picker, not a blocking banner.
+        if (currentTabId != null) void loadConversations();
+
         // Pre-hydrate from chrome.storage.local BEFORE the async message
         // round-trip to the background. The background mirrors its in-
         // memory activeExports Map here on every update, so we can paint
@@ -1018,7 +1553,10 @@
           startedAtMs = null;
         }
       } catch {
-        /* user not on Teams tab */
+        /* user not on Teams tab — flag the picker so it renders a
+           dedicated "open Teams web first" message instead of falling
+           through to the misleading "No matches" empty-state. */
+        if (alive) notOnTeamsTab = true;
       } finally {
         // Flip the "checking…" neutral state regardless of outcome so the
         // export button renders its real label (idle or busy) from here on.
@@ -1027,13 +1565,27 @@
       // Always load history so the dot reflects any entries added while
       // the popup was closed.
       await refreshHistory();
+      __popupTrace('init-done');
+      } catch (e: any) {
+        // Surface ANY synchronous throw during init so the popup never
+        // ends up blank-and-silent. The error banner is intentionally
+        // separate from the structured per-step traces — the trace tells
+        // us where init stopped, the banner tells the user something
+        // went wrong without making them open DevTools.
+        const msg = e?.message || String(e);
+        console.error('[POPUP] init failed:', e);
+        try { showErrorBanner(`Popup init failed: ${msg}`); } catch { /* noop */ }
+        __popupTrace(`init-error: ${msg.slice(0, 80)}`);
+      }
     };
     void init();
     runtime.onMessage.addListener(onRuntimeMessage);
+    __popupTrace('listener-registered');
   });
 
   onDestroy(() => {
     alive = false;
+    try { clearInterval(__reportExportStatusRate); } catch { /* noop */ }
     runtime.onMessage.removeListener(onRuntimeMessage);
     clearElapsedTimer();
   });
@@ -1101,9 +1653,30 @@
         </div>
       {/if}
 
+      <!-- Conversation picker. User selects which chat/channel to export.
+           Replaces the old "guess from DOM" flow end-to-end — the ID the
+           user picks here is passed straight through to the scraper. -->
+      <ConversationPicker
+        lang={options.lang || "en"}
+        {conversations}
+        {folders}
+        bind:selectedIds={selectedConversationIds}
+        bind:selectedFolderId
+        bind:selectedKind
+        mode="multi"
+        state={pickerState}
+        errorMessage={pickerError}
+        refreshing={isRefreshingList}
+        notOnTeams={notOnTeamsTab}
+        on:retry={() => loadConversations({ forceRefresh: true })}
+        on:folderChange={(e) => persistFolderChoice(e.detail)}
+        on:kindChange={(e) => persistKindChoice(e.detail)}
+      />
+
       <!-- Export button — plain in every state. Outcomes live in History page. -->
       <ExportButton
-        disabled={false}
+        disabled={selectedConversationIds.length === 0}
+        selectionCount={selectedConversationIds.length}
         {busy}
         {statusKnown}
         summary={exportSummary}

@@ -1,7 +1,17 @@
 import { defineBackground } from 'wxt/sandbox';
 import { createBadgeManager } from '../utils/badge';
-import { isTeamsUrl } from '../utils/teams-urls';
-import { buildAndDownload, buildAndDownloadBundle, buildAndDownloadZip } from '../background/download';
+import { isTeamsUrl, TEAMS_MATCH_PATTERNS } from '../utils/teams-urls';
+import {
+  buildAndDownload,
+  buildAndDownloadBundle,
+  buildAndDownloadBundlesZip,
+  buildAndDownloadZip,
+  buildOneChatForBundle,
+  pickBundleFolderName,
+  type BundleEntry,
+  type BundleFailure,
+} from '../background/download';
+import { revokeDownloadUrl, textToDownloadUrl } from '../background/builders';
 import { formatDayLabelForExport, parseTimeStamp } from '../utils/time';
 import { ACTIVE_EXPORTS_STORAGE_KEY, FIRST_INSTALL_STORAGE_KEY, appendHistoryEntry } from '../utils/options';
 import type { BackgroundIncomingMessage } from '../types/messaging';
@@ -305,7 +315,22 @@ function defaultContextError(options: ScrapeOptions) {
         : 'Open a chat conversation before exporting.';
 }
 
+// Debug: track broadcastStatus call rate so we can correlate the popup
+// white-screen symptom with broadcast-storm load. Logs every 2s while
+// activity is non-zero. Counter resets after each report.
+let __broadcastCount = 0;
+let __broadcastWindowStart = Date.now();
+setInterval(() => {
+    if (__broadcastCount === 0) return;
+    const elapsedSec = (Date.now() - __broadcastWindowStart) / 1000;
+    const rate = (__broadcastCount / elapsedSec).toFixed(1);
+    log(`broadcastStatus rate ${rate}/s (${__broadcastCount} in ${elapsedSec.toFixed(1)}s)`);
+    __broadcastCount = 0;
+    __broadcastWindowStart = Date.now();
+}, 2000);
+
 function broadcastStatus(payload: ExportStatusPayload) {
+    __broadcastCount += 1;
     let enriched = { ...payload };
     const tabId = payload?.tabId;
     if (tabId != null) {
@@ -568,6 +593,302 @@ function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
     });
 }
 
+// Multi-chat bundle export. Loops over the requested conversation ids
+// serially (parallel scrapes risk Teams throttling), runs the existing
+// per-chat scrape pipeline, and packs everything into one outer zip
+// with FAILURES.txt for any chat that errored. The loop is interruptible:
+// STOP_EXPORT both aborts the current scrape and short-circuits the
+// remaining iterations via bundleStops.
+function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => void) {
+    const data = msg.data || {};
+    const tabId = data.tabId;
+    const list: Array<{ id: string; title: string }> = Array.isArray(data.conversations) ? data.conversations : [];
+    const buildOptions: BuildOptions = data.buildOptions || {};
+    const baseScrapeOptions: ScrapeOptions = data.scrapeOptions || {};
+
+    if (typeof tabId !== 'number') {
+        sendResponse({ error: 'Missing tabId for bundle export request' });
+        return;
+    }
+    if (!list.length) {
+        sendResponse({ error: 'No conversations selected for bundle export' });
+        return;
+    }
+    const existing = activeExports.get(tabId);
+    if (existing?.phase && !TERMINAL_PHASES.has(existing.phase)) {
+        sendResponse({ error: 'An export is already running for this tab' });
+        return;
+    }
+
+    const validFormats = ['json', 'csv', 'html', 'txt', 'pdf'] as const;
+    const formats = (buildOptions.formats || []).filter((f): f is typeof validFormats[number] =>
+        (validFormats as readonly string[]).includes(f),
+    );
+    if (!formats.length) formats.push('json');
+    const downloadImages = Boolean(buildOptions.downloadImages);
+    const embedAvatars = Boolean(buildOptions.embedAvatars);
+    const avatarMode: 'inline' | 'files' = buildOptions.avatarMode === 'files' ? 'files' : 'inline';
+
+    bundleStops.delete(tabId);
+
+    (async () => {
+        const startedAt = Date.now();
+        updateActiveExport(tabId, { startedAt, phase: 'starting', lastStatus: undefined });
+        broadcastStatus({ tabId, phase: 'starting', startedAt });
+
+        try {
+            await ensureContentScript(tabId);
+        } catch (e: any) {
+            const message = e?.message || String(e);
+            broadcastStatus({ tabId, phase: 'error', error: message });
+            sendResponse({ error: message });
+            activeExports.delete(tabId); void persistActiveExports();
+            return;
+        }
+
+        const totalChats = list.length;
+        const usedFolderNames = new Set<string>();
+        const entries: BundleEntry[] = [];
+        const failures: BundleFailure[] = [];
+
+        for (let i = 0; i < list.length; i++) {
+            if (bundleStops.has(tabId)) break;
+
+            const conv = list[i];
+            const folderName = pickBundleFolderName(conv.title || conv.id, usedFolderNames);
+            const currentChat = i + 1;
+
+            const bundleCtx = {
+                bundleCurrentChat: currentChat,
+                bundleTotalChats: totalChats,
+                bundleChatName: folderName,
+                bundleSuccessCount: entries.length,
+                bundleFailedCount: failures.length,
+            };
+
+            broadcastStatus({ tabId, phase: 'scrape:start', ...bundleCtx });
+
+            const perChatScrape: ScrapeOptions = {
+                ...baseScrapeOptions,
+                conversationId: conv.id,
+                conversationTitle: conv.title || null,
+                noDomFallback: true,
+            };
+
+            let scrapeRes: ScrapeResult;
+            try {
+                scrapeRes = await requestScrape(tabId, perChatScrape);
+            } catch (e: any) {
+                const reason = e?.message || String(e);
+                if (reason === 'cancelled') {
+                    bundleStops.add(tabId);
+                    break;
+                }
+                failures.push({ folderName, conversationId: conv.id, reason });
+                continue;
+            }
+
+            const totalMessages = Array.isArray(scrapeRes.messages) ? scrapeRes.messages.length : 0;
+            broadcastStatus({ tabId, phase: 'scrape:complete', messages: totalMessages, ...bundleCtx });
+
+            if (totalMessages === 0) {
+                failures.push({ folderName, conversationId: conv.id, reason: 'No messages in selected range' });
+                continue;
+            }
+
+            try {
+                broadcastStatus({ tabId, phase: 'build', messages: totalMessages, ...bundleCtx });
+                const files = await buildOneChatForBundle({
+                    messages: scrapeRes.messages || [],
+                    meta: scrapeRes.meta || {},
+                    formats,
+                    embedAvatars,
+                    downloadImages,
+                    avatarMode,
+                    pdfPageSize: buildOptions.pdfPageSize,
+                    pdfBodyFontSize: buildOptions.pdfBodyFontSize,
+                    pdfShowPageNumbers: buildOptions.pdfShowPageNumbers,
+                    pdfIncludeAvatars: buildOptions.pdfIncludeAvatars,
+                    onPdfProgress: (done, total) => {
+                        broadcastStatus({
+                            tabId,
+                            phase: 'build',
+                            messages: totalMessages,
+                            messagesBuilt: done,
+                            messagesTotal: total,
+                            ...bundleCtx,
+                            bundleSuccessCount: entries.length,
+                            bundleFailedCount: failures.length,
+                        });
+                    },
+                });
+                entries.push({ folderName, files });
+            } catch (e: any) {
+                failures.push({ folderName, conversationId: conv.id, reason: e?.message || String(e) });
+            }
+        }
+
+        const cancelled = bundleStops.has(tabId);
+        bundleStops.delete(tabId);
+
+        // Cancellation is a hard abort: no partial zip, no history row.
+        // The user said stop; producing half a bundle would be confusing
+        // and risks shipping output the user didn't sanity-check.
+        if (cancelled) {
+            broadcastStatus({ tabId, phase: 'cancelled' });
+            sendResponse({ cancelled: true });
+            activeExports.delete(tabId); void persistActiveExports();
+            return;
+        }
+
+        if (!entries.length && !failures.length) {
+            const message = 'No conversations produced output.';
+            broadcastStatus({ tabId, phase: 'empty', message });
+            sendResponse({ error: message, code: 'EMPTY_RESULTS' });
+            activeExports.delete(tabId); void persistActiveExports();
+            return;
+        }
+
+        // Bundle where every chat failed: skip the .zip wrapper. We'd
+        // be packaging a single ~1 KB FAILURES.txt inside an otherwise
+        // empty zip — pointless extraction step for the user. Save the
+        // text file directly and mark the history row as 'failed' so
+        // it's visually distinct from a real bundle.
+        if (entries.length === 0 && failures.length > 0) {
+            console.log(`[bundle-allfail] saving FAILURES.txt directly (no zip): failures=${failures.length}`);
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19).replace('T', '_');
+            const filename = `TeamsExport_bundle_${stamp}_FAILURES.txt`;
+            const lines = failures.map(f => `${f.folderName}\t${f.conversationId}\t${f.reason}`);
+            const header = '# Chats that failed to export. Columns: folder\tconversationId\treason';
+            const body = `${header}\n${lines.join('\n')}\n`;
+            const url = textToDownloadUrl(body, 'text/plain');
+
+            let downloadId: number | undefined;
+            try {
+                downloadId = await downloads.download({ url, filename, saveAs: true });
+                console.log(`[bundle-allfail] downloads.download resolved: id=${downloadId} filename=${filename}`);
+                setTimeout(() => revokeDownloadUrl(url), 60_000);
+            } catch (e: any) {
+                console.log(`[bundle-allfail] downloads.download rejected: ${e?.message || String(e)}`);
+                revokeDownloadUrl(url);
+                const message = e?.message || String(e);
+                broadcastStatus({ tabId, phase: 'error', error: message });
+                sendResponse({ error: message });
+                activeExports.delete(tabId); void persistActiveExports();
+                return;
+            }
+
+            broadcastStatus({
+                tabId,
+                phase: 'complete',
+                filename,
+                downloadId,
+                afterExport: buildOptions?.afterExport,
+                bundleTotalChats: totalChats,
+                bundleSuccessCount: 0,
+                bundleFailedCount: failures.length,
+            });
+
+            const elapsedMs = Math.max(0, Date.now() - startedAt);
+            await persistHistoryEntry({
+                id: makeEntryId(),
+                tabId,
+                kind: 'failed',
+                downloadId,
+                filename,
+                title: `0 chats (${failures.length} failed)`,
+                isZip: false,
+                elapsedMs,
+                savedAt: Date.now(),
+            });
+
+            const after = buildOptions?.afterExport;
+            if (downloadId != null && after === 'show') {
+                try { await downloads.show(downloadId); } catch { /* noop */ }
+            }
+
+            sendResponse({
+                ok: true,
+                filename,
+                downloadId,
+                totalChats,
+                successChats: 0,
+                failedChats: failures.length,
+            });
+            activeExports.delete(tabId); void persistActiveExports();
+            return;
+        }
+
+        try {
+            broadcastStatus({
+                tabId,
+                phase: 'build',
+                messages: 0,
+                bundleCurrentChat: totalChats,
+                bundleTotalChats: totalChats,
+                bundleSuccessCount: entries.length,
+                bundleFailedCount: failures.length,
+            });
+            const buildRes = await buildAndDownloadBundlesZip({ downloads, isFirefox }, entries, failures);
+            const downloadOk = buildRes.id != null
+                ? await waitForDownloadComplete(buildRes.id, 60_000)
+                : true;
+            if (!downloadOk) {
+                broadcastStatus({ tabId, phase: 'cancelled' });
+                sendResponse({ cancelled: true });
+                return;
+            }
+
+            broadcastStatus({
+                tabId,
+                phase: 'complete',
+                filename: buildRes.filename,
+                downloadId: buildRes.id,
+                afterExport: buildOptions?.afterExport,
+                bundleTotalChats: totalChats,
+                bundleSuccessCount: entries.length,
+                bundleFailedCount: failures.length,
+            });
+
+            const elapsedMs = Math.max(0, Date.now() - startedAt);
+            await persistHistoryEntry({
+                id: makeEntryId(),
+                tabId,
+                kind: 'success',
+                downloadId: buildRes.id,
+                filename: buildRes.filename,
+                // Title carries chat count + failure marker. messageCount is
+                // omitted because the per-chat counts don't aggregate into a
+                // single meaningful number for a bundle row.
+                title: `${entries.length} chats${failures.length ? ` (${failures.length} failed)` : ''}`,
+                isZip: true,
+                elapsedMs,
+                savedAt: Date.now(),
+            });
+
+            const after = buildOptions?.afterExport;
+            if (buildRes.id != null && after === 'show') {
+                try { await downloads.show(buildRes.id); } catch { /* noop */ }
+            }
+
+            sendResponse({
+                ok: true,
+                filename: buildRes.filename,
+                downloadId: buildRes.id,
+                totalChats,
+                successChats: entries.length,
+                failedChats: failures.length,
+            });
+        } catch (e: any) {
+            const message = e?.message || String(e);
+            broadcastStatus({ tabId, phase: 'error', error: message });
+            sendResponse({ error: message });
+        } finally {
+            activeExports.delete(tabId); void persistActiveExports();
+        }
+    })();
+}
+
 // Circuit breaker for sustained rate limits: after several consecutive exhausted
 // retries, skip further retries for a cool-off window. Prevents a rate-limited
 // export from stalling for minutes as each concurrent image burns its full retry
@@ -587,6 +908,11 @@ const inFlightFetchesByTab = new Map<number, Set<AbortController>>();
 // (e.g. the result of an image fetch that was already in flight when the
 // user pressed stop) so they don't repaint the badge after we cleared it.
 const cancelledTabs = new Set<number>();
+
+// Tabs running a multi-chat bundle export whose loop should stop before
+// the next iteration. STOP_EXPORT writes to this set as well as aborting
+// the in-flight scrape; the bundle loop checks it between chats.
+const bundleStops = new Set<number>();
 
 function trackFetch(tabId: number | undefined, controller: AbortController) {
     if (tabId == null) return;
@@ -724,6 +1050,11 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
         return true;
     }
 
+    if (msg.type === 'START_BUNDLE_EXPORT') {
+        handleStartBundleExportMessage(msg, sendResponse);
+        return true;
+    }
+
     if (msg.type === 'EXPORT_STATUS_UPDATE') {
         const payload = msg.payload || {};
         broadcastStatus(payload);
@@ -785,6 +1116,48 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
         sendResponse({ active: Boolean(info), info });
         return;
     }
+
+    if (msg.type === 'LIST_CONVERSATIONS_QUICK') {
+        // Fast first-paint: IDB-only read in the content script,
+        // no Graph or roster fetches. Returns ~instantly.
+        const tabId = typeof msg.tabId === 'number' ? msg.tabId : sender?.tab?.id;
+        if (typeof tabId !== 'number') {
+            sendResponse({ ok: false, error: 'missing-tab-id' });
+            return;
+        }
+        (async () => {
+            try {
+                await ensureContentScript(tabId);
+                const resp = await sendMessageToTab(tabId, { type: 'LIST_CONVERSATIONS_QUICK' });
+                sendResponse(resp ?? { ok: false, error: 'no-response' });
+            } catch (e: any) {
+                sendResponse({ ok: false, error: String(e?.message || e) });
+            }
+        })();
+        return true;
+    }
+
+    if (msg.type === 'LIST_CONVERSATIONS') {
+        // Popup sends this to fetch the user's chat list. We ensure the
+        // content script is injected, then forward the request to it —
+        // only the content script has access to the Teams page's MSAL
+        // tokens and the chat service.
+        const tabId = typeof msg.tabId === 'number' ? msg.tabId : sender?.tab?.id;
+        if (typeof tabId !== 'number') {
+            sendResponse({ ok: false, error: 'missing-tab-id' });
+            return;
+        }
+        (async () => {
+            try {
+                await ensureContentScript(tabId);
+                const resp = await sendMessageToTab(tabId, { type: 'LIST_CONVERSATIONS' });
+                sendResponse(resp ?? { ok: false, error: 'no-response' });
+            } catch (e: any) {
+                sendResponse({ ok: false, error: String(e?.message || e) });
+            }
+        })();
+        return true; // async response
+    }
 });
 
 async function handleStopExportMessage(tabId: number, sendResponse: (resp: unknown) => void) {
@@ -809,6 +1182,11 @@ async function handleStopExportMessage(tabId: number, sendResponse: (resp: unkno
     // Tell the popup right away — the actual teardown takes a beat as the
     // content script unwinds, but the user gets feedback immediately.
     broadcastStatus({ tabId, phase: 'cancelling' });
+
+    // Multi-chat bundle: signal the loop to stop before the next chat.
+    // Combined with the requestScrape rejection below this aborts the
+    // current chat AND skips the remaining ones.
+    bundleStops.add(tabId);
 
     // Forward to the content script so it aborts its IC3 pagination loop
     // (or whichever phase it's in) and discards collected data.

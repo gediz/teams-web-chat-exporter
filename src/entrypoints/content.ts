@@ -12,7 +12,7 @@ import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scr
 import { extractChatTitle, extractChannelTitle } from '../content/title';
 import { extractAvatarId } from '../utils/avatars';
 import { TEAMS_MATCH_PATTERNS } from '../utils/teams-urls';
-import { apiScrape, extractConversationId, getGraphToken } from '../content/api-client';
+import { apiScrape, discover, extractConversationId, getCurrentUserUuid, getGraphToken, getIc3Token, getSkypeToken, listConversationsFromIdb, listConversationsFromIdbQuick } from '../content/api-client';
 import { convertApiMessages, buildApiMeta } from '../content/api-converter';
 import type { AggregatedItem, Attachment, ExportMessage, OrderContext, Reaction, ReplyContext, ScrapeOptions } from '../types/shared';
 
@@ -2207,6 +2207,49 @@ export default defineContentScript({
                         }
                         return;
                     }
+                    if (msg.type === 'LIST_CONVERSATIONS_QUICK') {
+                        // Fast first-paint variant: pure IDB read, no
+                        // Graph or roster network calls. Returns in
+                        // ~50 ms. Picker can render immediately;
+                        // popup follows up with the full LIST_CONVERSATIONS
+                        // for resolved external/internal contact names.
+                        try {
+                            const { conversations, folders } = await listConversationsFromIdbQuick();
+                            sendResponse({ ok: true, conversations, folders });
+                        } catch (e) {
+                            console.log('[Teams Exporter] LIST_CONVERSATIONS_QUICK failed:', e);
+                            sendResponse({ ok: false, error: String((e as Error)?.message || e) });
+                        }
+                        return;
+                    }
+                    if (msg.type === 'LIST_CONVERSATIONS') {
+                        // Reads the conversation list from Teams' own
+                        // IndexedDB store (Teams:conversation-manager).
+                        // IDB has the full local conversation set —
+                        // including meeting-derived chats and other niche
+                        // product types — and is consistent with the
+                        // sidebar. The chat-service API path used to be
+                        // a fallback; once we proved IDB is reliable
+                        // across tenants/locales it became dead code,
+                        // so it's gone. If IDB is genuinely empty
+                        // (Teams hasn't booted, or the user is on a
+                        // brand-new account) we return an empty list —
+                        // the popup retry button covers re-fetching
+                        // once Teams has populated.
+                        try {
+                            const skypeToken = await getSkypeToken();
+                            if (!skypeToken) { sendResponse({ ok: false, error: 'no-skype-token' }); return; }
+                            const ic3Token = await getIc3Token();
+                            if (!ic3Token) { sendResponse({ ok: false, error: 'no-ic3-token' }); return; }
+                            const { chatServiceUrl } = await discover(skypeToken);
+                            const { conversations, folders } = await listConversationsFromIdb({ chatServiceUrl, ic3Token });
+                            sendResponse({ ok: true, conversations, folders });
+                        } catch (e) {
+                            console.log('[Teams Exporter] LIST_CONVERSATIONS failed:', e);
+                            sendResponse({ ok: false, error: String((e as Error)?.message || e) });
+                        }
+                        return;
+                    }
                     if (msg.type === 'STOP_SCRAPE') {
                         if (currentAbortController) {
                             console.log('[Teams Exporter] STOP_SCRAPE received — aborting active scrape');
@@ -2219,7 +2262,7 @@ export default defineContentScript({
                         return;
                     }
                     if (msg.type === 'SCRAPE_TEAMS') {
-                        const { startAt, endAt, includeReactions, includeSystem, includeReplies, showHud, exportTarget, formats, embedAvatars, downloadImages } = msg.options || {};
+                        const { startAt, endAt, includeReactions, includeSystem, includeReplies, showHud, exportTarget, formats, embedAvatars, downloadImages, conversationId, conversationTitle, noDomFallback } = msg.options || {};
                         const target = exportTarget === 'team' ? 'team' : 'chat';
                         hudEnabled = showHud !== false;
                         if (!hudEnabled) clearHUD();
@@ -2262,7 +2305,7 @@ export default defineContentScript({
                                     const mp = runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'api-fetch', messagesVisible: p.messagesSoFar, passes: p.page } });
                                     if (mp && mp.catch) mp.catch(() => {});
                                 } catch { /* ignore */ }
-                            }, { startAtISO: scrapeOpts.startAtISO, signal: abortSignal });
+                            }, { startAtISO: scrapeOpts.startAtISO, signal: abortSignal, conversationId: typeof conversationId === 'string' ? conversationId : null });
 
                             if (apiResult) {
                                 const converted = convertApiMessages(apiResult.messages, scrapeOpts, apiResult.userId);
@@ -2291,7 +2334,13 @@ export default defineContentScript({
                                         console.log(`[Teams Exporter] Skipping avatar fetch — formats=${fmtList.join(',')}, embedAvatars=${embedAvatars}`);
                                     }
                                     messages = converted;
-                                    title = target === 'team' ? extractChannelTitle() : extractChatTitle();
+                                    // Prefer the picker-resolved title: when the user explicitly
+                                    // picks chat X but their Teams tab is viewing chat Y, DOM
+                                    // extraction would stamp Y's name on X's export. Fall through
+                                    // to DOM extraction when the caller didn't supply a title.
+                                    title = (typeof conversationTitle === 'string' && conversationTitle.trim())
+                                      ? conversationTitle.trim()
+                                      : (target === 'team' ? extractChannelTitle() : extractChatTitle());
                                     console.log(`[Teams Exporter] API mode: ${converted.length} messages from ${apiResult.messages.length} raw`);
                                     hud(`API: ${converted.length} messages`);
                                 } else {
@@ -2313,6 +2362,22 @@ export default defineContentScript({
                                 currentAbortController = null;
                                 hud('cancelled');
                                 sendResponse({ ok: false, cancelled: true });
+                                return;
+                            }
+                            // In multi-chat bundle mode the DOM scroll would
+                            // scrape whichever chat is currently visible in
+                            // the user's tab — almost certainly NOT the one
+                            // we're trying to export. Refuse to fall back
+                            // and let the background loop record this as a
+                            // per-chat failure. (The api-client already
+                            // retries 403/5xx on a tight budget before
+                            // surfacing the error here.)
+                            if (noDomFallback) {
+                                console.log('[Teams Exporter] API failed and noDomFallback is set (multi-chat) — reporting failure without DOM scroll');
+                                currentRunStartedAt = null;
+                                currentAbortController = null;
+                                hud('api failed');
+                                sendResponse({ ok: false, error: 'API scrape failed; DOM fallback disabled in multi-chat mode' });
                                 return;
                             }
                             hud('scrolling…');

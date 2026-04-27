@@ -1,4 +1,4 @@
-import type { BuildOptions, ExportMessage, ExportStatusPayload, ScrapeOptions } from './shared';
+import type { BuildOptions, ConversationSummary, ExportMessage, ExportStatusPayload, FolderSummary, ScrapeOptions } from './shared';
 
 export type PingSWRequest = { type: 'PING_SW' };
 export type PingSWResponse = { ok: boolean; now: number };
@@ -19,6 +19,33 @@ export type StartExportResponse = {
   filename?: string;
   downloadId?: number;
   messages?: number;
+  cancelled?: boolean;
+  error?: string;
+  code?: string;
+};
+
+// Multi-chat bundle export. The popup sends this when the picker has 2+
+// conversations selected. The SW loops over each id, runs the standard
+// scrape pipeline, packs everything into a single outer zip with per-
+// chat subfolders + FAILURES.txt for any chat that errored. scrapeOptions
+// MUST NOT carry `conversationId` / `conversationTitle` here — the SW
+// injects those per-iteration from the `conversations` array.
+export type StartBundleExportRequest = {
+  type: 'START_BUNDLE_EXPORT';
+  data: {
+    tabId?: number | null;
+    conversations: Array<{ id: string; title: string }>;
+    scrapeOptions: ScrapeOptions;
+    buildOptions: BuildOptions;
+  };
+};
+export type StartBundleExportResponse = {
+  ok?: boolean;
+  filename?: string;
+  downloadId?: number;
+  totalChats?: number;
+  successChats?: number;
+  failedChats?: number;
   cancelled?: boolean;
   error?: string;
   code?: string;
@@ -74,6 +101,22 @@ export type StopExportResponse = { ok: boolean; error?: string };
 export type GetConvIdRequest = { type: 'GET_CONV_ID' };
 export type GetConvIdResponse = { convId: string | null };
 
+// Ask the content script to fetch the user's conversation list via the
+// Teams chat service API. Popup uses the result to populate its picker.
+// Returns either the sorted list or a failure reason — typically "no
+// valid IC3 token" (user hasn't authenticated to Teams in this tab) or
+// a network/HTTP error from the chat service itself.
+export type ListConversationsRequest = { type: 'LIST_CONVERSATIONS'; tabId?: number | null };
+export type ListConversationsResponse =
+  | { ok: true; conversations: ConversationSummary[]; folders?: FolderSummary[] }
+  | { ok: false; error: string };
+
+// Fast IDB-only variant: returns ~instantly with topic + last-sender
+// names but without Graph / roster enrichment. Used to paint the
+// picker on cold load without waiting for the full pipeline.
+export type ListConversationsQuickRequest = { type: 'LIST_CONVERSATIONS_QUICK'; tabId?: number | null };
+export type ListConversationsQuickResponse = ListConversationsResponse;
+
 export type ScrapeProgressMessage = {
   type: 'SCRAPE_PROGRESS';
   payload: {
@@ -93,23 +136,32 @@ export type RuntimeRequest =
   | PingSWRequest
   | GetExportStatusRequest
   | StartExportRequest
+  | StartBundleExportRequest
   | StopExportRequest
-  | BuildAndDownloadRequest;
+  | BuildAndDownloadRequest
+  | ListConversationsRequest
+  | ListConversationsQuickRequest;
 
 export type BackgroundIncomingMessage =
   | PingSWRequest
   | GetExportStatusRequest
   | StartExportRequest
+  | StartBundleExportRequest
   | StopExportRequest
   | BuildAndDownloadRequest
   | ExportStatusUpdateMessage
   | ScrapeProgressMessage
-  | FetchBlobRequest;
+  | FetchBlobRequest
+  | ListConversationsRequest
+  | ListConversationsQuickRequest;
 export type PopupIncomingMessage = ExportStatusMessage | ScrapeProgressMessage;
 
 export type RuntimeResponse<T extends RuntimeRequest> =
   T extends PingSWRequest ? PingSWResponse :
   T extends GetExportStatusRequest ? GetExportStatusResponse :
   T extends StartExportRequest ? StartExportResponse :
+  T extends StartBundleExportRequest ? StartBundleExportResponse :
   T extends StopExportRequest ? StopExportResponse :
+  T extends ListConversationsRequest ? ListConversationsResponse :
+  T extends ListConversationsQuickRequest ? ListConversationsQuickResponse :
   unknown;

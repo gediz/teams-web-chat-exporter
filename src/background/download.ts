@@ -1,7 +1,10 @@
 import { binaryToDownloadUrl, removeAvatars, revokeDownloadUrl, textToDownloadUrl, toCSV, toHTML } from './builders';
+// binaryToDownloadUrl is still used for the PDF single-format path; the
+// zip paths bypass it because `new Blob([uint8array])` doubles peak
+// memory for large bundles (see zip.ts comments + take3 OOM trace).
 import { buildPdf } from './pdf';
 import { formatRangeLabel, sanitizeBase } from '../utils/messages';
-import { buildZip } from './zip';
+import { buildZip, buildZipAsync } from './zip';
 import type { Attachment, ExportMessage, ExportMeta } from '../types/shared';
 
 type DownloadsApi = Pick<typeof chrome.downloads, 'download'>;
@@ -431,10 +434,9 @@ export async function buildAndDownloadZip(
     });
   }
 
-  const zipBytes = buildZip(files);
-  const mime = 'application/zip';
+  const zipBlob = await buildZipAsync(files, 'zip-html-images');
   const zipName = `${built.baseFolder}.zip`;
-  const url = binaryToDownloadUrl(zipBytes, mime);
+  const url = URL.createObjectURL(zipBlob);
   try {
     const id = await downloads.download({ url, filename: zipName, saveAs: true });
     setTimeout(() => revokeDownloadUrl(url), 60_000);
@@ -554,14 +556,215 @@ export async function buildAndDownloadBundle(
 
   onStatus?.({ phase: 'build', filename: `${baseFolder}.zip`, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
 
-  const zipBytes = buildZip(files);
+  const zipBlob = await buildZipAsync(files, 'zip-per-chat-bundle');
   const zipName = `${baseFolder}.zip`;
-  const url = binaryToDownloadUrl(zipBytes, 'application/zip');
+  const url = URL.createObjectURL(zipBlob);
   try {
     const id = await downloads.download({ url, filename: zipName, saveAs: true });
     setTimeout(() => revokeDownloadUrl(url), 60_000);
     return { ok: true, filename: zipName, id };
   } catch (e: any) {
+    revokeDownloadUrl(url);
+    throw new Error(e?.message || String(e));
+  }
+}
+
+// Build every requested format for a single conversation as in-memory
+// bytes, ready to be packed into an outer multi-chat bundle.zip. No
+// download is triggered; the caller chooses the chat's folder name and
+// emits the final outer zip (see buildAndDownloadBundlesZip).
+//
+// File layout returned (no chat-folder prefix — caller adds it):
+//   messages.json
+//   messages.html        when 'html' is selected
+//   messages.csv / .txt / .pdf
+//   avatars/<id>.<ext>   when html + embedAvatars + avatarMode='files'
+//   images/<name>.<ext>  when html + downloadImages
+//
+// Generic filenames (`messages.*`) instead of the single-chat-export
+// `<baseFolder>.<ext>` pattern keep paths short inside the bundle and
+// match the v1.4 plan's example layout.
+type PerChatFile = { relativePath: string; data: Uint8Array };
+
+export type BuildOneChatBundleOptions = {
+  messages: ExportMessage[];
+  meta: ExportMeta;
+  formats: SingleFormat[];
+  embedAvatars: boolean;
+  downloadImages: boolean;
+  avatarMode: AvatarMode;
+  // Reported as the per-chat build advances; the caller wraps these to
+  // bubble bundle context (chat N of M) up to the popup.
+  onPdfProgress?: (done: number, total: number) => void;
+} & PdfKnobs;
+
+export async function buildOneChatForBundle(
+  options: BuildOneChatBundleOptions,
+): Promise<PerChatFile[]> {
+  const { messages, meta, formats, embedAvatars, downloadImages, avatarMode, onPdfProgress } = options;
+  if (!formats.length) throw new Error('buildOneChatForBundle: formats is empty');
+
+  const needAvatarsAsFiles = embedAvatars && formats.includes('html') && avatarMode === 'files';
+  const avatarCollect = needAvatarsAsFiles ? collectAvatarFiles(meta) : { files: [], meta };
+  const htmlMeta = avatarCollect.meta;
+
+  const htmlImageMode: ImageMode = downloadImages ? 'files' : 'none';
+  const out: PerChatFile[] = [];
+  const imagePaths = new Set<string>();
+  const encoder = new TextEncoder();
+
+  for (const a of avatarCollect.files) {
+    const bytes = dataUrlToBytes(a.dataUrl);
+    if (!bytes) continue;
+    out.push({ relativePath: a.filename, data: bytes });
+  }
+
+  // Title used in diagnostic logs so the SW console shows which chat
+  // is being built when something dies. The chat is identified by
+  // meta.title in normal use; falls back to "?" if upstream didn't
+  // stamp one (shouldn't happen in the bundle path but defensive).
+  const titleForLog = (meta?.title || '?').slice(0, 60);
+
+  for (const format of formats) {
+    // Yield to the event loop before each format. Without this, building
+    // 5 formats × 12k+ messages ties the extension process up for several
+    // seconds straight — observed effect: Firefox popup mount sees its
+    // chrome.storage.local read balloon from ~25ms to ~400ms+ and renders
+    // as a white pixel until the build finishes. setTimeout(0) gives any
+    // pending popup mount or storage IO a chance to interleave.
+    await new Promise<void>(r => setTimeout(r, 0));
+
+    // Per-format diagnostic — the bundle-handler's catch only sees the
+    // bare error message ("The operation was aborted." was the recent
+    // mystery), so it can't tell which format died. Log when we start
+    // each format and re-throw with format context if anything inside
+    // explodes. No behavior change: the bundle handler still pushes
+    // the failure into FAILURES.txt and continues to the next chat.
+    try {
+      console.log(`[bundle] building ${format} for "${titleForLog}"`);
+      if (format === 'pdf') {
+        const bytes = await buildPdf(messages, meta, onPdfProgress, toPdfOptions(options));
+        out.push({ relativePath: 'messages.pdf', data: bytes });
+        continue;
+      }
+
+      const mode: ImageMode = format === 'html' ? htmlImageMode : 'none';
+      const formatMeta = format === 'html' ? htmlMeta : meta;
+      const built = buildExportInternal({ messages, meta: formatMeta, format, embedAvatars, downloadImages }, mode);
+
+      const contentParts = Array.isArray(built.content) ? built.content : [built.content];
+      const encodedParts = contentParts.map(part => encoder.encode(part));
+      const totalLen = encodedParts.reduce((sum, p) => sum + p.length, 0);
+      const contentBytes = new Uint8Array(totalLen);
+      let offset = 0;
+      for (const part of encodedParts) {
+        contentBytes.set(part, offset);
+        offset += part.length;
+      }
+      const ext = format;
+      out.push({ relativePath: `messages.${ext}`, data: contentBytes });
+
+      for (const img of built.inlineImages) {
+        if (imagePaths.has(img.filename)) continue;
+        const bytes = dataUrlToBytes(img.dataUrl);
+        if (!bytes) continue;
+        imagePaths.add(img.filename);
+        out.push({ relativePath: img.filename, data: bytes });
+      }
+    } catch (e: unknown) {
+      // Re-throw with format context so the bundle handler's failure
+      // entry says WHICH format died, not just the bare message. The
+      // bundle handler still pushes to FAILURES.txt and continues to
+      // the next chat — same user-facing behavior, more diagnosable
+      // log + failures line.
+      const inner = e instanceof Error ? e.message : String(e);
+      throw new Error(`build:${format} — ${inner}`);
+    }
+  }
+
+  return out;
+}
+
+// Sanitise + dedupe a chat title for use as a folder name inside a
+// multi-chat bundle. Collisions get `(2)`, `(3)`, ... appended.
+//
+// Mutates `used` to reserve the chosen name so subsequent calls in
+// the same bundle keep picking unique values.
+export function pickBundleFolderName(rawTitle: string, used: Set<string>): string {
+  const base = sanitizeBase(rawTitle || 'UnnamedChat') || 'UnnamedChat';
+  if (!used.has(base.toLowerCase())) {
+    used.add(base.toLowerCase());
+    return base;
+  }
+  let idx = 2;
+  while (used.has(`${base} (${idx})`.toLowerCase())) idx += 1;
+  const chosen = `${base} (${idx})`;
+  used.add(chosen.toLowerCase());
+  return chosen;
+}
+
+// Per-chat success entry passed to buildAndDownloadBundlesZip. The
+// folder name has already been picked (and deduped) by the caller so
+// progress messages can show the exact label used in the zip.
+export type BundleEntry = {
+  folderName: string;
+  files: PerChatFile[];
+};
+
+export type BundleFailure = {
+  // The folder name we WOULD have used so the FAILURES.txt line is
+  // human-recognisable even if the chat never produced output.
+  folderName: string;
+  conversationId: string;
+  reason: string;
+};
+
+// Pack every per-chat result into a single outer zip and download it.
+// Failures (if any) are written as one line each into FAILURES.txt at
+// the zip's root so the user gets a concrete punch-list of what didn't
+// export, without aborting the rest of the run.
+export async function buildAndDownloadBundlesZip(
+  deps: BuildDownloadDeps,
+  entries: BundleEntry[],
+  failures: BundleFailure[],
+) {
+  const { downloads } = deps;
+
+  const outerFiles: { path: string; data: Uint8Array }[] = [];
+  for (const entry of entries) {
+    for (const f of entry.files) {
+      outerFiles.push({ path: `${entry.folderName}/${f.relativePath}`, data: f.data });
+    }
+  }
+
+  if (failures.length) {
+    const lines = failures.map(f => `${f.folderName}\t${f.conversationId}\t${f.reason}`);
+    const header = '# Chats that failed to export. Columns: folder\tconversationId\treason';
+    const body = `${header}\n${lines.join('\n')}\n`;
+    outerFiles.push({ path: 'FAILURES.txt', data: new TextEncoder().encode(body) });
+  }
+
+  // Async zip — yields to the event loop between file additions.
+  // Critical for multi-chat bundles: a 100-chat ~900 MB sync zip
+  // blocked the SW thread for ~34 s and froze any open popup.
+  const totalOuterBytes = outerFiles.reduce((a, f) => a + f.data.byteLength, 0);
+  console.log(`[bundle-outer] entering buildZipAsync: entries=${entries.length} failures=${failures.length} files=${outerFiles.length} totalBytes=${totalOuterBytes}`);
+  const zipBlob = await buildZipAsync(outerFiles, 'zip-outer-bundle');
+  console.log(`[bundle-outer] zip built: outBytes=${zipBlob.size}`);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19).replace('T', '_');
+  const zipName = `TeamsExport_bundle_${stamp}.zip`;
+  const tUrl = performance.now();
+  const url = URL.createObjectURL(zipBlob);
+  console.log(`[bundle-outer] blob-url created in ${Math.round(performance.now() - tUrl)}ms`);
+  try {
+    const tDl = performance.now();
+    console.log(`[bundle-outer] downloads.download calling: filename=${zipName}`);
+    const id = await downloads.download({ url, filename: zipName, saveAs: true });
+    console.log(`[bundle-outer] downloads.download resolved: id=${id} ms=${Math.round(performance.now() - tDl)}`);
+    setTimeout(() => revokeDownloadUrl(url), 60_000);
+    return { ok: true, filename: zipName, id };
+  } catch (e: any) {
+    console.log(`[bundle-outer] downloads.download rejected: ${e?.message || String(e)}`);
     revokeDownloadUrl(url);
     throw new Error(e?.message || String(e));
   }

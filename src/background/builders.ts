@@ -244,8 +244,8 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     .avt-img{width:36px; height:36px; border-radius:50%; display:block; background-size:cover; background-position:center}
     .main{flex:1}
     code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;background:#f3f4f6;border:1px solid #e5e7eb;padding:1px 4px;border-radius:4px}
-    pre.code-block{background:#0b1020;color:#e5e7eb;border-radius:10px;padding:10px 12px;overflow:auto;margin:8px 0;border:1px solid #111827}
-    pre.code-block code{background:none;border:none;padding:0;color:inherit;white-space:pre}
+    pre.code-block{background:#0b1020;color:#e5e7eb;border-radius:10px;padding:10px 12px;overflow:auto;margin:8px 0;border:1px solid #111827;max-width:100%;box-sizing:border-box;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
+    pre.code-block code{background:none;border:none;padding:0;color:inherit;white-space:inherit}
     .hdr{color:var(--muted); font-size:12px; margin-bottom:6px}
     .hdr .rel{margin-left:6px; font-style:italic}
     .hdr .edited{font-style:italic}
