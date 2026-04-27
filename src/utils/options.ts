@@ -84,15 +84,15 @@ export type Options = {
 // and seeds `formats: [format]` so existing users don't get reset to default.
 type LegacyOptions = Partial<Options> & { format?: OptionFormat };
 
-export type StoredError = { message: string; timestamp?: number };
+type StoredError = { message: string; timestamp?: number };
 
-export const OPTIONS_STORAGE_KEY = 'teamsExporterOptions';
-export const ERROR_STORAGE_KEY = 'teamsExporterLastError';
-export const HISTORY_STORAGE_KEY = 'teamsExporterHistory';
+const OPTIONS_STORAGE_KEY = 'teamsExporterOptions';
+const ERROR_STORAGE_KEY = 'teamsExporterLastError';
+const HISTORY_STORAGE_KEY = 'teamsExporterHistory';
 // Last time the user opened the History page. Entries with savedAt > this
 // value are considered "new" and trigger the breathing dot on the history
 // icon. Stored under its own key so it survives history clears.
-export const HISTORY_VIEWED_KEY = 'teamsExporterHistoryViewedAt';
+const HISTORY_VIEWED_KEY = 'teamsExporterHistoryViewedAt';
 // Which popup page was open when the popup was last closed. Restored on
 // next open so the user doesn't lose context mid-task (e.g. reading
 // settings, switching tabs to verify something, coming back).

@@ -1,4 +1,4 @@
-export const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export function parseTimeStamp(value: string | null | undefined): number | null {
   if (!value) return null;

@@ -1,5 +1,5 @@
 import type { AggregatedItem } from '../types/shared';
-import { formatDayLabelForExport, parseTimeStamp } from './time';
+import { formatDayLabelForExport } from './time';
 
 export const makeDayDivider = (dayKey: number, ts: number): AggregatedItem => {
   const label = formatDayLabelForExport(ts);
@@ -81,7 +81,3 @@ export const formatRangeLabel = (startISO?: string | null, endISO?: string | nul
   return null;
 };
 
-export const ensureMessageTs = (entry: AggregatedItem) => {
-  const ts = entry.anchorTs ?? entry.tsMs ?? (entry.message?.timestamp ? parseTimeStamp(entry.message.timestamp) : null);
-  return ts;
-};

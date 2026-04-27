@@ -2,7 +2,7 @@ import type { ExportStatusPayload } from '../types/shared';
 
 type BadgeAction = Pick<typeof chrome.action, 'setBadgeText' | 'setBadgeBackgroundColor'>;
 
-export const BADGE_COLORS = {
+const BADGE_COLORS = {
   default: '#1d4ed8',
   empty: '#6b7280',
   success: '#16a34a',
@@ -10,7 +10,7 @@ export const BADGE_COLORS = {
   progress: '#2563eb',
 } as const;
 
-export type BadgeProgress = { filteredSeen?: number; seen?: number; aggregated?: number; messagesVisible?: number; phase?: string; imagesDone?: number; imagesTotal?: number };
+type BadgeProgress = { filteredSeen?: number; seen?: number; aggregated?: number; messagesVisible?: number; phase?: string; imagesDone?: number; imagesTotal?: number };
 
 const ONE_THOUSAND = 1000;
 const ONE_MILLION = 1_000_000;
