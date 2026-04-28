@@ -699,7 +699,26 @@
                 <span>{t('picker.firstLoad', {}, lang) || 'Loading conversations from Teams…'}</span>
               </div>
             {:else if conversations.length === 0 && state === 'ok'}
-              <div class="picker-empty-row">{t('picker.empty', {}, lang) || 'No chats found'}</div>
+              <!-- An empty list on a Teams tab almost never means "no
+                   chats" — every Teams account has at least the self-
+                   chat (48:notes) Microsoft auto-creates. The empty
+                   state therefore points at IDB-not-yet-populated:
+                   Teams' SPA is loading but hasn't synced the chat
+                   list yet. We surface that explicitly + offer a one-
+                   click retry instead of the misleading 'No chats'. -->
+              <div class="picker-still-loading">
+                <RefreshCw size={16} />
+                <span class="picker-still-loading-msg">
+                  {t('picker.stillLoading', {}, lang) || 'Teams is still loading your chats — try refreshing in a few seconds.'}
+                </span>
+                <button
+                  type="button"
+                  class="picker-retry"
+                  on:click={() => dispatch('retry')}
+                >
+                  {t('picker.stillLoading.retry', {}, lang) || 'Refresh'}
+                </button>
+              </div>
             {:else if filtered.length === 0}
               <div class="picker-empty-row">{t('picker.noMatch', {}, lang) || 'No matches'}</div>
             {:else}
@@ -836,6 +855,10 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    /* margin-top separates this from the card-header above. Without
+       it the "Open the Teams web app tab first." line sat flush
+       against the "Conversations" title — visually crowded. */
+    margin-top: 10px;
     padding: 14px 12px;
     background: var(--color-bg);
     border: 1px solid var(--color-border);
@@ -1266,6 +1289,28 @@
     gap: 8px;
     padding: 24px 14px;
     color: var(--color-subtle);
+    font-size: 12px;
+  }
+  /* "Teams is still loading" empty-state. Stacked layout (icon + msg
+     + action) instead of the inline "No chats found" we used to
+     show, because the message is longer and we want the Refresh
+     button as a clearly clickable affordance. */
+  .picker-still-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 22px 16px;
+    color: var(--color-subtle);
+    font-size: 12px;
+    text-align: center;
+  }
+  .picker-still-loading-msg { line-height: 1.45; }
+  .picker-still-loading .picker-retry {
+    /* Match the existing .picker-retry visual but slightly larger so
+       it stands alone, since this empty state isn't squeezed next to
+       the "Loaded N" label like the inline retry is. */
+    padding: 6px 14px;
     font-size: 12px;
   }
 
