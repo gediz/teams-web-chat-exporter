@@ -27,6 +27,7 @@
     REVIEW_PROMPT_STORAGE_KEY,
     PICKER_FOLDER_STORAGE_KEY,
     PICKER_KIND_STORAGE_KEY,
+    PICKER_COLLAPSED_STORAGE_KEY,
     type OptionFormat,
     type Options,
     type PopupPage,
@@ -194,6 +195,13 @@
   // the folder. Restored eagerly from storage during init() so the
   // very first paint reflects the saved choice — no flash of "all".
   let selectedKind: 'all' | ConversationKind = 'all';
+  // Picker collapsed/expanded state. Persisted alongside the kind +
+  // folder choices. True (collapsed) by default — popup opens minimal,
+  // matching pre-v1.4.0 single-export habits. Even when collapsed, the
+  // active chat is auto-picked into selectedConversationIds at line
+  // ~354, so a single Export click works exactly like pre-v1.4.0.
+  // Users who want bulk export expand once and the choice persists.
+  let pickerCollapsed = true;
   // Multi-select: the picker binds this and mutates it on each toggle.
   // A single-chat export is simply `selectedConversationIds.length === 1`.
   // The first id is the "primary" selection for backwards-compatible
@@ -239,6 +247,20 @@
       return (typeof v === 'string' && (VALID_KINDS as readonly string[]).includes(v))
         ? v as ('all' | ConversationKind)
         : null;
+    } catch { return null; }
+  }
+  // Picker collapse persistence — same fire-and-forget pattern. Stored
+  // strictly as a boolean; anything else is treated as missing and the
+  // default (expanded) wins.
+  async function persistPickerCollapsed(v: boolean) {
+    try { await storage.local.set({ [PICKER_COLLAPSED_STORAGE_KEY]: v }); }
+    catch { /* best-effort */ }
+  }
+  async function readSavedPickerCollapsed(): Promise<boolean | null> {
+    try {
+      const obj: any = await storage.local.get(PICKER_COLLAPSED_STORAGE_KEY);
+      const v = obj?.[PICKER_COLLAPSED_STORAGE_KEY];
+      return typeof v === 'boolean' ? v : null;
     } catch { return null; }
   }
   // Reconcile the persisted folder against the freshly-loaded folder
@@ -1420,6 +1442,11 @@
       if (!alive) return;
       options = loaded;
       __popupTrace('options-loaded');
+      // Restore the picker's collapsed/expanded preference. Read in the
+      // same early phase as the language so the very first paint already
+      // reflects the user's choice — no flash of "expanded then collapse".
+      const savedCollapsed = await readSavedPickerCollapsed();
+      if (alive && savedCollapsed !== null) pickerCollapsed = savedCollapsed;
       await applyLanguage(options.lang || "en");
       applyTheme(options.theme || "light");
       updateQuickRangeActive();
@@ -1663,6 +1690,7 @@
         bind:selectedIds={selectedConversationIds}
         bind:selectedFolderId
         bind:selectedKind
+        bind:collapsed={pickerCollapsed}
         mode="multi"
         state={pickerState}
         errorMessage={pickerError}
@@ -1671,6 +1699,7 @@
         on:retry={() => loadConversations({ forceRefresh: true })}
         on:folderChange={(e) => persistFolderChoice(e.detail)}
         on:kindChange={(e) => persistKindChoice(e.detail)}
+        on:collapseChange={(e) => persistPickerCollapsed(e.detail)}
       />
 
       <!-- Export button — plain in every state. Outcomes live in History page. -->

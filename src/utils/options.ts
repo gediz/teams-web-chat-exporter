@@ -141,6 +141,17 @@ export const PICKER_FOLDER_STORAGE_KEY = 'teamsExporterPickerFolder';
 // shape is validated on read.
 export const PICKER_KIND_STORAGE_KEY = 'teamsExporterPickerKind';
 
+// Picker's collapsed/expanded state. Persisted so a user who prefers
+// "popup opens minimal, single-export the active chat" doesn't have
+// to re-collapse the picker on every open. Default true (collapsed)
+// for fresh installs — matches pre-v1.4.0 single-export habits and
+// avoids dumping the conversation list on users whose primary use is
+// "I'm in a chat, export it now". Users who want bulk export expand
+// once and the choice persists. Auto-pick still seeds the active chat
+// into selectedConversationIds regardless of collapsed state, so a
+// single Export click works exactly like pre-v1.4.0.
+export const PICKER_COLLAPSED_STORAGE_KEY = 'teamsExporterPickerCollapsed';
+
 export const DEFAULT_OPTIONS: Options = {
   lang: 'en',
   startAt: '',

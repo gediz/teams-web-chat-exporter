@@ -146,6 +146,10 @@
     align-items: stretch;
     overflow: hidden;
     position: relative;
+    /* Visual breathing room above the export button so it stands
+       apart from the picker card immediately preceding it. The
+       bottom margin spaces it from whatever section follows. */
+    margin-top: 16px;
     margin-bottom: 12px;
     cursor: pointer;
     transition: background 0.2s ease;

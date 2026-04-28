@@ -45,13 +45,89 @@
   // for the picker to do, so we render a single "open Teams" hint
   // instead of the misleading default empty-state.
   export let notOnTeams = false;
+  // Collapsed state — when true, only the card header (title + count
+  // + chevron) renders. Two-way bindable so the parent can persist it
+  // across popup opens. Backwards-compat: the active chat is still
+  // auto-picked into selectedIds on mount, so a user who never
+  // expands the picker can still single-click Export to export the
+  // current chat (matches the pre-v1.4.0 habit).
+  export let collapsed = false;
 
   const dispatch = createEventDispatcher<{
     change: string[];           // fired whenever the selection set changes
     folderChange: string;       // fired when the selected folder changes
     kindChange: 'all' | ConversationKind; // fired when the kind tab changes
+    collapseChange: boolean;    // fired when the user toggles collapse
     retry: void;
   }>();
+
+  function toggleCollapse() {
+    collapsed = !collapsed;
+    dispatch('collapseChange', collapsed);
+  }
+
+  // ── Auto-scroll the active folder into view (+ brief flash) ──────────
+  // When the picker opens (or expands from collapsed), the user might
+  // have a folder filter active that lives below the rail's visible
+  // viewport. Without this, they'd see a short conversation list with
+  // no obvious explanation. Solution: scroll the active folder into
+  // view, then flash its background briefly so the user sees "here is
+  // your active filter".
+  //
+  // Only triggers when:
+  //   - picker is currently expanded (collapsed === false)
+  //   - a folder filter is active (selectedFolderId !== 'all')
+  //   - the active folder isn't already fully visible
+  //
+  // Pattern: a `bind:this` on the rail + querySelector on the active
+  // folder row at trigger time. Reactive `$:` watches the (mounted,
+  // !collapsed) gate so it fires on initial mount AND any subsequent
+  // expand from the collapsed state.
+  let railEl: HTMLDivElement | undefined;
+  let railMounted = false;
+  // Svelte action that flips the railMounted flag once the rail node is
+  // attached. We can't simply use `bind:this` to gate the reactive
+  // statement because bind:this fires during the same microtask as the
+  // first render — we need the next tick so the active rail item's
+  // class has been applied.
+  function railMountedAction(_node: HTMLElement) {
+    railMounted = true;
+    return { destroy() { railMounted = false; } };
+  }
+  function scrollActiveFolderIntoView() {
+    if (!railEl || collapsed) return;
+    if (selectedFolderId === 'all') return;
+    // Last `.rail-item.active` is the folder (folders render after
+    // type tabs in the rail). If only a kind tab is active, no scroll.
+    const actives = railEl.querySelectorAll('.rail-item.active');
+    const target = actives.length > 0 ? actives[actives.length - 1] as HTMLElement : null;
+    if (!target) return;
+    // Don't scroll if already fully visible — avoids unnecessary motion
+    // when the user reopens the popup with the active folder still in
+    // view from last session (and prevents a double-scroll if the rail
+    // happens to be at the right position already).
+    const rRect = railEl.getBoundingClientRect();
+    const tRect = target.getBoundingClientRect();
+    const fullyVisible = tRect.top >= rRect.top && tRect.bottom <= rRect.bottom;
+    if (!fullyVisible) {
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+    // Flash regardless — even when already visible, the brief flash
+    // makes the active filter pop on popup open. ~350ms delay so the
+    // smooth-scroll has time to land before the colour change starts.
+    setTimeout(() => {
+      target.classList.remove('rail-item-flash');
+      // Force a reflow so re-adding the class restarts the animation.
+      void target.offsetWidth;
+      target.classList.add('rail-item-flash');
+      setTimeout(() => target.classList.remove('rail-item-flash'), 1500);
+    }, 350);
+  }
+  $: if (railMounted && !collapsed) {
+    // Ensure DOM has settled (the active row needs to be rendered with
+    // its current `active` class) before we try to find + scroll to it.
+    tick().then(scrollActiveFolderIntoView);
+  }
 
   type RailKind = 'all' | ConversationKind;
   // currentKind is internal state derived from the bound selectedKind
@@ -323,35 +399,65 @@
 <svelte:window on:click={handleClickOutside} />
 
 <section class="picker-section" data-lang={lang}>
-  <div class="card picker-card">
+  <div class="card picker-card" class:collapsed>
     <div class="card-header">
       <div class="card-icon"><MessageSquare size={16} /></div>
       <h2 class="card-title">{t('picker.title', {}, lang) || 'Chat'}</h2>
-      {#if state === 'loading'}
-        <span class="picker-header-hint">
-          <RefreshCw size={12} class="spin" />
-          {t('picker.loading', {}, lang) || 'Loading chats…'}
-        </span>
-      {:else if state === 'error'}
-        <button type="button" class="picker-retry" on:click={() => dispatch('retry')} title={errorMessage}>
-          <RefreshCw size={12} />
-          {t('picker.retry', {}, lang) || 'Retry'}
-        </button>
-      {:else if state === 'ok' && refreshing}
-        <span class="picker-header-hint">
-          <RefreshCw size={12} class="spin" />
-          {t('picker.refreshing', {}, lang) || 'Refreshing…'}
-        </span>
-      {:else if state === 'ok'}
-        <button
-          type="button"
-          class="picker-retry"
-          on:click={() => dispatch('retry')}
-          title={t('picker.refreshTitle', {}, lang) || 'Refresh chat list'}
-        >
-          <RefreshCw size={12} />
-        </button>
-      {/if}
+      <!-- Right-side actions cluster — wrapped so the chevron always
+           anchors to the same X position regardless of which optional
+           middle element (loading hint / refresh button / count text)
+           is currently rendered. The wrapper takes margin-left:auto;
+           the chevron always sits as the wrapper's last child. -->
+      <div class="picker-header-actions">
+        {#if state === 'loading'}
+          <span class="picker-header-hint">
+            <RefreshCw size={12} class="spin" />
+            {t('picker.loading', {}, lang) || 'Loading chats…'}
+          </span>
+        {:else if state === 'error'}
+          <button type="button" class="picker-retry" on:click={() => dispatch('retry')} title={errorMessage}>
+            <RefreshCw size={12} />
+            {t('picker.retry', {}, lang) || 'Retry'}
+          </button>
+        {:else if state === 'ok' && refreshing}
+          <span class="picker-header-hint">
+            <RefreshCw size={12} class="spin" />
+            {t('picker.refreshing', {}, lang) || 'Refreshing…'}
+          </span>
+        {:else if state === 'ok' && collapsed}
+          <span class="picker-header-hint picker-header-hint--count">
+            {selectedIds.length === 0
+              ? t('picker.noSelection', {}, lang)
+              : t('picker.nSelected', { n: selectedIds.length }, lang)}
+          </span>
+        {:else if state === 'ok'}
+          <button
+            type="button"
+            class="picker-retry"
+            on:click={() => dispatch('retry')}
+            title={t('picker.refreshTitle', {}, lang) || 'Refresh chat list'}
+          >
+            <RefreshCw size={12} />
+          </button>
+        {/if}
+        {#if !notOnTeams && state !== 'error'}
+          <button
+            type="button"
+            class="picker-collapse-toggle"
+            class:collapsed
+            on:click={toggleCollapse}
+            aria-expanded={!collapsed}
+            aria-label={collapsed
+              ? (t('picker.expand', {}, lang) || 'Expand picker')
+              : (t('picker.collapse', {}, lang) || 'Collapse picker')}
+            title={collapsed
+              ? (t('picker.expand', {}, lang) || 'Expand picker')
+              : (t('picker.collapse', {}, lang) || 'Collapse picker')}
+          >
+            <ChevronDown size={14} />
+          </button>
+        {/if}
+      </div>
     </div>
 
     {#if notOnTeams}
@@ -364,9 +470,15 @@
         <AlertCircle size={14} />
         <span>{t('picker.errorShort', {}, lang) || 'Could not load chats'}</span>
       </div>
-    {:else}
+    {:else if !collapsed}
       <div class="picker-body" class:dim={state === 'loading'} class:has-folders={folders.length > 0}>
-        <div class="picker-rail" role="tablist" aria-label={t('picker.rail.label', {}, lang) || 'Filter by kind and folder'}>
+        <div
+          class="picker-rail"
+          role="tablist"
+          aria-label={t('picker.rail.label', {}, lang) || 'Filter by kind and folder'}
+          bind:this={railEl}
+          use:railMountedAction
+        >
           <div class="rail-section-head">{t('picker.rail.sectionType', {}, lang) || 'Type'}</div>
           {#each RAIL_KINDS as rk (rk.kind)}
             {@const label = t(rk.labelKey, {}, lang) || rk.fallback}
@@ -650,6 +762,75 @@
     cursor: pointer;
   }
   .picker-retry:hover { border-color: var(--color-accent); color: var(--color-accent); }
+
+  /* Right-side actions cluster — anchored to the right edge of the
+     card-header via margin-left:auto. Containing the chevron in this
+     wrapper means the chevron's X position stays constant no matter
+     what the middle slot contains (loading hint, refresh button,
+     count text), so the header doesn't visibly shift when the user
+     toggles collapse / expand. */
+  .picker-header-actions {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  /* Inside the actions wrapper, the existing .picker-retry and
+     .picker-header-hint don't need their own margin-left:auto — the
+     wrapper's auto margin already pushes the whole cluster right.
+     Override the global margin-left:auto so all middle elements sit
+     immediately next to each other inside the wrapper. */
+  .picker-header-actions :global(.picker-retry),
+  .picker-header-actions .picker-header-hint {
+    margin-left: 0;
+  }
+
+  /* Collapse / expand chevron — always last child of the actions
+     cluster, so its X position is constant. When expanded the caret
+     points up (rotated 180°); collapsed it points down. */
+  .picker-collapse-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-surface);
+    color: var(--color-subtle);
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .picker-collapse-toggle:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+    background: var(--color-accent-light);
+  }
+  .picker-collapse-toggle :global(svg) {
+    transition: transform 0.18s ease;
+    transform: rotate(180deg);  /* expanded → caret up */
+  }
+  .picker-collapse-toggle.collapsed :global(svg) {
+    transform: rotate(0deg);    /* collapsed → caret down */
+  }
+  /* Selection-count hint shown only while collapsed, so the user can
+     read "1 selected" / "3 selected" without expanding. */
+  .picker-header-hint--count {
+    color: var(--color-subtle);
+    font-size: 11px;
+    font-weight: 500;
+  }
+  /* Collapsed card keeps the standard .card padding (12px on all
+     sides) so the title and chevron stay at the SAME pixel position
+     they occupy when expanded — the only thing that changes between
+     the two states is whether the body renders. The card-header's
+     11px bottom margin still gets zeroed when the body is hidden so
+     the card collapses to header height with no wasted gap. */
+  .picker-card.collapsed :global(.card-header) {
+    margin-bottom: 0;
+  }
   .picker-error {
     display: flex;
     align-items: center;
@@ -741,6 +922,32 @@
     width: 3px;
     background: var(--color-accent);
     border-radius: 0 2px 2px 0;
+  }
+  /* One-shot "look here" flash applied right after the picker auto-
+     scrolls the active folder into view on open / re-expand. The active
+     row briefly saturates to the full accent colour (white-on-blue),
+     then animates back to its normal active state. The animation
+     class is removed by JS after the keyframe finishes so it can
+     replay on the next open.
+     :global() because the class is added imperatively (not in the
+     template), so Svelte's component-scoped CSS would otherwise prune
+     the selector as unused. */
+  .rail-item:global(.rail-item-flash) {
+    animation: rail-item-flash 1.4s ease-out 1;
+  }
+  @keyframes rail-item-flash {
+    0%   { background: var(--color-accent); color: #fff; }
+    100% { background: var(--color-accent-light); color: var(--color-accent); }
+  }
+  /* The white-text variant needs the count colour to flip too, so the
+     "5" or "3" next to the folder name doesn't sit invisibly on its
+     accent-coloured background during the first frame. */
+  .rail-item:global(.rail-item-flash) .rail-count {
+    animation: rail-item-flash-count 1.4s ease-out 1;
+  }
+  @keyframes rail-item-flash-count {
+    0%   { color: rgba(255, 255, 255, 0.9); }
+    100% { color: var(--color-accent); }
   }
   .rail-ic {
     flex: 0 0 14px;
