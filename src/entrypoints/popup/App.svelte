@@ -130,6 +130,12 @@
   // persisted flag is still false; the user dismisses it once and it
   // stays dismissed across sessions.
   let showOnboarding = false;
+  // Whether to skip the pre-tour prompt and start the walkthrough
+  // immediately. true only when the user explicitly clicks Replay
+  // tour in Settings — they've already opted in. First-time auto-
+  // opens go through the prompt so users who already know the
+  // extension can dismiss without sitting through 7 steps.
+  let tourAutoStart = false;
 
   const dismissOnboarding = () => {
     showOnboarding = false;
@@ -144,6 +150,7 @@
   // onboardingDismissed=true again on its own dismiss.
   const replayTour = () => {
     showSettings = false;
+    tourAutoStart = true;
     showOnboarding = true;
   };
 
@@ -1804,6 +1811,7 @@
          an open + restore cycle leaves the persisted default alone. -->
     <OnboardingOverlay
       lang={options.lang || "en"}
+      autoStart={tourAutoStart}
       bind:pickerCollapsed
       on:dismiss={dismissOnboarding}
     />

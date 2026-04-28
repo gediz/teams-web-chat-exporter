@@ -65,16 +65,29 @@
 
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
-  import { X } from 'lucide-svelte';
+  import { X, Sparkles } from 'lucide-svelte';
   import { t } from '../../../i18n/i18n';
 
   export let lang = 'en';
   // Two-way bound from the parent so the 'folder' step can temporarily
   // expand the picker and restore on tour end.
   export let pickerCollapsed = false;
+  // Skip the pre-tour prompt and start the walkthrough immediately.
+  // Used when the user explicitly clicks "Replay tour" in Settings —
+  // they've already opted in, no need to ask again.
+  export let autoStart = false;
 
   const dispatch = createEventDispatcher<{ dismiss: void }>();
 
+  // Two phases:
+  //   'prompt' — initial pre-tour card asking the user whether they
+  //              want the tour at all. Some users know exactly what
+  //              the extension does and don't need a walkthrough; we
+  //              respect that without forcing them to click X.
+  //   'tour'   — the actual 7-step walkthrough.
+  // The 'prompt' phase is bypassed entirely when the parent invokes
+  // the tour from Settings → Replay (autoStart prop).
+  let phase: 'prompt' | 'tour' = 'prompt';
   let stepIdx = 0;
   // Snapshot the picker's collapsed state at tour start so we can
   // restore it on dismiss. Otherwise users who started with the picker
@@ -107,7 +120,10 @@
   // the dim feeling crisp instead of muddy. The SVG filter region is
   // sized 2× so the blur never gets clipped at its own bounds.
   const HOLE_BLUR = 3;
-  $: void applyStep(step);
+  // Only apply step targeting once we're actually in the tour phase.
+  // During the 'prompt' phase no element is highlighted and the scrim
+  // is just a full dim — no DOM target to find.
+  $: if (phase === 'tour') void applyStep(step);
   async function applyStep(s: StepDef) {
     // 1) Coordinate picker open/closed for this step. With bind: in
     // the parent the assignment alone propagates back — no extra
@@ -196,6 +212,10 @@
     };
   }
 
+  function startTour() {
+    phase = 'tour';
+    stepIdx = 0;
+  }
   function next() {
     if (stepIdx < STEPS.length - 1) stepIdx++;
     else finish();
@@ -234,6 +254,9 @@
     initialPickerCollapsed = pickerCollapsed;
     viewW = window.innerWidth;
     viewH = window.innerHeight;
+    // Skip the prompt phase when the parent explicitly asked to start —
+    // currently that's only Settings → Replay tour.
+    if (autoStart) phase = 'tour';
     window.addEventListener('scroll', onScrollOrResize, { passive: true, capture: true });
     window.addEventListener('resize', onScrollOrResize, { passive: true });
   });
@@ -303,15 +326,20 @@
 
 <div
   class="onb-card"
-  class:top={cardSide === 'top'}
+  class:top={phase === 'tour' && cardSide === 'top'}
+  class:centered={phase === 'prompt'}
   role="dialog"
   aria-modal="true"
   aria-labelledby="onb-title"
   data-lang={lang}
 >
+  <!-- Distinct red dismiss in the corner. The accent-red treatment
+       reads as "exit" rather than the generic gray X used for "close
+       a panel" elsewhere in the popup; users have learned the red-X
+       convention from browsers and OSes. -->
   <button
     type="button"
-    class="onb-skip"
+    class="onb-skip onb-skip--danger"
     on:click={finish}
     title={t('onboarding.skip', {}, lang) || 'Skip'}
     aria-label={t('onboarding.skip', {}, lang) || 'Skip'}
@@ -319,27 +347,57 @@
     <X size={14} />
   </button>
 
-  <div class="onb-step">{stepIdx + 1} / {STEPS.length}</div>
-  <h2 id="onb-title" class="onb-title">{title}</h2>
-  <p class="onb-body">{body}</p>
-
-  <div class="onb-actions">
-    <div class="onb-progress" aria-hidden="true">
-      {#each STEPS as _, i}
-        <span class="dot" class:done={i < stepIdx} class:current={i === stepIdx}></span>
-      {/each}
+  {#if phase === 'prompt'}
+    <!-- Pre-tour prompt. Centered card asking permission so users who
+         already know the extension can skip the walkthrough without
+         hunting for an escape hatch. -->
+    <div class="onb-prompt-icon" aria-hidden="true">
+      <Sparkles size={28} />
     </div>
-    {#if stepIdx > 0}
-      <button type="button" class="onb-btn secondary" on:click={back}>
-        {t('onboarding.back', {}, lang) || 'Back'}
+    <h2 id="onb-title" class="onb-title onb-title--centered">
+      {t('onboarding.prompt.title', {}, lang) || 'Welcome!'}
+    </h2>
+    <p class="onb-body onb-body--centered">
+      {t('onboarding.prompt.body', {}, lang) || 'Want a quick 30-second tour of what\'s new?'}
+    </p>
+    <div class="onb-actions onb-actions--centered">
+      <button type="button" class="onb-btn secondary" on:click={finish}>
+        {t('onboarding.prompt.skip', {}, lang) || 'No thanks'}
       </button>
-    {/if}
-    <button type="button" class="onb-btn primary" on:click={next}>
-      {stepIdx === STEPS.length - 1
-        ? (t('onboarding.gotIt', {}, lang) || 'Got it')
-        : (t('onboarding.next', {}, lang) || 'Next')}
-    </button>
-  </div>
+      <button type="button" class="onb-btn primary" on:click={startTour}>
+        {t('onboarding.prompt.show', {}, lang) || 'Show me'}
+      </button>
+    </div>
+  {:else}
+    <div class="onb-step">{stepIdx + 1} / {STEPS.length}</div>
+    <h2 id="onb-title" class="onb-title">{title}</h2>
+    <p class="onb-body">{body}</p>
+
+    <div class="onb-actions">
+      <div class="onb-progress" aria-hidden="true">
+        {#each STEPS as _, i}
+          <span class="dot" class:done={i < stepIdx} class:current={i === stepIdx}></span>
+        {/each}
+      </div>
+      <!-- Labeled Skip button in the action row. Sits next to the
+           navigation buttons so users see an explicit dismiss
+           affordance even if they never glance at the corner X. The
+           --danger styling matches the red corner X for consistency. -->
+      <button type="button" class="onb-btn onb-btn--danger" on:click={finish}>
+        {t('onboarding.skip', {}, lang) || 'Skip'}
+      </button>
+      {#if stepIdx > 0}
+        <button type="button" class="onb-btn secondary" on:click={back}>
+          {t('onboarding.back', {}, lang) || 'Back'}
+        </button>
+      {/if}
+      <button type="button" class="onb-btn primary" on:click={next}>
+        {stepIdx === STEPS.length - 1
+          ? (t('onboarding.gotIt', {}, lang) || 'Got it')
+          : (t('onboarding.next', {}, lang) || 'Next')}
+      </button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -377,13 +435,23 @@
     top: 50px;
     bottom: auto;
   }
+  /* Centered card for the pre-tour prompt — no specific element to
+     point at, so we anchor in the middle of the popup with a more
+     generous padding for the welcome layout. */
+  .onb-card.centered {
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+    padding: 22px 18px 16px;
+    text-align: center;
+  }
 
   .onb-skip {
     position: absolute;
     top: 8px; right: 8px;
-    width: 22px; height: 22px;
+    width: 24px; height: 24px;
     background: transparent;
-    border: none;
+    border: 1px solid transparent;
     color: var(--color-text-muted, #64748b);
     cursor: pointer;
     padding: 0;
@@ -391,10 +459,46 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
   }
   .onb-skip:hover {
     background: var(--color-accent-light);
     color: var(--color-text);
+  }
+  /* Distinct red dismiss — clearly readable as "exit" rather than the
+     ambient gray X used for low-stakes panel-close buttons elsewhere
+     in the popup. Subdued by default, saturates on hover. */
+  .onb-skip--danger {
+    color: #dc2626;
+    border-color: rgba(220, 38, 38, 0.3);
+  }
+  .onb-skip--danger:hover {
+    background: rgba(220, 38, 38, 0.12);
+    color: #b91c1c;
+    border-color: rgba(220, 38, 38, 0.55);
+  }
+
+  /* Sparkle icon at the top of the prompt card — gives the welcome
+     layout a focal point without needing decorative copy. */
+  .onb-prompt-icon {
+    display: inline-flex;
+    width: 48px; height: 48px;
+    margin: 0 auto 10px;
+    border-radius: 50%;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-accent);
+    background: var(--color-accent-light, rgba(37, 99, 235, 0.1));
+  }
+  .onb-title--centered {
+    padding-right: 0;  /* no skip X to dodge — it's outside the centered text column */
+    margin-top: 0;
+  }
+  .onb-body--centered {
+    margin-bottom: 16px;
+  }
+  .onb-actions--centered {
+    justify-content: center;
   }
 
   .onb-step {
@@ -469,6 +573,21 @@
     border-color: var(--color-border);
   }
   .onb-btn.secondary:hover { background: var(--color-accent-light); }
+  /* Red-tinted Skip in the action row. Same family as the corner X so
+     users learn one visual language for "exit the tour". Sits visually
+     subordinate to Back/Next so dismissal is available but not the
+     loudest affordance. */
+  .onb-btn--danger {
+    background: transparent;
+    color: #dc2626;
+    border-color: rgba(220, 38, 38, 0.35);
+    margin-right: 4px;
+  }
+  .onb-btn--danger:hover {
+    background: rgba(220, 38, 38, 0.1);
+    color: #b91c1c;
+    border-color: rgba(220, 38, 38, 0.6);
+  }
 
   /* The target highlight: just a pulsing accent ring. The dim is now
      the separate .onb-scrim with a clip-path hole — see above. The
