@@ -193,7 +193,12 @@ async function ensureContentScript(tabId: number) {
     } catch (_) {
         // fallback to injection
     }
-    await scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content.js'] });
+    // WXT bundles the content script at content-scripts/content.js
+    // (matches the manifest's content_scripts[0].js path). The
+    // earlier 'content.js' string failed silently as "Could not
+    // load file: 'content.js'." on every fresh install where the
+    // user hadn't refreshed the Teams tab post-install.
+    await scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content-scripts/content.js'] });
     const pong2 = await sendMessageToTab(tabId, { type: 'PING' });
     if (!pong2?.ok) throw new Error('Content script did not respond after injection');
 }
