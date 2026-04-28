@@ -466,9 +466,19 @@
         <span>{t('errors.needsTeams', {}, lang) || 'Open the Teams web app tab first.'}</span>
       </div>
     {:else if state === 'error'}
+      <!-- Surface the actual error inline (used to be tooltip-only on
+           the retry button). When auto-inject misbehaves or the
+           content script can't reach Teams' tokens, the generic
+           "Could not load chats" copy hid the diagnostic detail
+           users needed to report back. -->
       <div class="picker-error">
         <AlertCircle size={14} />
-        <span>{t('picker.errorShort', {}, lang) || 'Could not load chats'}</span>
+        <div class="picker-error-text">
+          <div class="picker-error-headline">{t('picker.errorShort', {}, lang) || 'Could not load chats'}</div>
+          {#if errorMessage}
+            <div class="picker-error-detail">{errorMessage}</div>
+          {/if}
+        </div>
       </div>
     {:else if !collapsed}
       <div class="picker-body" class:dim={state === 'loading'} class:has-folders={folders.length > 0}>
@@ -853,7 +863,7 @@
   }
   .picker-error {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     /* margin-top separates this from the card-header above. Without
        it the "Open the Teams web app tab first." line sat flush
@@ -865,6 +875,21 @@
     border-radius: var(--radius-md);
     color: var(--color-subtle);
     font-size: 12px;
+  }
+  .picker-error-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    flex: 1;
+  }
+  .picker-error-headline { font-weight: 500; color: var(--color-text); }
+  .picker-error-detail {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    color: var(--color-subtle);
+    word-break: break-word;
+    line-height: 1.4;
   }
 
   .picker-body {
