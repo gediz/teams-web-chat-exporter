@@ -194,13 +194,42 @@ async function ensureContentScript(tabId: number) {
         // fallback to injection
     }
     // WXT bundles the content script at content-scripts/content.js
-    // (matches the manifest's content_scripts[0].js path). The
-    // earlier 'content.js' string failed silently as "Could not
-    // load file: 'content.js'." on every fresh install where the
-    // user hadn't refreshed the Teams tab post-install.
-    await scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content-scripts/content.js'] });
-    const pong2 = await sendMessageToTab(tabId, { type: 'PING' });
-    if (!pong2?.ok) throw new Error('Content script did not respond after injection');
+    // (matches the manifest's content_scripts[0].js path).
+    type FrameResult = chrome.scripting.InjectionResult & { error?: { message?: string } };
+    let injectResult: FrameResult[] | undefined;
+    try {
+        injectResult = (await scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content-scripts/content.js'] })) as FrameResult[];
+    } catch (e) {
+        log('ensureContentScript: executeScript threw:', e);
+        throw new Error(`Could not inject content script: ${(e as Error)?.message || String(e)}`);
+    }
+    // executeScript returned a per-frame result. Surface frame-level
+    // errors when the top frame failed to load the script. Common
+    // causes: sandboxed iframe layout, page-CSP block, or a URL that
+    // slipped past host_permissions. The `error` field is present
+    // on recent Chrome but missing from @types/chrome (hence cast).
+    const topFrameError = injectResult?.find(r => r.frameId === 0)?.error;
+    if (topFrameError) {
+        log('ensureContentScript: top-frame injection error:', topFrameError);
+        throw new Error(`Content script injection failed in top frame: ${topFrameError.message || String(topFrameError)}`);
+    }
+    // Retry the post-injection PING a few times. Listener registration
+    // in the freshly-injected content script should be synchronous,
+    // but some Firefox + cold-tab paths take a tick or two longer
+    // than executeScript's resolve promise. 5 × 50 ms = 250 ms
+    // ceiling. Cheap insurance against a transient race.
+    let lastErr: unknown = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 50));
+        try {
+            const pong = await sendMessageToTab(tabId, { type: 'PING' });
+            if (pong?.ok) return;
+        } catch (e) {
+            lastErr = e;
+        }
+    }
+    const tail = lastErr ? `: ${(lastErr as Error)?.message || String(lastErr)}` : '';
+    throw new Error(`Content script did not respond after injection${tail}`);
 }
 
 // Port-based streaming: content script sends scrape results in chunks to bypass 64MiB limit
