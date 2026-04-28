@@ -14,6 +14,23 @@ export default defineConfig({
   vite: () => ({
     plugins: [svelte()],
   }),
+  // AMO sources zip: WXT's defaults exclude hidden files, node_modules,
+  // and tests, but everything else in the repo root ships. `debug/` is
+  // a local-only scratch directory (gitignored) — it can hold hundreds
+  // of MB of test captures and personal data that must NEVER reach the
+  // public sources zip submitted to addons.mozilla.org. Same idea for
+  // screenshots and the Claude Code instructions file.
+  zip: {
+    excludeSources: [
+      'debug/**',
+      'screenshots/**',
+      'CLAUDE.md',
+      // Build artefacts that wouldn't normally land here, defensive:
+      '.output/**',
+      '.wxt/**',
+      '*.zip',
+    ],
+  },
   manifest: {
     name: 'Teams Chat Exporter',
     version: '1.4.0',
