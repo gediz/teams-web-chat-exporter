@@ -197,7 +197,7 @@
   }
 </script>
 
-<div class="card" data-lang={lang}>
+<div class="card" data-lang={lang} data-tour="range">
   <div class="card-header">
     <div class="card-icon">
       <Calendar size={16} />

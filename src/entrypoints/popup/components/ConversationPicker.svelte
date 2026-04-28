@@ -399,7 +399,7 @@
 <svelte:window on:click={handleClickOutside} />
 
 <section class="picker-section" data-lang={lang}>
-  <div class="card picker-card" class:collapsed>
+  <div class="card picker-card" class:collapsed data-tour="picker">
     <div class="card-header">
       <div class="card-icon"><MessageSquare size={16} /></div>
       <h2 class="card-title">{t('picker.title', {}, lang) || 'Chat'}</h2>
@@ -476,6 +476,7 @@
           class="picker-rail"
           role="tablist"
           aria-label={t('picker.rail.label', {}, lang) || 'Filter by kind and folder'}
+          data-tour="folder"
           bind:this={railEl}
           use:railMountedAction
         >

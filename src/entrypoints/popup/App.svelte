@@ -136,6 +136,17 @@
     void updateOption("onboardingDismissed", true);
   };
 
+  // Replay tour — invoked from Settings. Closes the settings page so
+  // the popup's main view (the tour's actual targets) is mounted, then
+  // shows the overlay. We don't flip onboardingDismissed back to false:
+  // the persisted flag is "user has seen it once"; the replay is a
+  // user-initiated reopen, not a re-onboarding. The overlay will write
+  // onboardingDismissed=true again on its own dismiss.
+  const replayTour = () => {
+    showSettings = false;
+    showOnboarding = true;
+  };
+
   // Review-prompt gate state — inline one-liner rendered under the
   // export button when ALL of:
   //   - not yet shown (one-shot flag)
@@ -1641,6 +1652,7 @@
         on:pdfBodyFontSizeChange={(e) => updateOption("pdfBodyFontSize", e.detail)}
         on:pdfShowPageNumbersChange={(e) => updateOption("pdfShowPageNumbers", e.detail)}
         on:pdfIncludeAvatarsChange={(e) => updateOption("pdfIncludeAvatars", e.detail)}
+        on:replayTour={replayTour}
       />
     </div>
   {:else if showHistory}
@@ -1784,8 +1796,15 @@
   {/if}
 
   {#if showOnboarding}
+    <!-- Tour temporarily expands the picker for the 'folder' step;
+         two-way bind keeps App's pickerCollapsed in sync, and the
+         tour restores the original value on dismiss. Tour-driven
+         changes deliberately don't hit chrome.storage — only the
+         picker's own toggle click calls persistPickerCollapsed, so
+         an open + restore cycle leaves the persisted default alone. -->
     <OnboardingOverlay
       lang={options.lang || "en"}
+      bind:pickerCollapsed
       on:dismiss={dismissOnboarding}
     />
   {/if}

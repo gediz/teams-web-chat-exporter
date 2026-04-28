@@ -40,6 +40,7 @@
   <button
     class="icon-btn"
     class:pulse={pulseActive}
+    data-tour="history"
     title={t('history.title', {}, lang) || 'Export history'}
     on:click={() => dispatch('openHistory')}
   >
@@ -50,6 +51,7 @@
   </button>
   <button
     class="icon-btn"
+    data-tour="settings"
     title={t('settings.title', {}, lang) || 'Settings'}
     on:click={() => dispatch('openSettings')}
   >

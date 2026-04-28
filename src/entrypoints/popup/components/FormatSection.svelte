@@ -93,7 +93,7 @@
         : '';
 </script>
 
-<section class="format-section" data-lang={lang}>
+<section class="format-section" data-lang={lang} data-tour="format">
   <div class="card">
     <div class="card-header">
       <div class="card-icon">

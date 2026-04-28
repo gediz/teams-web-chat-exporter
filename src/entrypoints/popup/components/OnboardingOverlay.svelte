@@ -1,118 +1,401 @@
+<script lang="ts" context="module">
+  // Step definitions live in a module-scope const so the type stays
+  // narrow. Each step names its target via the `data-tour="<key>"`
+  // attribute set on the corresponding element in App.svelte / sub-
+  // components, so neither side has to hold component refs across the
+  // boundary. The overlay queries the live DOM at step change.
+  type StepKey = 'format' | 'picker' | 'folder' | 'range' | 'history' | 'settings' | 'stop';
+  type StepDef = {
+    target: StepKey;        // value of data-tour=
+    titleKey: string;
+    bodyKey: string;
+    titleFallback: string;
+    bodyFallback: string;
+    /** Force-expand the picker for this step (only matters for 'folder'). */
+    needsExpandedPicker?: boolean;
+    /** Card position relative to popup. Defaults to 'bottom'. */
+    cardPosition?: 'top' | 'bottom';
+  };
+  export const STEPS: ReadonlyArray<StepDef> = [
+    { target: 'format',
+      titleKey: 'onboarding.format.title',
+      bodyKey:  'onboarding.format.body',
+      titleFallback: 'Pick one or more formats',
+      bodyFallback:  'Tap any format card to toggle it. When two or more are selected, the exports are packaged together as a single .zip.',
+      cardPosition: 'top' },
+    { target: 'picker',
+      titleKey: 'onboarding.picker.title',
+      bodyKey:  'onboarding.picker.body',
+      titleFallback: 'Need to export multiple chats?',
+      bodyFallback:  'Click the chevron to expand the conversation picker. Tick as many chats as you want — they\'ll all come back as one bundled .zip with a folder per chat.',
+      cardPosition: 'bottom' },
+    { target: 'folder',
+      titleKey: 'onboarding.folder.title',
+      bodyKey:  'onboarding.folder.body',
+      titleFallback: 'Filter by folder',
+      bodyFallback:  'The rail on the left filters by chat type or by your Teams folders. Useful when you have hundreds of chats and only want to bulk-export one team\'s.',
+      needsExpandedPicker: true,
+      cardPosition: 'bottom' },
+    { target: 'range',
+      titleKey: 'onboarding.range.title',
+      bodyKey:  'onboarding.range.body',
+      titleFallback: 'Pick a date range',
+      bodyFallback:  'Quick presets for the last 24 h, 7 d, or 30 d, plus ∞ for no filter (everything). Use the date inputs below the chips for a specific window.',
+      cardPosition: 'top' },
+    { target: 'history',
+      titleKey: 'onboarding.history.title',
+      bodyKey:  'onboarding.history.body',
+      titleFallback: 'Past exports live here',
+      bodyFallback:  'The clock icon opens your export history — re-open any saved file or jump to its folder. Failed exports get an amber badge.',
+      cardPosition: 'bottom' },
+    { target: 'settings',
+      titleKey: 'onboarding.settings.title',
+      bodyKey:  'onboarding.settings.body',
+      titleFallback: 'Defaults, language, and more',
+      bodyFallback:  'The gear icon opens settings: change the language (24 supported), pick what happens after an export, tweak defaults.',
+      cardPosition: 'bottom' },
+    { target: 'stop',
+      titleKey: 'onboarding.stop.title',
+      bodyKey:  'onboarding.stop.body',
+      titleFallback: 'Export is reversible',
+      bodyFallback:  'Click Export to begin. During an export the button turns red — click it again any time to stop. The thin bar at the bottom shows progress.',
+      cardPosition: 'top' },
+  ] as const;
+</script>
+
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
   import { X } from 'lucide-svelte';
   import { t } from '../../../i18n/i18n';
 
   export let lang = 'en';
+  // Two-way bound from the parent so the 'folder' step can temporarily
+  // expand the picker and restore on tour end.
+  export let pickerCollapsed = false;
 
   const dispatch = createEventDispatcher<{ dismiss: void }>();
 
-  // Two steps — features the user is most likely to miss at a glance:
-  //   1. Multi-format + bundle.zip (brand new in this release)
-  //   2. Stop button (runtime-only affordance; easy to miss pre-export)
-  // Keep copy short; the overlay scrims the UI behind it, so long prose
-  // would feel intrusive.
-  let step: 1 | 2 = 1;
+  let stepIdx = 0;
+  // Snapshot the picker's collapsed state at tour start so we can
+  // restore it on dismiss. Otherwise users who started with the picker
+  // collapsed would find it stuck open after the folder step.
+  let initialPickerCollapsed = pickerCollapsed;
 
-  const next = () => { step = 2; };
-  const back = () => { step = 1; };
-  const finish = () => dispatch('dismiss');
+  $: step = STEPS[stepIdx];
+
+  // Reactive: apply the highlight class to the current step's target
+  // and toggle the picker open/closed as the step requires. Runs after
+  // tick() so the picker's expanded state has time to render before we
+  // try to find the target inside it.
+  let highlighted: HTMLElement | null = null;
+  // Card position is recomputed per step based on the target's actual
+  // location after scrollIntoView lands. Falls back to the step's hint
+  // if we can't measure (e.g. target not yet in DOM).
+  let cardSide: 'top' | 'bottom' = 'bottom';
+  // Bounding rect of the hole the scrim should leave bright around the
+  // highlighted target. null ⇒ no hole (full dim). Used to feed the
+  // SVG mask in the template — the mask's blurred black rect creates
+  // a soft-edged transparent hole through the dim.
+  let hole: { x: number; y: number; w: number; h: number; rx: number } | null = null;
+  // Tracks the viewport size so the SVG's <rect width=...> stays
+  // pixel-accurate (using "100%" works too, but explicit values let
+  // us round and avoid sub-pixel filter artefacts on some browsers).
+  let viewW = 0;
+  let viewH = 0;
+  // Blur radius of the hole's edge feather, in CSS px. 3 reads as a
+  // gentle anti-aliasing softening rather than a glow, which keeps
+  // the dim feeling crisp instead of muddy. The SVG filter region is
+  // sized 2× so the blur never gets clipped at its own bounds.
+  const HOLE_BLUR = 3;
+  $: void applyStep(step);
+  async function applyStep(s: StepDef) {
+    // 1) Coordinate picker open/closed for this step. With bind: in
+    // the parent the assignment alone propagates back — no extra
+    // dispatch needed.
+    const wantOpen = !!s.needsExpandedPicker;
+    if (wantOpen && pickerCollapsed) {
+      pickerCollapsed = false;
+    } else if (!wantOpen && !pickerCollapsed && initialPickerCollapsed && s.target !== 'picker') {
+      // If user originally had it collapsed AND this step doesn't need
+      // it open, fold it back. Skip the 'picker' step since that step
+      // is specifically about the picker — leaving it as-is feels
+      // natural there (user can see what we're talking about).
+      pickerCollapsed = true;
+    }
+    // 2) Wait for DOM (picker expand transition + Svelte rerender).
+    await tick();
+    // 3) Re-target the highlight.
+    if (highlighted) highlighted.classList.remove('onb-target');
+    highlighted = document.querySelector<HTMLElement>(`[data-tour="${s.target}"]`);
+    if (!highlighted) {
+      cardSide = s.cardPosition || 'bottom';
+      hole = null;
+      return;
+    }
+    highlighted.classList.add('onb-target');
+    // 4) Scroll the target into the popup-content's viewport so users
+    // never have to scroll manually to find what we're highlighting.
+    // 'nearest' avoids unnecessary motion when target is already in
+    // view; the browser also handles the scroll-into-view of the
+    // closest scrollable ancestor automatically.
+    highlighted.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    // 5) Pick card position OPPOSITE to where the target sits, so the
+    // card never covers the highlighted element. Wait one more tick so
+    // the scroll has landed before we measure the target's rect.
+    await tick();
+    cardSide = pickCardSide(highlighted, s.cardPosition);
+    updateHole();
+  }
+
+  // Compute whether the card should sit at the top or bottom of the
+  // popup based on the target's position. The target is laid out in
+  // the popup viewport; we want the card on the opposite side so it
+  // doesn't overlap. Falls back to the step's hint if measurement
+  // fails (e.g. zero-size element).
+  function pickCardSide(el: HTMLElement, hint: 'top' | 'bottom' | undefined): 'top' | 'bottom' {
+    const popup = el.closest('.popup') as HTMLElement | null;
+    const popupRect = popup ? popup.getBoundingClientRect() : { top: 0, height: 640 } as DOMRect;
+    const targetRect = el.getBoundingClientRect();
+    if (!popupRect.height || !targetRect.height) return hint || 'bottom';
+    const targetCenter = targetRect.top + targetRect.height / 2;
+    const popupMid = popupRect.top + popupRect.height / 2;
+    return targetCenter < popupMid ? 'bottom' : 'top';
+  }
+
+  // Compute the hole the SVG mask should leave bright around the
+  // highlighted target. We use an SVG mask + Gaussian blur instead of
+  // CSS clip-path so the hole's edges feather smoothly into the dim,
+  // matching the soft glow of the target's accent ring.
+  // Reads the target's computed border-radius so the rounded corners
+  // of the hole follow the rounded corners of the target itself.
+  function updateHole() {
+    viewW = window.innerWidth;
+    viewH = window.innerHeight;
+    if (!highlighted) {
+      hole = null;
+      return;
+    }
+    const r = highlighted.getBoundingClientRect();
+    if (!r.width || !r.height) {
+      hole = null;
+      return;
+    }
+    const pad = 4;
+    const cs = window.getComputedStyle(highlighted);
+    // borderRadius can be "9px" or "9px 9px 9px 9px"; parseFloat picks
+    // the first value which is what we want for a uniform rounding.
+    const radius = parseFloat(cs.borderRadius) || 8;
+    hole = {
+      x: Math.round(r.left - pad),
+      y: Math.round(r.top - pad),
+      w: Math.round(r.width + pad * 2),
+      h: Math.round(r.height + pad * 2),
+      // Add the pad to the radius so the hole's corners stay parallel
+      // to the target's, rather than looking sharper at the edge.
+      rx: radius + pad,
+    };
+  }
+
+  function next() {
+    if (stepIdx < STEPS.length - 1) stepIdx++;
+    else finish();
+  }
+  function back() {
+    if (stepIdx > 0) stepIdx--;
+  }
+  function finish() {
+    if (highlighted) { highlighted.classList.remove('onb-target'); highlighted = null; }
+    // Restore picker to the user's pre-tour state.
+    if (pickerCollapsed !== initialPickerCollapsed) {
+      pickerCollapsed = initialPickerCollapsed;
+    }
+    dispatch('dismiss');
+  }
+
+  // Keep the hole lined up while the user (or the browser) scrolls or
+  // resizes the popup. Capture-phase scroll listener catches inner
+  // scroll containers like .picker-rail too. Both passive — no
+  // preventDefault.
+  //
+  // Throttled with rAF so a fast scroll inside .picker-rail (which
+  // can fire 100+ events/sec) only triggers one updateHole per frame.
+  // Without this each scroll event ran a full getBoundingClientRect +
+  // getComputedStyle + Svelte re-render + SVG mask repaint, which
+  // visibly stuttered the scroll on slower machines.
+  let rafPending = 0;
+  function onScrollOrResize() {
+    if (rafPending) return;
+    rafPending = requestAnimationFrame(() => {
+      rafPending = 0;
+      updateHole();
+    });
+  }
+  onMount(() => {
+    initialPickerCollapsed = pickerCollapsed;
+    viewW = window.innerWidth;
+    viewH = window.innerHeight;
+    window.addEventListener('scroll', onScrollOrResize, { passive: true, capture: true });
+    window.addEventListener('resize', onScrollOrResize, { passive: true });
+  });
+  onDestroy(() => {
+    if (highlighted) highlighted.classList.remove('onb-target');
+    if (rafPending) cancelAnimationFrame(rafPending);
+    window.removeEventListener('scroll', onScrollOrResize, { capture: true } as any);
+    window.removeEventListener('resize', onScrollOrResize);
+  });
+
+  // Translation helpers — fall back to the English copy embedded in
+  // STEPS so a missing key never shows the raw key text to the user.
+  // Cache the t() lookup so we don't call it twice per reactive run.
+  $: titleT = t(step.titleKey, {}, lang);
+  $: title  = titleT === step.titleKey ? step.titleFallback : titleT;
+  $: bodyT  = t(step.bodyKey, {}, lang);
+  $: body   = bodyT === step.bodyKey ? step.bodyFallback : bodyT;
 </script>
 
-<!-- Full-popup scrim + centered card. No spotlight / cutout in v1 —
-     the popup is only ~420px tall, so a centered modal already makes
-     the right elements visible "behind" the dimmed scrim. Upgrading to
-     a real SVG spotlight is deferred until there's a clear UX need. -->
-<div class="onb-scrim" role="dialog" aria-modal="true" aria-labelledby="onb-title" data-lang={lang}>
-  <div class="onb-card">
-    <button
-      type="button"
-      class="onb-skip"
-      on:click={finish}
-      title={t('onboarding.skip', {}, lang) || 'Skip'}
-      aria-label={t('onboarding.skip', {}, lang) || 'Skip'}
-    >
-      <X size={14} />
-    </button>
-
-    {#if step === 1}
-      <div class="onb-step">1 / 2</div>
-      <h2 id="onb-title" class="onb-title">
-        {t('onboarding.step1.title', {}, lang) || 'Pick one or more formats'}
-      </h2>
-      <p class="onb-body">
-        {t('onboarding.step1.body', {}, lang) || 'Tap any of the format cards to toggle it. When two or more are selected, the exports are packaged together as a single .zip.'}
-      </p>
-    {:else}
-      <div class="onb-step">2 / 2</div>
-      <h2 id="onb-title" class="onb-title">
-        {t('onboarding.step2.title', {}, lang) || 'Export is reversible'}
-      </h2>
-      <p class="onb-body">
-        {t('onboarding.step2.body', {}, lang) || 'Click Start to begin. During an export the button turns red — click it again any time to stop. The thin bar at the bottom shows progress.'}
-      </p>
-    {/if}
-
-    <div class="onb-actions">
-      {#if step === 2}
-        <button type="button" class="onb-btn secondary" on:click={back}>
-          {t('onboarding.back', {}, lang) || 'Back'}
-        </button>
+<!-- Fixed-position scrim built as an inline SVG so we can use a
+     <mask> with a Gaussian-blurred black rect to feather the edges of
+     the hole over the highlighted target. The dim is drawn as a
+     translucent <rect> over the full viewport; the mask makes the
+     hole transparent. pointer-events:none → dim is visual only and
+     never blocks interaction with whatever is underneath, including
+     the highlighted target itself. -->
+<svg
+  class="onb-scrim"
+  width={viewW}
+  height={viewH}
+  viewBox="0 0 {viewW} {viewH}"
+  aria-hidden="true"
+>
+  <defs>
+    <!-- The blur extends beyond the rect's bounds, so the filter
+         region must be larger than its default 110%. 200% gives plenty
+         of headroom for HOLE_BLUR up to ~10px without clipping. -->
+    <filter id="onb-soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation={HOLE_BLUR} />
+    </filter>
+    <mask id="onb-hole-mask">
+      <!-- White = visible (dim shows), black = hidden (transparent
+           hole). The blurred black rect therefore feathers the dim
+           into the hole. -->
+      <rect x="0" y="0" width={viewW} height={viewH} fill="white" />
+      {#if hole}
+        <rect
+          x={hole.x}
+          y={hole.y}
+          width={hole.w}
+          height={hole.h}
+          rx={hole.rx}
+          ry={hole.rx}
+          fill="black"
+          filter="url(#onb-soft)"
+        />
       {/if}
-      {#if step === 1}
-        <button type="button" class="onb-btn primary" on:click={next}>
-          {t('onboarding.next', {}, lang) || 'Next'}
-        </button>
-      {:else}
-        <button type="button" class="onb-btn primary" on:click={finish}>
-          {t('onboarding.gotIt', {}, lang) || 'Got it'}
-        </button>
-      {/if}
+    </mask>
+  </defs>
+  <rect
+    x="0" y="0"
+    width={viewW} height={viewH}
+    fill="rgba(15, 23, 42, 0.55)"
+    mask="url(#onb-hole-mask)"
+  />
+</svg>
+
+<div
+  class="onb-card"
+  class:top={cardSide === 'top'}
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="onb-title"
+  data-lang={lang}
+>
+  <button
+    type="button"
+    class="onb-skip"
+    on:click={finish}
+    title={t('onboarding.skip', {}, lang) || 'Skip'}
+    aria-label={t('onboarding.skip', {}, lang) || 'Skip'}
+  >
+    <X size={14} />
+  </button>
+
+  <div class="onb-step">{stepIdx + 1} / {STEPS.length}</div>
+  <h2 id="onb-title" class="onb-title">{title}</h2>
+  <p class="onb-body">{body}</p>
+
+  <div class="onb-actions">
+    <div class="onb-progress" aria-hidden="true">
+      {#each STEPS as _, i}
+        <span class="dot" class:done={i < stepIdx} class:current={i === stepIdx}></span>
+      {/each}
     </div>
+    {#if stepIdx > 0}
+      <button type="button" class="onb-btn secondary" on:click={back}>
+        {t('onboarding.back', {}, lang) || 'Back'}
+      </button>
+    {/if}
+    <button type="button" class="onb-btn primary" on:click={next}>
+      {stepIdx === STEPS.length - 1
+        ? (t('onboarding.gotIt', {}, lang) || 'Got it')
+        : (t('onboarding.next', {}, lang) || 'Next')}
+    </button>
   </div>
 </div>
 
 <style>
+  /* Full-viewport SVG scrim. The dim itself is drawn as a translucent
+     <rect> inside the SVG — see template — masked by a blurred black
+     rect to feather the hole around the target. pointer-events:none
+     so the dim is visual only and never blocks interaction with the
+     highlighted element underneath. */
   .onb-scrim {
     position: fixed;
     inset: 0;
-    background: rgba(15, 23, 42, 0.55);
-    backdrop-filter: blur(2px);
-    -webkit-backdrop-filter: blur(2px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
     z-index: 1000;
-    /* Popup animates itself in; skip any entry animation here so the
-       first render doesn't look jittery. */
+    pointer-events: none;
+    /* Display:block strips the inline-svg baseline gap, which would
+       otherwise push the SVG 4-ish px below the viewport top. */
+    display: block;
   }
 
   .onb-card {
-    width: calc(100% - 40px);
-    max-width: 320px;
+    position: fixed;
+    z-index: 1001;
+    left: 14px; right: 14px;
+    bottom: 14px;
+    max-width: 392px;
+    margin: 0 auto;
     background: var(--color-bg);
     color: var(--color-text);
     border-radius: 12px;
-    padding: 20px 18px 16px;
-    box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--color-border);
-    position: relative;
+    padding: 16px 16px 12px;
+    box-shadow:
+      0 20px 40px -12px rgba(0, 0, 0, 0.45),
+      0 0 0 1px var(--color-border);
+  }
+  .onb-card.top {
+    top: 50px;
+    bottom: auto;
   }
 
   .onb-skip {
     position: absolute;
-    top: 8px;
-    right: 8px;
+    top: 8px; right: 8px;
+    width: 22px; height: 22px;
     background: transparent;
     border: none;
-    color: var(--color-muted);
+    color: var(--color-text-muted, #64748b);
     cursor: pointer;
-    padding: 4px;
-    border-radius: 6px;
-    display: flex;
+    padding: 0;
+    border-radius: 50%;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
   }
-  .onb-skip:hover { background: var(--color-accent-light); color: var(--color-text); }
+  .onb-skip:hover {
+    background: var(--color-accent-light);
+    color: var(--color-text);
+  }
 
   .onb-step {
     font-size: 10px;
@@ -124,23 +407,44 @@
   }
 
   .onb-title {
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 600;
-    margin: 0 0 8px;
+    margin: 0 0 6px;
     line-height: 1.3;
+    padding-right: 24px;  /* avoid overlap with the skip × */
   }
 
   .onb-body {
     font-size: 12px;
     line-height: 1.5;
-    color: var(--color-muted);
-    margin: 0 0 14px;
+    color: var(--color-text-muted, #64748b);
+    margin: 0 0 12px;
   }
 
   .onb-actions {
     display: flex;
     gap: 8px;
     justify-content: flex-end;
+    align-items: center;
+  }
+  .onb-progress {
+    margin-right: auto;
+    display: flex;
+    gap: 4px;
+  }
+  .onb-progress .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--color-border);
+    transition: background 0.15s, transform 0.15s;
+  }
+  .onb-progress .dot.done {
+    background: var(--color-accent);
+    opacity: 0.55;
+  }
+  .onb-progress .dot.current {
+    background: var(--color-accent);
+    transform: scale(1.4);
   }
 
   .onb-btn {
@@ -151,7 +455,7 @@
     border-radius: 6px;
     cursor: pointer;
     border: 1px solid transparent;
-    transition: background 0.15s ease, border-color 0.15s ease;
+    transition: background 0.15s, border-color 0.15s, filter 0.15s;
   }
   .onb-btn.primary {
     background: var(--color-accent);
@@ -165,4 +469,20 @@
     border-color: var(--color-border);
   }
   .onb-btn.secondary:hover { background: var(--color-accent-light); }
+
+  /* The target highlight: just a pulsing accent ring. The dim is now
+     the separate .onb-scrim with a clip-path hole — see above. The
+     ring is purely decorative; the scrim's transparent hole is what
+     visually isolates the target.
+     :global() because the class is added/removed imperatively via
+     classList from JS — Svelte's component-scoped CSS would otherwise
+     prune the selector. */
+  :global(.onb-target) {
+    border-radius: 9px;
+    animation: onb-target-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes onb-target-pulse {
+    0%, 100% { box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.7); }
+    50%      { box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.35); }
+  }
 </style>

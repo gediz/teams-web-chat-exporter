@@ -102,6 +102,7 @@
   class:checking={!busy && !statusKnown}
   class:success-flash={flashActive}
   type="button"
+  data-tour="stop"
   disabled={(!busy && disabled) || (!busy && !statusKnown)}
   title={busy ? stopLabel : ''}
   on:click={handleClick}
