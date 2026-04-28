@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.2] — 2026-04-28
+
+Onboarding-tour polish + a small picker UX fix.
+
+### Added
+
+- **Pre-tour prompt.** First-time popup open now asks "Want a quick 30-second tour?" with [No thanks] / [Show me] buttons before highlighting any element. Users who already know the extension can opt out without sitting through 7 steps.
+- **"Teams is still loading" empty-state.** When the picker comes back empty on a Teams tab (IDB hasn't populated yet), we now show a clear "Teams is still loading your chats — try refreshing in a few seconds" message with a Refresh button, instead of the misleading "No chats found".
+
+### Changed
+
+- Onboarding dismiss is now visually distinct: the corner X is red, and a labeled red "Skip" button sits in the action row alongside Back/Next during the tour. Dismissal is one click away whether the user looks at the corner or the action row.
+- Settings → Replay tour bypasses the new pre-tour prompt — clicking it is already an explicit opt-in, no need to ask again.
+
+### Fixed
+
+- Added top margin to the picker's "Open the Teams web app tab first." / "Could not load chats" error blocks so they no longer sit flush against the "Conversations" card header.
+
 ## [1.4.1] — 2026-04-28
 
 Polish release on top of v1.4. Reworks the welcome experience and makes the conversation picker more discoverable.
