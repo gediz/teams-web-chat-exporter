@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.1] — 2026-04-28
+
+Polish release on top of v1.4. Reworks the welcome experience and makes the conversation picker more discoverable.
+
+### Added
+
+- **Conversation picker collapse toggle.** New chevron in the picker header collapses / expands the list. Default is collapsed for fresh installs, persisted across sessions. Active filter auto-scrolls into view on popup open with a brief flash so the current selection is never hidden offscreen.
+- **7-step interactive onboarding tour.** Replaces the old centered modal. Each step highlights a real popup element (format, picker, folder rail, date range, history, settings, export/stop) with a feathered SVG-mask spotlight and a card that auto-positions opposite the target. The folder step temporarily expands the picker and restores it on dismiss.
+- **Replay tour entry in Settings.** A "Replay tour" card lets users walk through the onboarding again at any time.
+
+### Changed
+
+- Onboarding spotlight now uses an SVG `<mask>` with `feGaussianBlur` for soft-edged dim, drawn on a `position: fixed` scrim so it covers the popup correctly even when the highlighted element lives inside a scrollable / `overflow: hidden` ancestor.
+- Scroll/resize handler for the spotlight is rAF-throttled — fast scrolls inside the picker rail no longer stutter under repeated `getBoundingClientRect` calls.
+- Onboarding copy across all 24 locales updated for the new step structure; deprecated `onboarding.step1.*` / `onboarding.step2.*` keys removed.
+
+### Fixed
+
+- Onboarding card no longer overlaps the highlighted target when the popup is scrolled — card position is recomputed per step from the target's actual rect.
+
 ## [1.4.0] — 2026-04-28
 
 The major theme of v1.4 is **scale**: pick many chats and export them all at once, see them in a proper picker instead of "whatever's open", and read the result in any of five formats (now including PDF). Plus full support for Teams Free (consumer accounts).
