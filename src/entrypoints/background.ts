@@ -9,6 +9,7 @@ import {
   buildOneChatForBundle,
   pickBundleFolderName,
   type BundleEntry,
+  type BundleEmpty,
   type BundleFailure,
 } from '../background/download';
 import { revokeDownloadUrl, textToDownloadUrl } from '../background/builders';
@@ -648,6 +649,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
         const usedFolderNames = new Set<string>();
         const entries: BundleEntry[] = [];
         const failures: BundleFailure[] = [];
+        const noHistory: BundleEmpty[] = [];
 
         for (let i = 0; i < list.length; i++) {
             if (bundleStops.has(tabId)) break;
@@ -689,8 +691,16 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
             const totalMessages = Array.isArray(scrapeRes.messages) ? scrapeRes.messages.length : 0;
             broadcastStatus({ tabId, phase: 'scrape:complete', messages: totalMessages, ...bundleCtx });
 
+            // 0-message API responses go to NO_HISTORY.txt at bundle root
+            // rather than producing a per-chat folder of empty files. The
+            // common case is Teams Free legacy Skype-imported 1:1s where
+            // Microsoft never migrated the history into the consumer chat
+            // backend — there is genuinely nothing to render, and a 7 MB
+            // empty PDF per chat is just noise. Distinct from FAILURES.txt
+            // because the API call succeeded; the chat is simply empty
+            // server-side.
             if (totalMessages === 0) {
-                failures.push({ folderName, conversationId: conv.id, reason: 'No messages in selected range' });
+                noHistory.push({ folderName, conversationId: conv.id });
                 continue;
             }
 
@@ -739,10 +749,83 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
             return;
         }
 
-        if (!entries.length && !failures.length) {
+        if (!entries.length && !failures.length && !noHistory.length) {
             const message = 'No conversations produced output.';
             broadcastStatus({ tabId, phase: 'empty', message });
             sendResponse({ error: message, code: 'EMPTY_RESULTS' });
+            activeExports.delete(tabId); void persistActiveExports();
+            return;
+        }
+
+        // All-empty path: every chat the user picked returned 0 messages
+        // (and nothing actually failed). Common case is bundling a set of
+        // legacy Skype-imported 1:1s where Microsoft never migrated the
+        // history. A zip-wrapped NO_HISTORY.txt is just an extra extract
+        // step for a single text file, so save it directly. Marked as a
+        // normal completed export (not a failure) since the API ran fine.
+        if (entries.length === 0 && failures.length === 0 && noHistory.length > 0) {
+            console.log(`[bundle-allempty] saving NO_HISTORY.txt directly (no zip): noHistory=${noHistory.length}`);
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19).replace('T', '_');
+            const filename = `TeamsExport_bundle_${stamp}_NO_HISTORY.txt`;
+            const lines = noHistory.map(e => `${e.folderName}\t${e.conversationId}`);
+            const header = '# Chats with no retrievable message history. The API succeeded\n'
+                + '# but returned 0 messages — most often legacy Skype-imported 1:1\n'
+                + '# chats where Microsoft did not migrate the message history into\n'
+                + '# the Teams Free chat backend. Not a failure; nothing to export.\n'
+                + '# Columns: folder\tconversationId';
+            const body = `${header}\n${lines.join('\n')}\n`;
+            const url = textToDownloadUrl(body, 'text/plain');
+
+            let downloadId: number | undefined;
+            try {
+                downloadId = await downloads.download({ url, filename, saveAs: true });
+                setTimeout(() => revokeDownloadUrl(url), 60_000);
+            } catch (e: any) {
+                revokeDownloadUrl(url);
+                const message = e?.message || String(e);
+                broadcastStatus({ tabId, phase: 'error', error: message });
+                sendResponse({ error: message });
+                activeExports.delete(tabId); void persistActiveExports();
+                return;
+            }
+
+            broadcastStatus({
+                tabId,
+                phase: 'complete',
+                filename,
+                downloadId,
+                afterExport: buildOptions?.afterExport,
+                bundleTotalChats: totalChats,
+                bundleSuccessCount: 0,
+                bundleFailedCount: 0,
+            });
+
+            const elapsedMs = Math.max(0, Date.now() - startedAt);
+            await persistHistoryEntry({
+                id: makeEntryId(),
+                tabId,
+                kind: 'success',
+                downloadId,
+                filename,
+                title: `0 chats (${noHistory.length} empty)`,
+                isZip: false,
+                elapsedMs,
+                savedAt: Date.now(),
+            });
+
+            const after = buildOptions?.afterExport;
+            if (downloadId != null && after === 'show') {
+                try { await downloads.show(downloadId); } catch { /* noop */ }
+            }
+
+            sendResponse({
+                ok: true,
+                filename,
+                downloadId,
+                totalChats,
+                successChats: 0,
+                failedChats: 0,
+            });
             activeExports.delete(tabId); void persistActiveExports();
             return;
         }
@@ -827,7 +910,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                 bundleSuccessCount: entries.length,
                 bundleFailedCount: failures.length,
             });
-            const buildRes = await buildAndDownloadBundlesZip({ downloads, isFirefox }, entries, failures);
+            const buildRes = await buildAndDownloadBundlesZip({ downloads, isFirefox }, entries, failures, noHistory);
             const downloadOk = buildRes.id != null
                 ? await waitForDownloadComplete(buildRes.id, 60_000)
                 : true;

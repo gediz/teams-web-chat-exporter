@@ -124,11 +124,15 @@ export async function subsetFont(fontBytes: Uint8Array, codepoints: Iterable<num
     }
   }
   if (added === 0) {
-    // Empty input would subset to a font with no glyphs, which pdf-lib
-    // can't embed. Bail and let the caller use the original.
-    hb.hb_subset_input_destroy(input);
-    hb.hb_face_destroy(face);
-    return null;
+    // Empty input previously bailed and the caller embedded the FULL
+    // font as fallback. For an empty document (0 messages, almost no
+    // text glyphs anywhere) all three fonts hit this path and the CJK
+    // font alone is 6 MB — empty-bundle PDFs were ~7 MB each. Adding
+    // one ASCII codepoint instead produces a minimal single-glyph
+    // subset that pdf-lib embeds happily; empty PDFs drop from ~7 MB
+    // to a few KB. (Non-empty exports that have any text already
+    // subset cleanly because the codepoint set is non-empty.)
+    hb.hb_set_add(unicodeSet, 0x20); // U+0020 SPACE
   }
 
   // Tell HarfBuzz to strip GSUB/GPOS/GDEF/kern. Measurement in pdf-lib

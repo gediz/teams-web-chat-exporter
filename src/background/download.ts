@@ -1,4 +1,4 @@
-import { binaryToDownloadUrl, removeAvatars, revokeDownloadUrl, textToDownloadUrl, toCSV, toHTML } from './builders';
+import { binaryToDownloadUrl, removeAvatars, revokeDownloadUrl, summarizeAttachments, textToDownloadUrl, toCSV, toHTML } from './builders';
 // binaryToDownloadUrl is still used for the PDF single-format path; the
 // zip paths bypass it because `new Blob([uint8array])` doubles peak
 // memory for large bundles (see zip.ts comments + take3 OOM trace).
@@ -718,6 +718,18 @@ export type BundleFailure = {
   reason: string;
 };
 
+// "Empty" chats — the API succeeded but the server has no message
+// history for that conversation (Teams Free legacy Skype-imported 1:1s
+// are the common case: Microsoft never migrated those messages to the
+// consumer chat backend). Listed at the bundle root in NO_HISTORY.txt
+// rather than producing per-chat folders full of empty files — saves
+// ~7 MB of empty-PDF noise per chat, and the user can see at a glance
+// which chats had nothing to fetch.
+export type BundleEmpty = {
+  folderName: string;
+  conversationId: string;
+};
+
 // Pack every per-chat result into a single outer zip and download it.
 // Failures (if any) are written as one line each into FAILURES.txt at
 // the zip's root so the user gets a concrete punch-list of what didn't
@@ -726,6 +738,7 @@ export async function buildAndDownloadBundlesZip(
   deps: BuildDownloadDeps,
   entries: BundleEntry[],
   failures: BundleFailure[],
+  noHistory: BundleEmpty[] = [],
 ) {
   const { downloads } = deps;
 
@@ -741,6 +754,17 @@ export async function buildAndDownloadBundlesZip(
     const header = '# Chats that failed to export. Columns: folder\tconversationId\treason';
     const body = `${header}\n${lines.join('\n')}\n`;
     outerFiles.push({ path: 'FAILURES.txt', data: new TextEncoder().encode(body) });
+  }
+
+  if (noHistory.length) {
+    const lines = noHistory.map(e => `${e.folderName}\t${e.conversationId}`);
+    const header = '# Chats with no retrievable message history. The API succeeded\n'
+      + '# but returned 0 messages — most often legacy Skype-imported 1:1\n'
+      + '# chats where Microsoft did not migrate the message history into\n'
+      + '# the Teams Free chat backend. Not a failure; nothing to export.\n'
+      + '# Columns: folder\tconversationId';
+    const body = `${header}\n${lines.join('\n')}\n`;
+    outerFiles.push({ path: 'NO_HISTORY.txt', data: new TextEncoder().encode(body) });
   }
 
   // Async zip — yields to the event loop between file additions.
@@ -774,7 +798,14 @@ function toPlainText(messages: ExportMessage[]) {
   for (const m of messages) {
     const ts = m.timestamp || '';
     const author = m.author || '[unknown]';
-    const text = (m.text || '').replace(/\r\n/g, '\n').replace(/\n{2,}/g, '\n\n');
+    let text = (m.text || '').replace(/\r\n/g, '\n').replace(/\n{2,}/g, '\n\n');
+    // When the body is empty but the message carried attachments
+    // (image paste, file drop, link preview), surface a short
+    // attachment summary so the row isn't silently blank.
+    if (!text.trim()) {
+      const summary = summarizeAttachments(m);
+      if (summary) text = summary;
+    }
     const urgencyTag = m.importance === 'urgent' ? ' [!URGENT]' : m.importance === 'high' ? ' [!IMPORTANT]' : '';
     const subjectLine = m.subject ? `[Subject: ${m.subject}] ` : '';
     let line = `[${ts}] ${author}${urgencyTag}: ${subjectLine}${text}`;
