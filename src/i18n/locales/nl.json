@@ -190,5 +190,11 @@
   "onboarding.stop.body": "Klik op Exporteren om te beginnen. Tijdens een export wordt de knop rood — klik op elk moment opnieuw om te stoppen. De dunne balk onderaan toont de voortgang.",
   "settings.replayTour": "Tour opnieuw afspelen",
   "settings.replayTour.hint": "Loop opnieuw door de introductietour.",
-  "settings.replayTour.btn": "Tour opnieuw afspelen"
+  "settings.replayTour.btn": "Tour opnieuw afspelen",
+  "onboarding.prompt.title": "Welkom!",
+  "onboarding.prompt.body": "Wil je een korte rondleiding van 30 seconden door de nieuwste functies?",
+  "onboarding.prompt.show": "Laat zien",
+  "onboarding.prompt.skip": "Nee, bedankt",
+  "picker.stillLoading": "Teams laadt je chats nog — probeer het over een paar seconden te vernieuwen.",
+  "picker.stillLoading.retry": "Vernieuwen"
 }

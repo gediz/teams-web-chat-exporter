@@ -190,5 +190,11 @@
   "onboarding.stop.body": "Kattints az Exportálásra a kezdéshez. Export közben a gomb pirosra vált — bármikor kattints újra a leállításhoz. Az alul lévő vékony sáv mutatja a haladást.",
   "settings.replayTour": "Bemutató ismétlése",
   "settings.replayTour.hint": "Járd végig újra a bemutatót.",
-  "settings.replayTour.btn": "Bemutató ismétlése"
+  "settings.replayTour.btn": "Bemutató ismétlése",
+  "onboarding.prompt.title": "Üdvözlünk!",
+  "onboarding.prompt.body": "Szeretnél egy gyors, 30 másodperces körutat az újdonságokról?",
+  "onboarding.prompt.show": "Mutasd",
+  "onboarding.prompt.skip": "Nem, köszönöm",
+  "picker.stillLoading": "A Teams még tölti a csevegéseidet — próbáld meg pár másodperc múlva frissíteni.",
+  "picker.stillLoading.retry": "Frissítés"
 }

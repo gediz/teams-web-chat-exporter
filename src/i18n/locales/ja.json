@@ -190,5 +190,11 @@
   "onboarding.stop.body": "「エクスポート」をクリックして開始します。エクスポート中はボタンが赤くなります — いつでも再度クリックすると停止します。下部の細いバーが進捗を示します。",
   "settings.replayTour": "ツアーを再生",
   "settings.replayTour.hint": "紹介ツアーをもう一度実行します。",
-  "settings.replayTour.btn": "ツアーを再生"
+  "settings.replayTour.btn": "ツアーを再生",
+  "onboarding.prompt.title": "ようこそ！",
+  "onboarding.prompt.body": "新機能の30秒のクイックツアーを見ますか？",
+  "onboarding.prompt.show": "見る",
+  "onboarding.prompt.skip": "いいえ、結構です",
+  "picker.stillLoading": "Teams はまだチャットを読み込んでいます — 数秒後に更新してみてください。",
+  "picker.stillLoading.retry": "更新"
 }

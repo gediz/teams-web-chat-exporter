@@ -190,5 +190,11 @@
   "onboarding.stop.body": "Başlatmak için Dışa Aktar'a tıkla. Dışa aktarım sırasında düğme kırmızıya döner — istediğin zaman durdurmak için tekrar tıkla. Alttaki ince çubuk ilerlemeyi gösterir.",
   "settings.replayTour": "Tanıtımı yeniden oynat",
   "settings.replayTour.hint": "Tanıtım turunu yeniden gez.",
-  "settings.replayTour.btn": "Yeniden oynat"
+  "settings.replayTour.btn": "Yeniden oynat",
+  "onboarding.prompt.title": "Hoş geldin!",
+  "onboarding.prompt.body": "Yeniliklerin 30 saniyelik kısa turunu ister misin?",
+  "onboarding.prompt.show": "Göster",
+  "onboarding.prompt.skip": "Hayır, gerek yok",
+  "picker.stillLoading": "Teams hâlâ sohbetlerini yüklüyor — birkaç saniye sonra yenilemeyi deneyin.",
+  "picker.stillLoading.retry": "Yenile"
 }

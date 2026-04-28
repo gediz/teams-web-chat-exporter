@@ -190,5 +190,11 @@
   "onboarding.stop.body": "Kliknij Eksportuj, aby rozpocząć. Podczas eksportu przycisk staje się czerwony — kliknij ponownie w dowolnej chwili, aby zatrzymać. Cienki pasek na dole pokazuje postęp.",
   "settings.replayTour": "Powtórz przewodnik",
   "settings.replayTour.hint": "Przejdź przez wprowadzenie ponownie.",
-  "settings.replayTour.btn": "Powtórz przewodnik"
+  "settings.replayTour.btn": "Powtórz przewodnik",
+  "onboarding.prompt.title": "Witaj!",
+  "onboarding.prompt.body": "Chcesz szybką, 30-sekundową wycieczkę po nowościach?",
+  "onboarding.prompt.show": "Pokaż mi",
+  "onboarding.prompt.skip": "Nie, dziękuję",
+  "picker.stillLoading": "Teams nadal ładuje twoje czaty — spróbuj odświeżyć za kilka sekund.",
+  "picker.stillLoading.retry": "Odśwież"
 }

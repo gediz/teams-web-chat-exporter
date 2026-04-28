@@ -190,5 +190,11 @@
   "onboarding.stop.body": "내보내기를 클릭하여 시작합니다. 내보내기 중에는 버튼이 빨간색으로 변합니다 — 언제든 다시 클릭하면 중지됩니다. 하단의 가는 막대가 진행 상황을 보여줍니다.",
   "settings.replayTour": "투어 다시 보기",
   "settings.replayTour.hint": "소개 투어를 다시 진행합니다.",
-  "settings.replayTour.btn": "투어 다시 보기"
+  "settings.replayTour.btn": "투어 다시 보기",
+  "onboarding.prompt.title": "환영합니다!",
+  "onboarding.prompt.body": "새로운 기능의 30초 빠른 투어를 보시겠어요?",
+  "onboarding.prompt.show": "보여주세요",
+  "onboarding.prompt.skip": "괜찮아요",
+  "picker.stillLoading": "Teams가 아직 채팅을 불러오는 중입니다 — 몇 초 후에 새로 고침해 보세요.",
+  "picker.stillLoading.retry": "새로 고침"
 }

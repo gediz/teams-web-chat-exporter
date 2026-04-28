@@ -190,5 +190,11 @@
   "onboarding.stop.body": "Clique em Exportar para começar. Durante uma exportação o botão fica vermelho — clique novamente a qualquer momento para parar. A barra fina embaixo mostra o progresso.",
   "settings.replayTour": "Repetir tutorial",
   "settings.replayTour.hint": "Refazer a apresentação introdutória.",
-  "settings.replayTour.btn": "Repetir tutorial"
+  "settings.replayTour.btn": "Repetir tutorial",
+  "onboarding.prompt.title": "Bem-vindo!",
+  "onboarding.prompt.body": "Quer um tour rápido de 30 segundos pelas novidades?",
+  "onboarding.prompt.show": "Mostrar",
+  "onboarding.prompt.skip": "Não, obrigado",
+  "picker.stillLoading": "O Teams ainda está carregando suas conversas — tente atualizar em alguns segundos.",
+  "picker.stillLoading.retry": "Atualizar"
 }

@@ -190,5 +190,11 @@
   "onboarding.stop.body": "Cliquez sur Exporter pour commencer. Pendant un export le bouton devient rouge — cliquez à nouveau à tout moment pour arrêter. La barre fine en bas montre la progression.",
   "settings.replayTour": "Rejouer la visite",
   "settings.replayTour.hint": "Refaire la visite d'introduction.",
-  "settings.replayTour.btn": "Rejouer la visite"
+  "settings.replayTour.btn": "Rejouer la visite",
+  "onboarding.prompt.title": "Bienvenue !",
+  "onboarding.prompt.body": "Voulez-vous une visite rapide de 30 secondes des nouveautés ?",
+  "onboarding.prompt.show": "Montrez-moi",
+  "onboarding.prompt.skip": "Non merci",
+  "picker.stillLoading": "Teams charge encore vos discussions — réessayez dans quelques secondes.",
+  "picker.stillLoading.retry": "Actualiser"
 }

@@ -190,5 +190,11 @@
   "onboarding.stop.body": "คลิกส่งออกเพื่อเริ่ม ระหว่างส่งออกปุ่มจะเปลี่ยนเป็นสีแดง — คลิกอีกครั้งเมื่อใดก็ได้เพื่อหยุด แถบบางที่ด้านล่างแสดงความคืบหน้า",
   "settings.replayTour": "เล่นทัวร์ใหม่",
   "settings.replayTour.hint": "เดินผ่านทัวร์แนะนำอีกครั้ง",
-  "settings.replayTour.btn": "เล่นทัวร์ใหม่"
+  "settings.replayTour.btn": "เล่นทัวร์ใหม่",
+  "onboarding.prompt.title": "ยินดีต้อนรับ!",
+  "onboarding.prompt.body": "อยากดูทัวร์ฟีเจอร์ใหม่แบบ 30 วินาทีไหม?",
+  "onboarding.prompt.show": "ดูเลย",
+  "onboarding.prompt.skip": "ไม่ ขอบคุณ",
+  "picker.stillLoading": "Teams กำลังโหลดแชทของคุณอยู่ — ลองรีเฟรชอีกครั้งในไม่กี่วินาที",
+  "picker.stillLoading.retry": "รีเฟรช"
 }

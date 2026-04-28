@@ -190,5 +190,11 @@
   "onboarding.stop.body": "Başlamaq üçün İxrac et basın. İxrac zamanı düymə qırmızıya dönür — istənilən vaxt yenidən basaraq dayandırın. Aşağıdakı nazik zolaq irəliləyişi göstərir.",
   "settings.replayTour": "Turu yenidən oynat",
   "settings.replayTour.hint": "Tanıtım turunu yenidən keçin.",
-  "settings.replayTour.btn": "Turu yenidən oynat"
+  "settings.replayTour.btn": "Turu yenidən oynat",
+  "onboarding.prompt.title": "Xoş gəlmisən!",
+  "onboarding.prompt.body": "Yeniliklərin 30 saniyəlik qısa turunu istəyirsən?",
+  "onboarding.prompt.show": "Göstər",
+  "onboarding.prompt.skip": "Xeyr, sağ ol",
+  "picker.stillLoading": "Teams hələ də söhbətlərini yükləyir — bir neçə saniyədən sonra yeniləməyə cəhd et.",
+  "picker.stillLoading.retry": "Yenilə"
 }

@@ -190,5 +190,11 @@
   "onboarding.stop.body": "Klicke auf Exportieren, um zu beginnen. Während des Exports wird die Schaltfläche rot – klicke jederzeit erneut, um abzubrechen. Der dünne Balken unten zeigt den Fortschritt.",
   "settings.replayTour": "Tutorial wiederholen",
   "settings.replayTour.hint": "Die Einführungstour erneut durchgehen.",
-  "settings.replayTour.btn": "Tutorial wiederholen"
+  "settings.replayTour.btn": "Tutorial wiederholen",
+  "onboarding.prompt.title": "Willkommen!",
+  "onboarding.prompt.body": "Möchtest du eine kurze 30-Sekunden-Tour der Neuerungen?",
+  "onboarding.prompt.show": "Zeig mir",
+  "onboarding.prompt.skip": "Nein danke",
+  "picker.stillLoading": "Teams lädt noch deine Chats – versuche es in ein paar Sekunden erneut.",
+  "picker.stillLoading.retry": "Aktualisieren"
 }

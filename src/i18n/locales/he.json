@@ -190,5 +190,11 @@
   "onboarding.stop.body": "לחץ על ייצוא כדי להתחיל. במהלך ייצוא הכפתור הופך לאדום — לחץ שוב בכל עת כדי לעצור. הפס הדק בתחתית מציג את ההתקדמות.",
   "settings.replayTour": "חזור על הסיור",
   "settings.replayTour.hint": "עבור על סיור ההיכרות שוב.",
-  "settings.replayTour.btn": "חזור על הסיור"
+  "settings.replayTour.btn": "חזור על הסיור",
+  "onboarding.prompt.title": "ברוך הבא!",
+  "onboarding.prompt.body": "רוצה סיור מהיר של 30 שניות בחידושים?",
+  "onboarding.prompt.show": "הראה לי",
+  "onboarding.prompt.skip": "לא, תודה",
+  "picker.stillLoading": "Teams עדיין טוען את השיחות שלך — נסה לרענן בעוד כמה שניות.",
+  "picker.stillLoading.retry": "רענן"
 }

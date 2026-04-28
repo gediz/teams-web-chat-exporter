@@ -190,5 +190,11 @@
   "onboarding.stop.body": "点击「导出」开始。导出过程中按钮变红 — 随时再次点击即可停止。底部的细条显示进度。",
   "settings.replayTour": "重播教程",
   "settings.replayTour.hint": "重新观看入门教程。",
-  "settings.replayTour.btn": "重播教程"
+  "settings.replayTour.btn": "重播教程",
+  "onboarding.prompt.title": "欢迎！",
+  "onboarding.prompt.body": "想用 30 秒快速了解新功能吗？",
+  "onboarding.prompt.show": "好的",
+  "onboarding.prompt.skip": "不用了",
+  "picker.stillLoading": "Teams 仍在加载您的聊天 — 请几秒钟后重试刷新。",
+  "picker.stillLoading.retry": "刷新"
 }

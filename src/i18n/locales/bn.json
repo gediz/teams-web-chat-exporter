@@ -190,5 +190,11 @@
   "onboarding.stop.body": "শুরু করতে রপ্তানি ক্লিক করুন। রপ্তানির সময় বোতামটি লাল হয়ে যায় — থামাতে যেকোনো সময় আবার ক্লিক করুন। নীচের পাতলা বারটি অগ্রগতি দেখায়।",
   "settings.replayTour": "ট্যুর পুনঃপ্লে করুন",
   "settings.replayTour.hint": "পরিচয় ট্যুর আবার দেখুন।",
-  "settings.replayTour.btn": "ট্যুর পুনঃপ্লে করুন"
+  "settings.replayTour.btn": "ট্যুর পুনঃপ্লে করুন",
+  "onboarding.prompt.title": "স্বাগতম!",
+  "onboarding.prompt.body": "নতুন ফিচারগুলির 30 সেকেন্ডের দ্রুত ট্যুর দেখতে চান?",
+  "onboarding.prompt.show": "দেখান",
+  "onboarding.prompt.skip": "না, ধন্যবাদ",
+  "picker.stillLoading": "Teams এখনও আপনার চ্যাটগুলি লোড করছে — কয়েক সেকেন্ড পরে রিফ্রেশ করার চেষ্টা করুন।",
+  "picker.stillLoading.retry": "রিফ্রেশ"
 }

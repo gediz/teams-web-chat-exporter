@@ -190,5 +190,11 @@
   "onboarding.stop.body": "शुरू करने के लिए निर्यात पर क्लिक करें। निर्यात के दौरान बटन लाल हो जाता है — रोकने के लिए किसी भी समय फिर से क्लिक करें। नीचे की पतली पट्टी प्रगति दिखाती है।",
   "settings.replayTour": "टूर फिर से चलाएँ",
   "settings.replayTour.hint": "परिचय टूर को फिर से देखें।",
-  "settings.replayTour.btn": "टूर फिर से चलाएँ"
+  "settings.replayTour.btn": "टूर फिर से चलाएँ",
+  "onboarding.prompt.title": "स्वागत है!",
+  "onboarding.prompt.body": "नए फ़ीचर्स का 30 सेकंड का त्वरित दौरा देखना चाहेंगे?",
+  "onboarding.prompt.show": "दिखाएँ",
+  "onboarding.prompt.skip": "नहीं, धन्यवाद",
+  "picker.stillLoading": "Teams अभी भी आपकी चैट्स लोड कर रहा है — कुछ सेकंड में रिफ्रेश करने की कोशिश करें।",
+  "picker.stillLoading.retry": "रिफ्रेश"
 }

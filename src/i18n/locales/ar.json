@@ -190,5 +190,11 @@
   "onboarding.stop.body": "انقر على تصدير للبدء. أثناء التصدير يتحول الزر إلى الأحمر — انقر مرة أخرى في أي وقت للإيقاف. الشريط الرفيع في الأسفل يظهر التقدم.",
   "settings.replayTour": "إعادة تشغيل الجولة",
   "settings.replayTour.hint": "اطّلع على الجولة التعريفية مرة أخرى.",
-  "settings.replayTour.btn": "إعادة تشغيل الجولة"
+  "settings.replayTour.btn": "إعادة تشغيل الجولة",
+  "onboarding.prompt.title": "مرحبًا!",
+  "onboarding.prompt.body": "هل تريد جولة سريعة لمدة 30 ثانية حول الجديد؟",
+  "onboarding.prompt.show": "أرني",
+  "onboarding.prompt.skip": "لا، شكرًا",
+  "picker.stillLoading": "لا يزال Teams يحمّل محادثاتك — حاول التحديث بعد بضع ثوانٍ.",
+  "picker.stillLoading.retry": "تحديث"
 }

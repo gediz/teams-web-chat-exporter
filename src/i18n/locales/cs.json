@@ -190,5 +190,11 @@
   "onboarding.stop.body": "Klikněte na Exportovat pro spuštění. Během exportu tlačítko zčervená — kliknutím znovu kdykoli zastavíte. Tenký pruh dole ukazuje průběh.",
   "settings.replayTour": "Přehrát prohlídku",
   "settings.replayTour.hint": "Znovu si projděte úvodní prohlídku.",
-  "settings.replayTour.btn": "Přehrát prohlídku"
+  "settings.replayTour.btn": "Přehrát prohlídku",
+  "onboarding.prompt.title": "Vítejte!",
+  "onboarding.prompt.body": "Chcete rychlou 30sekundovou prohlídku novinek?",
+  "onboarding.prompt.show": "Ukázat",
+  "onboarding.prompt.skip": "Ne, děkuji",
+  "picker.stillLoading": "Teams stále načítá vaše chaty — zkuste obnovit za pár sekund.",
+  "picker.stillLoading.retry": "Obnovit"
 }

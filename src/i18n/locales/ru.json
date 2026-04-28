@@ -190,5 +190,11 @@
   "onboarding.stop.body": "Нажмите Экспорт, чтобы начать. Во время экспорта кнопка становится красной — нажмите ещё раз в любой момент, чтобы остановить. Тонкая полоса внизу показывает прогресс.",
   "settings.replayTour": "Повторить тур",
   "settings.replayTour.hint": "Снова пройти вводный тур.",
-  "settings.replayTour.btn": "Повторить тур"
+  "settings.replayTour.btn": "Повторить тур",
+  "onboarding.prompt.title": "Добро пожаловать!",
+  "onboarding.prompt.body": "Хотите быстрый 30-секундный тур по новинкам?",
+  "onboarding.prompt.show": "Показать",
+  "onboarding.prompt.skip": "Нет, спасибо",
+  "picker.stillLoading": "Teams ещё загружает ваши чаты — попробуйте обновить через несколько секунд.",
+  "picker.stillLoading.retry": "Обновить"
 }

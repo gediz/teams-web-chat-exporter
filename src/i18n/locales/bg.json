@@ -190,5 +190,11 @@
   "onboarding.stop.body": "Кликнете върху Експорт, за да започнете. По време на експорт бутонът става червен — кликнете отново по всяко време, за да спрете. Тънката лента отдолу показва прогреса.",
   "settings.replayTour": "Повтаряне на обиколката",
   "settings.replayTour.hint": "Преминете отново през уводната обиколка.",
-  "settings.replayTour.btn": "Повтаряне на обиколката"
+  "settings.replayTour.btn": "Повтаряне на обиколката",
+  "onboarding.prompt.title": "Добре дошли!",
+  "onboarding.prompt.body": "Искате ли бърза 30-секундна обиколка на новостите?",
+  "onboarding.prompt.show": "Покажи ми",
+  "onboarding.prompt.skip": "Не, благодаря",
+  "picker.stillLoading": "Teams все още зарежда вашите чатове — опитайте да опресните след няколко секунди.",
+  "picker.stillLoading.retry": "Опресни"
 }

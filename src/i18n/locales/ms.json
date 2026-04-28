@@ -190,5 +190,11 @@
   "onboarding.stop.body": "Klik Eksport untuk mula. Semasa eksport butang bertukar merah — klik semula bila-bila masa untuk berhenti. Bar nipis di bawah menunjukkan kemajuan.",
   "settings.replayTour": "Main semula tur",
   "settings.replayTour.hint": "Lalui semula tur pengenalan.",
-  "settings.replayTour.btn": "Main semula tur"
+  "settings.replayTour.btn": "Main semula tur",
+  "onboarding.prompt.title": "Selamat datang!",
+  "onboarding.prompt.body": "Mahukan tur pantas 30 saat tentang yang baharu?",
+  "onboarding.prompt.show": "Tunjuk",
+  "onboarding.prompt.skip": "Tak, terima kasih",
+  "picker.stillLoading": "Teams masih memuatkan sembang anda — cuba muat semula dalam beberapa saat.",
+  "picker.stillLoading.retry": "Muat semula"
 }

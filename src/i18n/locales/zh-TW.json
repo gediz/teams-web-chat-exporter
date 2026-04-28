@@ -190,5 +190,11 @@
   "onboarding.stop.body": "點擊「匯出」開始。匯出過程中按鈕變紅 — 隨時再次點擊即可停止。底部的細條顯示進度。",
   "settings.replayTour": "重播導覽",
   "settings.replayTour.hint": "重新觀看入門導覽。",
-  "settings.replayTour.btn": "重播導覽"
+  "settings.replayTour.btn": "重播導覽",
+  "onboarding.prompt.title": "歡迎！",
+  "onboarding.prompt.body": "想用 30 秒快速了解新功能嗎？",
+  "onboarding.prompt.show": "好的",
+  "onboarding.prompt.skip": "不用了",
+  "picker.stillLoading": "Teams 仍在載入您的聊天 — 請幾秒鐘後重試重新整理。",
+  "picker.stillLoading.retry": "重新整理"
 }
