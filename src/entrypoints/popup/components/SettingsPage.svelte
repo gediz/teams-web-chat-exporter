@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { ArrowLeft, Sun, Moon, Globe, FolderOpen, CircleUserRound, Printer, Info, ExternalLink, Bug, Star } from 'lucide-svelte';
+  import { ArrowLeft, Sun, Moon, Globe, FolderOpen, CircleUserRound, Printer, Info, ExternalLink, Bug, Star, GraduationCap } from 'lucide-svelte';
   import { t } from '../../../i18n/i18n';
   import { getReviewStoreUrl } from '../../../utils/store-urls';
 
@@ -60,6 +60,7 @@
     pdfBodyFontSizeChange: number;
     pdfShowPageNumbersChange: boolean;
     pdfIncludeAvatarsChange: boolean;
+    replayTour: void;
   }>();
 
   function onAfterExportChange(e: Event) {
@@ -245,6 +246,28 @@
     </div>
   </div>
 
+  <!-- Replay tour card. Lives just before About so it's near the
+       version / help affordances; users tend to look for "show help
+       again" near "About". The button just dispatches; App.svelte
+       closes the settings page and shows the overlay (it deliberately
+       leaves onboardingDismissed=true since the user already saw the
+       tour once — replay is a manual reopen, not a re-onboarding). -->
+  <div class="card settings-card">
+    <div class="card-header">
+      <span class="card-icon"><GraduationCap size={16} /></span>
+      <span class="card-title">{t('settings.replayTour', {}, lang) || 'Replay tour'}</span>
+    </div>
+    <div class="settings-subtitle">{t('settings.replayTour.hint', {}, lang) || 'Walk through the introduction tour again.'}</div>
+    <button
+      type="button"
+      class="replay-tour-btn"
+      on:click={() => dispatch('replayTour')}
+    >
+      <GraduationCap size={14} />
+      {t('settings.replayTour.btn', {}, lang) || 'Replay tour'}
+    </button>
+  </div>
+
   <!-- About Card. Links open in a new tab via target=_blank so the
        popup doesn't close under the user. rel=noopener keeps the new
        tab's window.opener null — standard hygiene for external links. -->
@@ -284,3 +307,32 @@
     </div>
   </div>
 </div>
+
+<style>
+  .replay-tour-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    margin-top: 6px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+  .replay-tour-btn:hover {
+    background: var(--color-accent-light);
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+  .replay-tour-btn :global(svg) {
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+  }
+</style>
