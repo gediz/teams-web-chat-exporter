@@ -11,12 +11,57 @@ export function removeAvatars(messages: ExportMessage[]) {
   });
 }
 
+// Compact one-line summary of a message's attachments — used by TXT/CSV
+// when the body is empty so attachment-only messages (image pastes,
+// file drops) don't render as silent blank rows. Keeps to a few entries
+// to stay readable; trailing "+N more" when truncated.
+//
+// Discriminator: Attachment.kind is only set for link previews; for
+// everything else we look at `type` (a file extension like "png", "mp4",
+// or null for inline AMS images) to pick a reasonable label.
+const IMAGE_EXT_RE = /^(png|jpe?g|gif|webp|bmp|svg|ico|tif|tiff|heic)$/i;
+const VIDEO_EXT_RE = /^(mp4|webm|mov|avi|mkv|m4v)$/i;
+const AUDIO_EXT_RE = /^(mp3|wav|ogg|m4a|flac|aac)$/i;
+
+export function summarizeAttachments(message: ExportMessage): string {
+  const atts = Array.isArray(message.attachments) ? message.attachments : [];
+  if (!atts.length) return '';
+  const labelFor = (a: typeof atts[number]): string => {
+    const name = (a.label || '').trim();
+    if (a.kind === 'preview') {
+      // metaText may carry "Title\nURL" — first line is the human label.
+      const title = (a.metaText || '').split('\n')[0].trim();
+      return title ? `[link: ${title}]` : '[link]';
+    }
+    const ext = (a.type || '').trim();
+    if (IMAGE_EXT_RE.test(ext) || (!ext && /\.(png|jpe?g|gif|webp|bmp)$/i.test(name))) {
+      return name && !/^image$/i.test(name) ? `[image: ${name}]` : '[image]';
+    }
+    if (VIDEO_EXT_RE.test(ext)) return name ? `[video: ${name}]` : '[video]';
+    if (AUDIO_EXT_RE.test(ext)) return name ? `[audio: ${name}]` : '[audio]';
+    // Default: generic file.
+    return name ? `[file: ${name}]` : '[file]';
+  };
+  const MAX = 3;
+  const labels = atts.slice(0, MAX).map(labelFor);
+  if (atts.length > MAX) labels.push(`[+${atts.length - MAX} more]`);
+  return labels.join(' ');
+}
+
 export function toCSV(messages: ExportMessage[]) {
   const header = ['id', 'author', 'timestamp', 'text', 'edited', 'system', 'subject', 'importance', 'mentions', 'reactions_json', 'attachments_json'];
 
   const rows = (messages || []).map(m => {
     const row = [];
-    const text = (m.text || '').replace(/\n/g, '\\n');
+    let text = (m.text || '').replace(/\n/g, '\\n');
+    // Empty body + attachments → fill the readable text column with a
+    // brief summary. The structured attachments_json column still has
+    // the full data; this is purely so spreadsheet readers see
+    // something meaningful in the "text" column instead of "".
+    if (!text.trim()) {
+      const summary = summarizeAttachments(m);
+      if (summary) text = summary;
+    }
     row.push(m.id ?? '', m.author ?? '', m.timestamp ?? '', text, m.edited ? 'true' : 'false', m.system ? 'true' : 'false');
 
     row.push(m.subject ?? '');
@@ -448,11 +493,16 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
         const isEmbeddedImage = !!att.dataUrl || /^data:image\//i.test(att.href || '');
         const isAmsImage = /asyncgw\.teams\.microsoft\.com|asm\.skype\.com/i.test(att.href || '');
         const isLocalImage = /^images\//i.test(att.href || '');
-        const isAuthProtected = isAmsImage || /sharepoint\.com|\.my\.\w/i.test(att.href || '');
+        // Hosts that 401/403 (or redirect to a sign-in page) when an
+        // `<img src=...>` is loaded from a saved HTML file with no
+        // session cookies. Renders as a placeholder card instead of
+        // a broken-icon img tag.
+        const isAuthProtected = isAmsImage
+          || /sharepoint\.com|sharepoint\.us|sharepoint-mil\.us|sharepoint\.cn|microsoftpersonalcontent\.com/i.test(att.href || '');
         const looksLikeImage =
-          /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.href || '') ||
-          /\.(png|jpe?g|gif|webp)(\?|#|$)/i.test(att.label || '') ||
-          /^(png|jpe?g|gif|webp)$/i.test(att.type || '');
+          /\.(png|jpe?g|gif|webp|bmp|svg|tiff?|heic)(\?|#|$)/i.test(att.href || '') ||
+          /\.(png|jpe?g|gif|webp|bmp|svg|tiff?|heic)(\?|#|$)/i.test(att.label || '') ||
+          /^(png|jpe?g|gif|webp|bmp|svg|tiff?|heic)$/i.test(att.type || '');
         // Only render as <img> if we have the data locally — either as a
         // data: URL (embedded) or a relative path inside the zip. Any URL
         // that needs auth (Teams AMS, SharePoint, OneDrive) would 401 as
