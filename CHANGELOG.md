@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.3] — 2026-04-28
+
+Hotfix for the popup-after-install case. If you installed the extension and opened the popup before refreshing your Teams tab, the auto-inject path was broken and you saw a generic "Could not load chats" with no actionable detail.
+
+### Fixed
+
+- **Auto-inject path corrected.** `ensureContentScript` was passing `'content.js'` to `chrome.scripting.executeScript`, but WXT bundles the file at `'content-scripts/content.js'`. Every fresh install where the user hadn't refreshed Teams hit `"Could not load file: 'content.js'."` and silently fell into the picker error state. Now the path matches the bundle and auto-inject works the first time.
+
+### Added
+
+- **Visible inline error in the picker.** The error block now shows the actual error message under "Could not load chats" (used to be tooltip-only on the retry button). This is what made the auto-inject bug findable in the first place.
+- **Frame-level error surfacing.** `ensureContentScript` now inspects the per-frame `InjectionResult` and reports top-frame errors, so a sandboxed iframe / page-CSP block / unmatched URL no longer fails silently.
+- **Retry on post-injection PING.** Up to 5 attempts at 50 ms intervals to absorb any race between `executeScript` resolving and the listener registering.
+
 ## [1.4.2] — 2026-04-28
 
 Onboarding-tour polish + a small picker UX fix.
