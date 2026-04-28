@@ -48,6 +48,20 @@ type AuthzResponse = {
     chatService?: string;
     [key: string]: unknown;
   };
+  // Teams Free shape (teams.live.com authz/consumer response): the
+  // messaging token sits in a nested object at `skypeToken.skypetoken`
+  // (note the lowercase inner field). The same response also carries
+  // `expiresIn`, the user's `skypeid` / `signinname`, and a flag.
+  skypeToken?: {
+    skypetoken?: string;
+    expiresIn?: number;
+    skypeid?: string;
+    signinname?: string;
+    isBusinessTenant?: boolean;
+  };
+  // Older / hypothetical Work-School shape, kept for forward
+  // compatibility — never observed in current responses but cheap to
+  // probe before falling back to IC3 cache.
   tokens?: {
     skypeToken?: string;
     expiresIn?: number;
@@ -166,14 +180,20 @@ async function findValidToken(scopePattern: string): Promise<string | null> {
 export async function getIc3Token(): Promise<string | null> {
   // Standard commercial: ic3.teams.office.com
   // GCC High: ic3.teams.office365.us or chatsvcagg
+  // Teams Free: mtsvc.fl.teams.microsoft.com (different consumer service)
   return await findValidToken('ic3.teams.office.com')
     || await findValidToken('ic3.teams.office365.us')
-    || await findValidToken('chatsvcagg');
+    || await findValidToken('chatsvcagg')
+    || await findValidToken('mtsvc.fl.teams.microsoft.com');
 }
 
 /** Get a valid Skype API token for the authz discovery endpoint. */
 export async function getSkypeToken(): Promise<string | null> {
-  return findValidToken('api.spaces.skype');
+  // Pattern broadened from `api.spaces.skype` to `spaces.skype` so it
+  // matches both work/school (`api.spaces.skype.com`) and Teams Free
+  // (`api.fl.spaces.skype.com` — the consumer service has a `.fl.`
+  // infix that breaks the older substring check).
+  return findValidToken('spaces.skype');
 }
 
 /** Get a valid Graph API token for user resolution. */
@@ -193,7 +213,7 @@ export async function getGraphToken(): Promise<string | null> {
  */
 export function getCurrentUserUuid(): string | null {
   const UUID_RE = /^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i;
-  const teamsScopes = ['ic3.teams.office.com', 'api.spaces.skype', 'graph.microsoft.com'];
+  const teamsScopes = ['ic3.teams.office.com', 'spaces.skype', 'graph.microsoft.com', 'mtsvc.fl.teams.microsoft.com'];
   const findWithFilter = (predicate: (k: string) => boolean): string | null => {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -313,6 +333,53 @@ export async function resolveUserNames(
   return result;
 }
 
+// ── SharePoint file fetch ────────────────────────────────────────────
+//
+// Files attached via paperclip / drag-drop in Teams (as opposed to
+// pasted-as-image) end up on the user's SharePoint OneDrive under
+// "Microsoft Teams Chat Files/". The chat message references the file
+// by its SharePoint URL. To embed the file's bytes in an export we
+// fetch the URL directly with the user's session cookies — they're
+// already signed into SharePoint via Teams' Microsoft 365 SSO.
+//
+// Requires *.sharepoint.com / *.sharepoint.us in host_permissions
+// (declared in src/utils/teams-urls.ts). Going through Microsoft
+// Graph's /shares endpoint instead doesn't help: every Graph file-
+// content endpoint returns a 302 redirect to a SharePoint host, and
+// the redirect-follow fails without the same host_permission.
+
+export type SharePointFetchResult =
+  | { ok: true; bytes: Uint8Array; mime: string }
+  | { ok: false; status: number; statusText: string; reason: string };
+
+/**
+ * Fetch a SharePoint-hosted file's bytes using the user's session
+ * cookies. Returns a result shape (never throws) so the caller can
+ * log + skip cleanly. Direct content-script fetch — works because
+ * `*.sharepoint.com/.us/.cn/-mil.us` are in host_permissions and the
+ * work/school SharePoint hosts honour CORS for the Teams origin.
+ */
+export async function fetchSharePointFile(
+  url: string,
+  signal?: AbortSignal,
+): Promise<SharePointFetchResult> {
+  try {
+    const resp = await fetch(url, {
+      credentials: 'include',
+      signal: signal || AbortSignal.timeout(20_000),
+      redirect: 'follow',
+    });
+    if (!resp.ok) {
+      return { ok: false, status: resp.status, statusText: resp.statusText, reason: `SharePoint ${resp.status}` };
+    }
+    const buf = await resp.arrayBuffer();
+    const mime = resp.headers.get('content-type')?.split(';')[0]?.trim() || 'application/octet-stream';
+    return { ok: true, bytes: new Uint8Array(buf), mime };
+  } catch (e: any) {
+    return { ok: false, status: 0, statusText: '', reason: e?.message || String(e) };
+  }
+}
+
 /**
  * Collect all unresolved MRIs from a batch of API messages.
  * Returns MRIs that appear as senders (gid:), reactors, or forward originators
@@ -371,24 +438,274 @@ export function collectUnresolvedMris(messages: TeamsApiMessage[]): string[] {
 
 // ── Service Discovery ──────────────────────────────────────────────────
 
+// Establish Teams Free's `skypetoken_asm` session cookie on
+// `.asm.skype.com` by exchanging the short Skype JWT at
+//   POST https://us-api.asm.skype.com/v1/skypetokenauth
+//   body: skypetoken=<JWT>
+// 204 No Content. Subsequent direct GETs on `*.asm.skype.com/v1/objects/...`
+// (inline images embedded in messages) need this cookie — without it the
+// AMS host returns 401. Memoised per-JWT for the SW lifetime so a
+// multi-chat bundle only pays the round-trip once.
+//
+// Not used by the chat-service messaging endpoint (that one auths via
+// the `authentication: skypetoken=<JWT>` header alone). Kept narrowly
+// scoped to image fetching where direct AMS calls are unavoidable —
+// Teams Free has no image-proxy host equivalent to Work/School's
+// `*.asyncgw.teams.microsoft.com` that we could route through instead.
+const _skypeTokenAuthDone = new Set<string>();
+
+export async function ensureSkypeTokenCookies(jwt: string, signal?: AbortSignal): Promise<boolean> {
+  if (!jwt) return false;
+  if (_skypeTokenAuthDone.has(jwt)) return true;
+  try {
+    const resp = await fetch('https://us-api.asm.skype.com/v1/skypetokenauth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `skypetoken=${encodeURIComponent(jwt)}`,
+      credentials: 'include',
+      signal: signal || AbortSignal.timeout(15_000),
+    });
+    if (resp.ok || resp.status === 204) {
+      _skypeTokenAuthDone.add(jwt);
+      return true;
+    }
+    console.warn(`[API:tfl] skypetokenauth: ${resp.status} ${resp.statusText}`);
+    return false;
+  } catch (e: any) {
+    console.warn(`[API:tfl] skypetokenauth threw: ${e?.message || String(e)}`);
+    return false;
+  }
+}
+
+// Teams Free encrypts cached auth state in localStorage with a 32-byte
+// AES-256-CBC key it stores alongside, in the clear, at:
+//   tmp.auth.v1.GLOBAL.ExportedEncryptionKey.ExportedEncryptionKey
+// The key's own JSON-wrapper `comment` field calls it a "temporary
+// location" — Teams effectively designed for first-party clients to
+// be able to decrypt the cache. We use this to read the short-lived
+// Skype JWT (`Discover.SKYPE-TOKEN`) the chat-service proxy expects.
+let _cachedTeamsFreeAesKey: { raw: string; key: CryptoKey } | null = null;
+
+async function getTeamsFreeAesKey(): Promise<CryptoKey | null> {
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.endsWith('.ExportedEncryptionKey.ExportedEncryptionKey')) continue;
+    try {
+      const wrapper = JSON.parse(localStorage.getItem(k) || '');
+      const exported: unknown = wrapper?.item?.exportedKey;
+      if (typeof exported !== 'string') continue;
+      if (_cachedTeamsFreeAesKey?.raw === exported) return _cachedTeamsFreeAesKey.key;
+      const key = await crypto.subtle.importKey('raw', b64uToBytes(exported), { name: 'AES-CBC' }, false, ['decrypt']);
+      _cachedTeamsFreeAesKey = { raw: exported, key };
+      return key;
+    } catch { /* skip malformed */ }
+  }
+  return null;
+}
+
+type TeamsFreeEncryptedItem = { encryptedToken?: unknown; iv?: unknown };
+async function decryptTeamsFreeItem(item: TeamsFreeEncryptedItem): Promise<string | null> {
+  if (typeof item?.encryptedToken !== 'string' || typeof item?.iv !== 'string') return null;
+  const key = await getTeamsFreeAesKey();
+  if (!key) return null;
+  try {
+    const pt = await crypto.subtle.decrypt(
+      { name: 'AES-CBC', iv: b64uToBytes(item.iv) },
+      key,
+      b64uToBytes(item.encryptedToken),
+    );
+    return new TextDecoder().decode(pt);
+  } catch { return null; }
+}
+
+/**
+ * Read Teams Free's cached chat-service auth: the short-lived Skype
+ * JWT and the chat-service URL, decrypted from
+ *   tmp.auth.v1.<cid>.Discover.SKYPE-TOKEN
+ *
+ * Returns null when the cache is missing, expired, or undecryptable —
+ * caller falls back to the live authz POST in that case.
+ *
+ * The cache record carries an unencrypted `regionGtms.chatService` and
+ * `expiration` (unix ms) so we can pick the right messaging endpoint
+ * and skip a stale record without paying the cost of a decrypt that
+ * would yield an unusable token anyway.
+ */
+async function getTeamsFreeChatAuth(): Promise<{ token: string; chatServiceUrl?: string; userRegion?: string } | null> {
+  const now = Date.now();
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.endsWith('.Discover.SKYPE-TOKEN')) continue;
+    try {
+      const wrapper = JSON.parse(localStorage.getItem(k) || '');
+      const item = wrapper?.item;
+      if (!item || typeof item !== 'object') continue;
+      if (Number(item.expiration) <= now) continue;
+      const token = await decryptTeamsFreeItem(item);
+      if (!token) continue;
+      let chatServiceUrl: string | undefined;
+      const cs = (item.regionGtms as Record<string, unknown> | undefined)?.chatService;
+      if (typeof cs === 'string') chatServiceUrl = cs;
+      // The cached chatService is the msgapi.teams.live.com backend; the
+      // proxied teams.live.com path is what Teams' own UI uses (and what
+      // works without registering a Skype endpoint first).
+      if (chatServiceUrl && /msgapi\.teams\.live\.com/i.test(chatServiceUrl)) {
+        chatServiceUrl = 'https://teams.live.com/api/chatsvc/consumer';
+      }
+      const userDetails = item.userDetails as Record<string, unknown> | undefined;
+      const userRegion = typeof userDetails?.region === 'string' ? userDetails.region : '';
+      return { token, chatServiceUrl, userRegion };
+    } catch { /* skip */ }
+  }
+  return null;
+}
+
+/**
+ * Read Teams Free's local profile cache (mri → displayName) from
+ *   IndexedDB: Teams:profiles:react-web-client:<tenant>:<cid>:<lang>
+ *     objectStore: profiles  (key path = mri)
+ *
+ * On Teams Free this is the only place the converter can resolve Skype
+ * consumer IDs to names — Microsoft Graph doesn't know consumer
+ * accounts. Gated to teams.live.com so Work/School never even reads
+ * the DB (which exists with a different schema there); their existing
+ * Graph-resolution path stays the sole source of names.
+ *
+ * Each profile carries both keys we want (`mri`, `displayName`); we
+ * also store the bare-id form (e.g. `<id>` from `8:<id>`) so
+ * `<part identity="<id>">` in Event/Call partlists can resolve
+ * without forcing the converter to know about the `8:` prefix dance.
+ *
+ * Memoised at module scope with a 60-second TTL so a 14-chat bundle
+ * pays one IDB roundtrip instead of 14. The TTL is short enough that
+ * a long-running session picks up newly-added contacts within a
+ * minute, which matches Teams' own UI refresh cadence.
+ */
+let _profilesCache: { map: Map<string, string>; expiresAt: number } | null = null;
+let _profilesCachePromise: Promise<Map<string, string>> | null = null;
+
+async function loadTeamsFreeProfiles(): Promise<Map<string, string>> {
+  // Gate: only Teams Free has the consumer-Skype profile records this
+  // function is built for. Work/School returns immediately so we don't
+  // touch their (similarly named but different-schema) profiles store.
+  if (typeof location === 'undefined'
+      || !location.hostname.toLowerCase().includes('teams.live.com')) {
+    return new Map();
+  }
+  const now = Date.now();
+  if (_profilesCache && _profilesCache.expiresAt > now) return _profilesCache.map;
+  if (_profilesCachePromise) return _profilesCachePromise;
+  _profilesCachePromise = (async () => {
+    const out = new Map<string, string>();
+    if (!('indexedDB' in self)) return out;
+    let dbs: IDBDatabaseInfo[];
+    try { dbs = await indexedDB.databases(); } catch { return out; }
+    const profilesDb = dbs.find(d => typeof d.name === 'string' && /^Teams:profiles:/.test(d.name));
+    if (!profilesDb?.name) return out;
+    let db: IDBDatabase;
+    try {
+      db = await new Promise<IDBDatabase>((res, rej) => {
+        const req = indexedDB.open(profilesDb.name!);
+        req.onsuccess = () => res(req.result);
+        req.onerror = () => rej(req.error);
+      });
+    } catch { return out; }
+    try {
+      if (!db.objectStoreNames.contains('profiles')) return out;
+      const records = await new Promise<Array<{ mri?: string; displayName?: string }>>((res, rej) => {
+        const tx = db.transaction('profiles', 'readonly');
+        const req = tx.objectStore('profiles').getAll();
+        req.onsuccess = () => res(req.result || []);
+        req.onerror = () => rej(req.error);
+      });
+      for (const p of records) {
+        const mri = typeof p?.mri === 'string' ? p.mri : '';
+        const name = typeof p?.displayName === 'string' ? p.displayName.trim() : '';
+        if (!mri || !name) continue;
+        out.set(mri, name);
+        // Bare-id alias for `<part identity="X">` lookups (X has no `8:` prefix).
+        if (mri.startsWith('8:')) out.set(mri.slice(2), name);
+      }
+    } catch { /* swallow */ } finally { db.close(); }
+    return out;
+  })();
+  try {
+    const map = await _profilesCachePromise;
+    _profilesCache = { map, expiresAt: Date.now() + 60_000 };
+    return map;
+  } finally {
+    _profilesCachePromise = null;
+  }
+}
+
+/**
+ * Read a Teams Free pre-cached `tmp.auth.v1.*.Discover.<key>` entry.
+ * Teams Free (teams.live.com) caches its discovered service URLs in
+ * localStorage entries shaped like:
+ *
+ *   tmp.auth.v1.<consumer-tenant-id>.Discover.SKYPE-AUTHZ-URL
+ *   tmp.auth.v1.<consumer-tenant-id>.Discover.SKYPE-TOKEN
+ *
+ * The value is `{ hitCount, item, shouldRefresh }`. `item` is the
+ * cached value (a URL string for SKYPE-AUTHZ-URL; the discovery
+ * response object for richer entries). Returns null if not present.
+ */
+function readTmpAuthDiscover(suffix: string): unknown | null {
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key) continue;
+    if (!key.startsWith('tmp.auth.v1.')) continue;
+    if (!key.endsWith(`.Discover.${suffix}`)) continue;
+    try {
+      const entry = JSON.parse(localStorage.getItem(key) || '');
+      return entry?.item ?? null;
+    } catch { /* not JSON; skip */ }
+  }
+  return null;
+}
+
 /**
  * Detect the authz service base URL from the current Teams domain.
- * GCC High uses teams.microsoft.us, all others use teams.microsoft.com.
+ *  - GCC High         : teams.microsoft.us → authsvc.teams.microsoft.us
+ *  - Teams Free       : teams.live.com → URL is pre-cached in
+ *                       tmp.auth.v1.*.Discover.SKYPE-AUTHZ-URL because
+ *                       the consumer Skype service runs on a different
+ *                       authz host than the work/school endpoint.
+ *  - All others       : authsvc.teams.microsoft.com
+ *
+ * Returns null when the URL can't be determined (Teams Free with no
+ * cached entry yet — the user hasn't completed Teams' own discovery).
  */
-function getAuthzUrl(): string {
+function getAuthzUrl(): string | null {
   const host = location.hostname.toLowerCase();
   if (host.includes('teams.microsoft.us')) {
     return 'https://authsvc.teams.microsoft.us/v1.0/authz';
+  }
+  if (host.includes('teams.live.com')) {
+    const cached = readTmpAuthDiscover('SKYPE-AUTHZ-URL');
+    return typeof cached === 'string' && cached ? cached : null;
   }
   return 'https://authsvc.teams.microsoft.com/v1.0/authz';
 }
 
 /**
  * Discover the chat service URL and region via the authz endpoint.
- * This is the official Teams service discovery mechanism.
+ * Returns the chat-service URL plus, when the response includes one,
+ * a messaging token that authenticates against that chat service.
+ *
+ * Work/School Teams uses the IC3 token (looked up separately by the
+ * caller) for messaging. Teams Free's consumer authz endpoint returns
+ * its messaging token in the same response (`data.tokens.skypeToken`)
+ * and the IC3 token is irrelevant — there's no IC3 service in Teams
+ * Free.
  */
-export async function discover(skypeToken: string): Promise<{ chatServiceUrl: string; userRegion: string }> {
-  const resp = await fetch(getAuthzUrl(), {
+export async function discover(skypeToken: string): Promise<{ chatServiceUrl: string; userRegion: string; messagingToken?: string }> {
+  const authzUrl = getAuthzUrl();
+  if (!authzUrl) {
+    throw new Error('authz failed: no authz URL available (Teams Free needs Teams app to complete its own discovery first)');
+  }
+  console.log(`[API] authz endpoint: ${authzUrl}`);
+  const resp = await fetch(authzUrl, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${skypeToken}`,
@@ -403,14 +720,38 @@ export async function discover(skypeToken: string): Promise<{ chatServiceUrl: st
   }
 
   const data: AuthzResponse = await resp.json();
-  const chatServiceUrl = data.regionGtms?.chatService;
+
+  let chatServiceUrl = data.regionGtms?.chatService;
   const userRegion = data.userRegion || data.region || '';
+  // Token-extraction order:
+  //   1. Teams Free shape: data.skypeToken.skypetoken (object → string)
+  //   2. Hypothetical Work-School shape: data.tokens.skypeToken
+  // For Work-School the response usually doesn't carry either; the
+  // caller falls back to looking up the IC3 MSAL token from localStorage.
+  const messagingToken = data.skypeToken?.skypetoken || data.tokens?.skypeToken;
+
+  // Teams Free quirk: discover() returns chatServiceUrl as
+  //   https://msgapi.teams.live.com
+  // — the *backend* origin. Direct calls to it require the Skype
+  // registration-token flow (POST /endpoints, store Set-RegistrationToken,
+  // …). Teams' own UI sidesteps that by hitting a *proxied* path on
+  // the same teams.live.com origin:
+  //   https://teams.live.com/api/chatsvc/consumer/v1/users/ME/...
+  // The proxy bridges the auth (we just send `authentication: <token>`,
+  // no registration step). Confirmed against a HAR capture of Teams'
+  // own client. Substitute the URL here so fetchAllMessages naturally
+  // emits the proxied form.
+  if (location.hostname.toLowerCase().includes('teams.live.com')
+      && chatServiceUrl
+      && /msgapi\.teams\.live\.com/i.test(chatServiceUrl)) {
+    chatServiceUrl = 'https://teams.live.com/api/chatsvc/consumer';
+  }
 
   if (!chatServiceUrl || typeof chatServiceUrl !== 'string') {
     throw new Error('authz response missing chatService URL');
   }
 
-  return { chatServiceUrl, userRegion };
+  return { chatServiceUrl, userRegion, messagingToken };
 }
 
 // ── Conversation List ──────────────────────────────────────────────────
@@ -1178,16 +1519,70 @@ const SHORT_RETRY_BACKOFF_MS = [1000, 2000, 4000];
  * Fetch a single page with retry logic for transient errors.
  * Returns the parsed response or throws on non-retryable errors.
  */
+// Build the request headers for a messaging API call.
+//
+//  - Work / School (`*.asm.skype.com`, `*.ic3.teams.office.com`, …):
+//        Authorization: Bearer <token>
+//
+//  - Teams Free (proxied via `teams.live.com/api/chatsvc/consumer/...`):
+//    the consumer chat service expects the raw Skype token in a
+//    lowercase `authentication` header — NOT `Authorization`, and NO
+//    `Bearer` prefix. Plus a few client-identification headers that
+//    the consumer service appears to require (or at least Teams' own
+//    UI always sends them; verified from HAR capture of the live
+//    request that returns 200).
+function buildMessagingHeaders(url: string, token: string): Record<string, string> {
+  if (/teams\.live\.com\/api\/chatsvc\/consumer\b/i.test(url)) {
+    // The proxy expects the literal scheme `skypetoken=<JWT>` in the
+    // lowercase `authentication` header — verified against a Teams UI
+    // HAR capture. The other four headers identify the client (Teams
+    // Free / SfL surface); the proxy 401s without them.
+    return {
+      'authentication': `skypetoken=${token}`,
+      'behavioroverride': 'redirectAs404',
+      'ms-ic3-product': 'tfl',
+      'ms-ic3-additional-product': 'Sfl',
+      'x-ms-request-priority': '0',
+    };
+  }
+  return { 'Authorization': `Bearer ${token}` };
+}
+
 async function fetchPageWithRetry(
   url: string,
   token: string,
   signal?: AbortSignal,
 ): Promise<MessagesResponse> {
+  // Teams Free's chatsvc/consumer proxy needs the user's session
+  // cookies to bridge auth into the Skype backend (a 401 otherwise).
+  // Work/School's *.asm.skype.com endpoint doesn't need cookies — the
+  // Bearer header alone authenticates — so we omit `credentials` there
+  // to keep the pre-v1.4 request shape exactly intact and avoid any
+  // chance of stale third-party Skype cookies confusing the server.
+  const isTeamsFreeProxy = /teams\.live\.com\/api\/chatsvc\/consumer\b/i.test(url);
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const resp = await fetch(url, {
-      headers: { 'Authorization': `Bearer ${token}` },
+    const headers = buildMessagingHeaders(url, token);
+    const init: RequestInit = {
+      headers,
       signal: signal || AbortSignal.timeout(30_000),
-    });
+    };
+    if (isTeamsFreeProxy) init.credentials = 'include';
+    const resp = await fetch(url, init);
+
+    // Diagnostic on 401: dump request shape (header names + value
+    // lengths, never values) and response body (truncated) so we can
+    // compare against a known-working HAR capture.
+    if (resp.status === 401) {
+      const headerSummary: Record<string, string> = {};
+      for (const [k, v] of Object.entries(headers)) {
+        headerSummary[k] = `<len=${(v as string).length}>`;
+      }
+      const wwwAuth = resp.headers.get('www-authenticate');
+      let body = '';
+      try { body = (await resp.clone().text()).slice(0, 400); } catch { /* ignore */ }
+      console.warn(`[API] 401 from messaging`,
+        JSON.stringify({ url, headers: headerSummary, wwwAuthenticate: wwwAuth, bodySnippet: body }));
+    }
 
     if (resp.status === 429) {
       if (attempt >= MAX_RETRIES) {
@@ -1256,8 +1651,19 @@ export async function fetchAllMessages(
     if (signal?.aborted) break;
     page++;
 
-    // Re-read token before each page (MSAL may have refreshed it)
-    const token = (await getIc3Token()) || config.ic3Token;
+    // Re-read token before each page so a mid-export refresh picks up
+    // the new value. Source depends on the chat service in use:
+    //   - Teams Free: decrypt the cached SKYPE-TOKEN entry. The IC3
+    //     token MUST NOT be substituted here — the chatsvc/consumer
+    //     proxy 401s on it (it's a different audience).
+    //   - Work/School: re-read the IC3 MSAL access token.
+    let token = config.ic3Token;
+    if (config.chatServiceUrl.includes('teams.live.com/api/chatsvc/consumer')) {
+      const fresh = await getTeamsFreeChatAuth();
+      if (fresh?.token) token = fresh.token;
+    } else {
+      token = (await getIc3Token()) || config.ic3Token;
+    }
 
     const data = await fetchPageWithRetry(nextUrl, token, signal);
 
@@ -1313,22 +1719,47 @@ export async function apiScrape(
   const startAtISO = options?.startAtISO ?? null;
   const explicitConvId = options?.conversationId ?? null;
   try {
-    // Step 1: Get tokens
-    const skypeToken = await getSkypeToken();
-    if (!skypeToken) {
-      console.log('[API] No valid Skype token found, falling back to DOM');
-      return null;
-    }
-    const ic3Token = await getIc3Token();
-    if (!ic3Token) {
-      console.log('[API] No valid IC3 token found, falling back to DOM');
-      return null;
-    }
-
-    // Step 2: Discover chat service
+    // Step 1+2: Discover chat service & get a messaging token.
     onProgress?.({ phase: 'discover', page: 0, messagesSoFar: 0 });
-    const { chatServiceUrl, userRegion } = await discover(skypeToken);
-    console.log(`[API] Discovered chat service: ${chatServiceUrl} (region: ${userRegion})`);
+
+    // Teams Free fast path: the consumer surface caches a fresh,
+    // already-decryptable Skype JWT and the chat-service URL together
+    // in localStorage. Reading it skips an authz round-trip AND avoids
+    // the trap that the live authz response's `skypeToken.skypetoken`
+    // is a different (longer, wrong-audience) token than the
+    // proxy-acceptable one stored in the cache.
+    let chatServiceUrl: string;
+    let userRegion: string;
+    let messagingAuthToken: string;
+    const isTeamsFree = location.hostname.toLowerCase().includes('teams.live.com');
+    const cachedTeamsFree = isTeamsFree ? await getTeamsFreeChatAuth() : null;
+    if (cachedTeamsFree?.token && cachedTeamsFree.chatServiceUrl) {
+      chatServiceUrl = cachedTeamsFree.chatServiceUrl;
+      userRegion = cachedTeamsFree.userRegion || '';
+      messagingAuthToken = cachedTeamsFree.token;
+      console.log(`[API:tfl] auth from cache (chatService: ${chatServiceUrl})`);
+    } else {
+      // Work/School (and Teams Free fallback when cache is stale or
+      // missing): authenticate against the discover endpoint.
+      const skypeToken = await getSkypeToken();
+      if (!skypeToken) {
+        console.log('[API] No valid Skype token found, falling back to DOM');
+        return null;
+      }
+      const discovered = await discover(skypeToken);
+      chatServiceUrl = discovered.chatServiceUrl;
+      userRegion = discovered.userRegion;
+      // Token-source priority:
+      //  1. authz-response messagingToken (some tenants return one)
+      //  2. IC3 MSAL access token (standard Work/School path)
+      const fallback = discovered.messagingToken || (await getIc3Token()) || undefined;
+      if (!fallback) {
+        console.log('[API] No valid messaging token found, falling back to DOM');
+        return null;
+      }
+      messagingAuthToken = fallback;
+      console.log(`[API] Discovered chat service: ${chatServiceUrl} (region: ${userRegion})`);
+    }
 
     // Step 3: Conversation ID — prefer the one the popup picker handed us.
     // Fall back to DOM/IDB extraction only when the caller didn't supply
@@ -1343,7 +1774,7 @@ export async function apiScrape(
     console.log(`[API] Conversation: ${conversationId.substring(0, 30)}...`);
 
     // Step 4: Fetch all messages
-    const config: TeamsApiConfig = { chatServiceUrl, userRegion, ic3Token };
+    const config: TeamsApiConfig = { chatServiceUrl, userRegion, ic3Token: messagingAuthToken };
     const messages = await fetchAllMessages(config, conversationId, onProgress, signal, startAtISO);
     console.log(`[API] Fetched ${messages.length} messages`);
 
@@ -1370,8 +1801,28 @@ export async function apiScrape(
       }
     }
 
+    // Teams Free: layer the local profiles cache on top of any Graph-
+    // resolved names. Skype consumer IDs (`8:live:<id>`, `8:<id>`)
+    // can't be resolved via Graph (different identity system), and their
+    // names live only in this IDB store. Empty map on Work/School (no DB
+    // matches the pattern there) — costs ~one IDB roundtrip in the worst
+    // case. Merge order: existing __resolvedMris wins on conflict (Graph
+    // is the more authoritative source when it has a record at all).
+    if (isTeamsFree) {
+      const localProfiles = await loadTeamsFreeProfiles();
+      if (localProfiles.size > 0) {
+        const existing = (messages as unknown as { __resolvedMris?: Map<string, string> }).__resolvedMris
+          || new Map<string, string>();
+        for (const [k, v] of localProfiles) {
+          if (!existing.has(k)) existing.set(k, v);
+        }
+        (messages as unknown as { __resolvedMris: Map<string, string> }).__resolvedMris = existing;
+        console.log(`[API:tfl] layered ${localProfiles.size} profile names`);
+      }
+    }
+
     const userId = getCurrentUserUuid();
-    return { messages, conversationId, userId, userRegion, ic3Token };
+    return { messages, conversationId, userId, userRegion, ic3Token: messagingAuthToken };
   } catch (err: any) {
     // Re-throw an abort so the caller's try/catch can branch on cancellation
     // instead of treating it as a normal API failure (and triggering DOM

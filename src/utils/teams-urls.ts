@@ -44,11 +44,49 @@ export const TEAMS_MATCH_PATTERNS: string[] = TEAMS_DOMAINS.flatMap(
  * Upstream service origins the extension fetches from (NOT where it runs).
  *  - graph.microsoft.com / .us : Graph API for user resolution and profile photos.
  *  - *.asm.skype.com           : Skype AMS image CDN (inline images, link previews).
+ *  - SharePoint hosts          : Needed to fetch the binary of image files
+ *                                attached via paperclip / drag-drop. Teams
+ *                                stores these on the user's SharePoint /
+ *                                OneDrive, not on AMS. Without this the export
+ *                                only captures the file metadata, leaving the
+ *                                image missing from the exported HTML / PDF /
+ *                                zip. Graph's /shares endpoint can't substitute
+ *                                because every Graph file-content endpoint
+ *                                redirects to a SharePoint host for the
+ *                                actual bytes.
+ *
+ *    Microsoft cloud → SharePoint host:
+ *      Worldwide / commercial / GCC : <tenant>.sharepoint.com
+ *      US GCC High                  : <tenant>.sharepoint.us
+ *      US DoD                       : <tenant>.sharepoint-mil.us
+ *      Office 365 China (21Vianet)  : <tenant>.sharepoint.cn
+ *      Microsoft Cloud Deutschland  : retired in 2021, omitted
+ *
+ *  Not listed: my.microsoftpersonalcontent.com (consumer SharePoint /
+ *  OneDrive Personal Content). Teams Free stores paperclip uploads
+ *  there for personal accounts, but the host returns a 302 to
+ *  login.live.com when accessed cross-origin — Microsoft's auth flow
+ *  requires interactive sign-in. Even with host_permission and a
+ *  background-context fetch, the redirect-follow fails because
+ *  login.live.com has no CORS headers for any non-interactive caller.
+ *  Confirmed via probe + console capture in 2026-04. The user has to
+ *  click the link in the rendered HTML to open the file in OneDrive
+ *  manually. See docs/TODO.md.
  */
 export const API_FETCH_PATTERNS: string[] = [
   'https://graph.microsoft.com/*',
   'https://graph.microsoft.us/*',
   'https://*.asm.skype.com/*',
+  'https://*.sharepoint.com/*',
+  'https://*.sharepoint.us/*',
+  'https://*.sharepoint-mil.us/*',
+  'https://*.sharepoint.cn/*',
+  // Teams Free messaging service. Discovered chat service URL is
+  // `https://msgapi.teams.live.com` — a subdomain of teams.live.com,
+  // not covered by the bare-domain content-script match. Listed here
+  // (not in TEAMS_MATCH_PATTERNS) so the content script doesn't get
+  // injected on these non-UI hosts.
+  'https://*.teams.live.com/*',
 ];
 
 /** Regex that matches any Teams web-app URL (including proxy suffixes). */

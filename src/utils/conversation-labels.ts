@@ -45,7 +45,15 @@ export function conversationDisplayName(
   if (c.name) {
     if (c.isSelfChat) {
       const suffix = t('picker.selfChatSuffix', {}, lang) || 'You';
-      return `${c.name} (${suffix})`;
+      // Teams' chatTitle.shortTitle for self-chat already carries a
+      // localised "(You)" suffix in whatever locale Teams runs in
+      // (English: "Jane Doe (You)"; Turkish: "Jane Doe (Siz)"; etc.).
+      // If we naively appended ours we'd get "Jane Doe (You) (You)".
+      // Strip any trailing parenthetical from c.name first so we always
+      // produce one suffix in the popup's chosen language, regardless
+      // of Teams' UI language.
+      const bare = c.name.replace(/\s*\([^)]*\)\s*$/, '').trim() || c.name;
+      return `${bare} (${suffix})`;
     }
     return c.name;
   }

@@ -235,6 +235,19 @@ function parseSystemContent(content: string, messageType: string, mriMap: Map<st
     if (!mri) return '(unknown user)';
     const direct = mriMap.get(mri);
     if (direct) return direct;
+    // Skype consumer IDs (`8:live:<id>`, `8:<id>`, bare
+    // `<id>` from <part identity="...">). Try both with-prefix
+    // and bare-id forms; loadTeamsFreeProfiles() seeds both keys.
+    if (mri.startsWith('8:')) {
+      const bare = mriMap.get(mri.slice(2));
+      if (bare) return bare;
+    } else {
+      const prefixed = mriMap.get(`8:${mri}`);
+      if (prefixed) return prefixed;
+    }
+    // UUID forms (Work/School). Tried last because Teams Free can carry
+    // hex-only Skype IDs (e.g. `8:unknown_user_<32-hex>`) that would
+    // false-match the [a-f0-9]{8}-... pattern if we ran it earlier.
     const uuidMatch = mri.match(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i);
     if (uuidMatch) {
       const uuid = uuidMatch[0];
@@ -592,10 +605,20 @@ function extractInlineImages(content: string, existingHrefs: Set<string>): Attac
     const altMatch = match[0].match(/alt="([^"]+)"/);
     const label = (altMatch && cleanAltText(altMatch[1])) || 'image';
 
+    // Teams stamps the image kind on the <img> via `itemscope="bmp|png|
+    // jpeg|gif|webp|...">`. Surfacing it on the Attachment lets:
+    //  - the TXT/CSV summary print "[image: ...]" instead of "[file:
+    //    image]" (file-extension heuristic via type)
+    //  - the HTML renderer's looksLikeImage detector mark these as
+    //    auth-protected images and emit the placeholder card when the
+    //    bytes weren't downloaded, instead of a broken plain link.
+    const itemscopeMatch = match[0].match(/itemscope="([a-z0-9]+)"/i);
+    const type = itemscopeMatch ? itemscopeMatch[1].toLowerCase() : null;
+
     images.push({
       href,
       label,
-      type: null,
+      type,
       size: null,
       owner: null,
       metaText: null,
@@ -884,10 +907,14 @@ function convertCards(properties: Record<string, unknown>, existingHrefs: Set<st
 
 /** Extract the short MRI (e.g. "8:orgid:{uuid}") from a full URL or MRI string. */
 function extractMri(fromField: string): string {
-  // Full URL: "https://.../.../contacts/8:orgid:{uuid}"
-  const urlMatch = fromField.match(/(8:orgid:[a-f0-9-]+)/i);
-  if (urlMatch) return urlMatch[1];
-  // Already short MRI
+  // Two URL shapes share the same `/contacts/<mri>` tail:
+  //   Work/School: ".../v1/users/ME/contacts/8:orgid:<uuid>"
+  //   Teams Free : "https://msgapi.teams.live.com/v1/users/ME/contacts/8:<id>"
+  // Match anything after the last `/contacts/` so consumer IDs without
+  // the `orgid:` segment (`8:live:*`, `8:<bare-id>`, `8:unknown_*`)
+  // don't fall through to the bare-string fallback below.
+  const contactsMatch = fromField.match(/\/contacts\/(8:[^/?#]+)/i);
+  if (contactsMatch) return contactsMatch[1];
   if (fromField.startsWith('8:')) return fromField;
   return fromField;
 }
@@ -1014,9 +1041,30 @@ function convertOneMessage(
     text = parseSystemContent(rawContent, messageType, mriMap);
     // For Event/Call (meeting or call) events, surface the participant list
     // as structured data so the renderer can show it consistently.
+    //
+    // Two payload shapes:
+    //  - Work/School: <displayName>Real Name</displayName> per attendee
+    //  - Teams Free : <part identity="<id>"><name><id></name>...</part>
+    //                 — the <name> tag echoes the identity, not a real
+    //                 display name, so we resolve identity through the
+    //                 mri map (seeded with the local profiles cache).
     if (messageType === 'Event/Call') {
-      const names = rawContent.match(/<displayName>[^<]+<\/displayName>/g)
+      const dn = rawContent.match(/<displayName>[^<]+<\/displayName>/g)
         ?.map(s => s.replace(/<\/?displayName>/g, '')).filter(Boolean) || [];
+      let names: string[] = dn;
+      if (!names.length) {
+        const ids = [...rawContent.matchAll(/<part\s+identity="([^"]+)"/gi)]
+          .map(m => m[1]).filter(Boolean);
+        // Inline name resolution: same lookup chain as parseSystemContent's
+        // resolveName but without lifting it to module scope (it captures
+        // mriMap via closure there). Identities arrive without the `8:`
+        // prefix, so we try both forms.
+        names = ids.map(id => {
+          return mriMap.get(id)
+            || mriMap.get(`8:${id}`)
+            || '';
+        }).filter(Boolean);
+      }
       if (names.length) systemAttendees = names;
     }
     // For CallRecording messages, parse the URIObject structure to extract

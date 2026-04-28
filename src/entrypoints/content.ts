@@ -12,7 +12,7 @@ import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scr
 import { extractChatTitle, extractChannelTitle } from '../content/title';
 import { extractAvatarId } from '../utils/avatars';
 import { TEAMS_MATCH_PATTERNS } from '../utils/teams-urls';
-import { apiScrape, discover, extractConversationId, getGraphToken, getIc3Token, getSkypeToken, listConversationsFromIdb, listConversationsFromIdbQuick } from '../content/api-client';
+import { apiScrape, discover, ensureSkypeTokenCookies, extractConversationId, fetchSharePointFile, getGraphToken, getIc3Token, getSkypeToken, listConversationsFromIdb, listConversationsFromIdbQuick } from '../content/api-client';
 import { convertApiMessages } from '../content/api-converter';
 import type { AggregatedItem, ExportMessage, OrderContext, ReplyContext, ScrapeOptions } from '../types/shared';
 
@@ -588,19 +588,117 @@ export default defineContentScript({
          * Fetch inline images for API-mode messages.
          * Finds AMS image URLs in attachments and downloads them as data URLs.
          */
+        // Direct GET against *.asm.skype.com for Teams Free inline images.
+        // Auth = `authentication: skypetoken=<JWT>` header (same scheme the
+        // chat-service proxy uses) + cookies established by ensureSkypeTokenCookies.
+        // Returns a base64 data: URL ready to embed, or null on any failure.
+        async function fetchTeamsFreeAmsImage(url: string, jwt: string): Promise<string | null> {
+            try {
+                const resp = await fetch(url, {
+                    headers: { 'authentication': `skypetoken=${jwt}` },
+                    credentials: 'include',
+                    signal: currentAbortController?.signal,
+                });
+                if (!resp.ok) {
+                    imgFetchStats.httpError++;
+                    if (!imgFetchStats.firstHttpError) {
+                        imgFetchStats.firstHttpError = `HTTP ${resp.status} ${resp.statusText || ''} for ${url.slice(0, 200)}`;
+                    }
+                    return null;
+                }
+                const buf = await resp.arrayBuffer();
+                if (buf.byteLength > MAX_IMAGE_BYTES) { imgFetchStats.tooLarge++; return null; }
+                if (buf.byteLength < 100) { imgFetchStats.tooSmall++; return null; }
+                const mime = resp.headers.get('content-type')?.split(';')[0]?.trim() || 'image/jpeg';
+                const bytes = new Uint8Array(buf);
+                let bin = '';
+                for (let k = 0; k < bytes.length; k++) bin += String.fromCharCode(bytes[k]);
+                return `data:${mime};base64,${btoa(bin)}`;
+            } catch (e: any) {
+                imgFetchStats.threwError++;
+                if (!imgFetchStats.firstThrow) imgFetchStats.firstThrow = `tfl-ams ${String(e?.message || e).slice(0, 80)}`;
+                return null;
+            }
+        }
+
         async function fetchInlineImages(
             messages: ExportMessage[],
             onProgress?: (done: number, total: number) => void,
             auth?: { userId: string | null; userRegion: string; ic3Token: string },
         ): Promise<void> {
             resetImgFetchStats();
-            imgFetchAuth = (auth?.userId && auth.userRegion && auth.ic3Token)
-                ? { userId: auth.userId, userRegion: auth.userRegion, ic3Token: auth.ic3Token }
+            // Only the IC3 token is strictly required (Teams Free's direct
+            // AMS fetch needs only the Skype JWT; Work/School's asyncgw
+            // proxy ALSO needs userId+userRegion, but checking those at
+            // the proxy call site means Teams Free still works when those
+            // fields come back empty from the cached SKYPE-TOKEN entry).
+            imgFetchAuth = auth?.ic3Token
+                ? { userId: auth.userId || '', userRegion: auth.userRegion || '', ic3Token: auth.ic3Token }
                 : null;
             if (!imgFetchAuth) {
-                console.warn('[Teams Exporter] Image proxy auth missing — fetches will use raw URLs. ' +
+                console.warn('[Teams Exporter] Image fetch auth missing — IC3/Skype token unavailable. ' +
                     `userId=${auth?.userId ? 'ok' : 'null'} region=${auth?.userRegion ? 'ok' : 'null'} ic3=${auth?.ic3Token ? 'ok' : 'null'}`);
             }
+            // ── SharePoint image-file attachments ─────────────────────
+            // Files attached via paperclip / drag-drop (as opposed to
+            // pasted-as-image) get stored on the user's SharePoint and
+            // referenced by URL. Teams renders them as a thumbnail in
+            // the chat, so the user expects the image to be in the
+            // export. We fetch the SharePoint URL directly with the
+            // user's session cookies — `*.sharepoint.com` and
+            // `*.sharepoint.us` are in host_permissions for this.
+            // Work/school SharePoint hosts honour CORS for the Teams origin
+            // and accept cookie-authenticated GETs from a content script.
+            // Consumer-account paperclip uploads land on
+            // my.microsoftpersonalcontent.com instead, but that host
+            // returns a 302 to login.live.com which has no CORS headers
+            // for non-interactive callers (verified via probe + console
+            // capture in 2026-04). Excluded here so we don't waste a
+            // 20-second timeout per legacy chat — the rendered HTML still
+            // shows the file as a clickable link the user can open
+            // manually.
+            const SHAREPOINT_HOST_RE = /^https:\/\/[^/]+\.(sharepoint\.(com|us|cn)|sharepoint-mil\.us)\//i;
+            const IMAGE_FILE_EXT_RE = /\.(bmp|png|jpe?g|gif|webp|svg|tiff?|heic|heif)$/i;
+            const isImageFileAttachment = (att: { href?: string; type?: string | null; label?: string }) => {
+                if (!att.href || !SHAREPOINT_HOST_RE.test(att.href)) return false;
+                const t = (att.type || '').toLowerCase();
+                if (['bmp', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'tif', 'tiff', 'heic', 'heif'].includes(t)) return true;
+                return !!(att.label && IMAGE_FILE_EXT_RE.test(att.label));
+            };
+            const sharePointTasks: { att: { href?: string; dataUrl?: string; type?: string | null }; url: string }[] = [];
+            for (const m of messages) {
+                if (!m.attachments) continue;
+                for (const att of m.attachments) {
+                    if (isImageFileAttachment(att)) sharePointTasks.push({ att, url: att.href! });
+                }
+            }
+            if (sharePointTasks.length > 0) {
+                console.log(`[Teams Exporter] Fetching ${sharePointTasks.length} SharePoint image-file attachment(s)…`);
+                let spOk = 0;
+                for (let i = 0; i < sharePointTasks.length; i += MAX_CONCURRENT_FETCHES) {
+                    if (currentAbortController?.signal.aborted) break;
+                    const batch = sharePointTasks.slice(i, i + MAX_CONCURRENT_FETCHES);
+                    await Promise.all(batch.map(async ({ att, url }) => {
+                        if (currentAbortController?.signal.aborted) return;
+                        const result = await fetchSharePointFile(url, currentAbortController?.signal);
+                        if (result.ok) {
+                            if (result.bytes.byteLength > MAX_IMAGE_BYTES) {
+                                console.warn(`[Teams Exporter] SharePoint file too large (${result.bytes.byteLength} bytes), skipping: ${url.slice(0, 120)}`);
+                                return;
+                            }
+                            let bin = '';
+                            for (let k = 0; k < result.bytes.length; k++) bin += String.fromCharCode(result.bytes[k]);
+                            att.dataUrl = `data:${result.mime};base64,${btoa(bin)}`;
+                            spOk++;
+                        } else {
+                            console.warn(`[Teams Exporter] SharePoint fetch failed (${result.status} ${result.statusText} — ${result.reason}) for ${url.slice(0, 120)}`);
+                        }
+                    }));
+                }
+                console.log(`[Teams Exporter] SharePoint fetch: ${spOk}/${sharePointTasks.length} succeeded`);
+            }
+
+            // ── Inline AMS images via Teams URL-image proxy ───────────
             // Collect attachments whose href is an actual image (or routable through
             // the Teams URL-image proxy). Skip file attachments like SharePoint docs,
             // which have an http href but the proxy returns 415 for them.
@@ -609,6 +707,7 @@ export default defineContentScript({
                 if (!m.attachments) continue;
                 for (const att of m.attachments) {
                     if (!att.href || !/^https?:\/\//i.test(att.href)) continue;
+                    if (att.dataUrl) continue; // already fetched (e.g. via Graph /shares above)
                     const isAmsObject = /\/v1\/objects\/[^/]+\/views\//i.test(att.href);
                     const isUrlp = /\/urlp\//i.test(att.href);
                     const isImageish = att.type === 'gif' || att.type === 'video' || att.kind === 'preview';
@@ -620,6 +719,17 @@ export default defineContentScript({
             if (!tasks.length) return;
             console.log(`[Teams Exporter] Fetching ${tasks.length} inline images…`);
 
+            // Teams Free has no authenticated image proxy host equivalent
+            // to Work/School's *.asyncgw.teams.microsoft.com — direct fetches
+            // against *.asm.skype.com using the Skype JWT + session cookies
+            // are the only way to get the image bytes. The skypetokenauth
+            // round-trip primes the *.asm.skype.com cookie jar; one call
+            // covers every subsequent AMS GET in this export.
+            const isTeamsFree = location.hostname.toLowerCase().includes('teams.live.com');
+            if (isTeamsFree && imgFetchAuth?.ic3Token) {
+                await ensureSkypeTokenCookies(imgFetchAuth.ic3Token, currentAbortController?.signal);
+            }
+
             let done = 0;
             let succeeded = 0;
             // Process in batches to limit concurrency
@@ -629,7 +739,9 @@ export default defineContentScript({
                 await Promise.all(
                     batch.map(async ({ att, url }) => {
                         if (currentAbortController?.signal.aborted) return;
-                        const dataUrl = await fetchImageAsDataUrl(url);
+                        const dataUrl = (isTeamsFree && /\.asm\.skype\.com\/v1\/objects\//i.test(url) && imgFetchAuth?.ic3Token)
+                            ? await fetchTeamsFreeAmsImage(url, imgFetchAuth.ic3Token)
+                            : await fetchImageAsDataUrl(url);
                         if (dataUrl) {
                             att.dataUrl = dataUrl;
                             succeeded++;
@@ -2313,7 +2425,23 @@ export default defineContentScript({
 
                             if (apiResult) {
                                 const converted = convertApiMessages(apiResult.messages, scrapeOpts, apiResult.userId);
-                                if (converted.length > 0) {
+                                // Two distinct empty cases:
+                                //  - converted.length > 0     : normal — render messages.
+                                //  - apiResult.messages.length === 0: API returned an
+                                //    actual empty result. This is the genuine state of
+                                //    the chat (most often a Teams Free legacy Skype-
+                                //    imported 1:1 — Microsoft never migrated those
+                                //    histories to the consumer chat backend, so the
+                                //    server returns []). Produce an empty-but-valid
+                                //    export rather than falling through to DOM scroll;
+                                //    the empty export communicates "we asked, got
+                                //    nothing" honestly.
+                                //  - apiResult.messages.length > 0 && converted.length === 0:
+                                //    raw API had messages but our filter dropped them
+                                //    all (system-only chat etc.). DOM scroll might
+                                //    surface them differently — keep the existing
+                                //    fall-through behaviour for that case.
+                                if (converted.length > 0 || apiResult.messages.length === 0) {
                                     // Fetch inline images (content script has auth cookies, URLs expire).
                                     // Skipped when the target format won't render them.
                                     if (needImages) {
