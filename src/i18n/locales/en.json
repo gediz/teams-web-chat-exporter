@@ -98,6 +98,7 @@
   "phase.label.images": "images",
   "phase.label.people": "people",
   "phase.label.written": "written",
+  "errors.offline": "No network. Reconnect and try again.",
   "errors.invalidRange": "Enter a valid date/time.",
   "errors.startAfterEnd": "Start date must be before end date.",
   "errors.needsTeams": "Open the Teams web app tab first.",

@@ -1197,6 +1197,16 @@
 
   const startExport = async () => {
     if (busy || !alive) return;
+    // Pre-flight: refuse to start when the browser tells us we're
+    // offline. navigator.onLine === false is high-confidence — browsers
+    // report it conservatively (rarely a false positive). The inverse
+    // (online === true while actually offline, e.g. captive portal) is
+    // the common false reading; that case is caught later by mid-export
+    // NetworkError detection. So we only refuse on the clear signal.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      showErrorBanner(t('errors.offline', {}, currentLang()) || 'No network. Reconnect and try again.');
+      return;
+    }
     try {
       hideErrorBanner(true);
       // Reset the phase tracker so the new export starts at a clean state.

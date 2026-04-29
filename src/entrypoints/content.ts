@@ -12,7 +12,7 @@ import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scr
 import { extractChatTitle, extractChannelTitle } from '../content/title';
 import { extractAvatarId } from '../utils/avatars';
 import { TEAMS_MATCH_PATTERNS } from '../utils/teams-urls';
-import { apiScrape, discover, ensureSkypeTokenCookies, extractConversationId, fetchSharePointFile, getGraphToken, getIc3Token, getSkypeToken, listConversationsFromIdb, listConversationsFromIdbQuick } from '../content/api-client';
+import { apiScrape, discover, ensureSkypeTokenCookies, extractConversationId, fetchSharePointFile, getGraphToken, getIc3Token, getLastApiScrapeFailure, getSkypeToken, listConversationsFromIdb, listConversationsFromIdbQuick } from '../content/api-client';
 import { convertApiMessages } from '../content/api-converter';
 import type { AggregatedItem, ExportMessage, OrderContext, ReplyContext, ScrapeOptions } from '../types/shared';
 
@@ -2729,6 +2729,15 @@ export default defineContentScript({
                         let messages: ExportMessage[] | null = null;
                         let title: string | null = null;
                         let avatars: Record<string, string> = {};
+                        // Partial-export tracking. Set when we detect a high-
+                        // confidence "this scrape is incomplete" signal during
+                        // the run. Wins are propagated into meta.partial so
+                        // the background can rename the file (-PARTIAL),
+                        // inject the in-file warning banner, and write a
+                        // history entry with kind='partial'. 'network' beats
+                        // 'truncation' if both fire (network is the higher-
+                        // confidence root cause).
+                        let partialReason: 'network' | 'truncation' | null = null;
 
                         try {
                             hud('trying API mode…');
@@ -2816,6 +2825,19 @@ export default defineContentScript({
                                 hud('cancelled');
                                 sendResponse({ ok: false, cancelled: true });
                                 return;
+                            }
+                            // If the API failed because of a network error
+                            // specifically (NetworkError / Failed to fetch),
+                            // record it as a partial signal. We still try
+                            // DOM scroll because Teams' UI may have already
+                            // rendered some messages before the network
+                            // dropped — those are recoverable from the DOM.
+                            // The partial flag flows into meta and produces
+                            // the -PARTIAL filename + warning banner.
+                            const apiFailure = getLastApiScrapeFailure();
+                            if (apiFailure?.isNetworkError) {
+                                partialReason = 'network';
+                                console.warn('[Teams Exporter] API failed with network error — flagging export as partial-network');
                             }
                             // In multi-chat bundle mode the DOM scroll would
                             // scrape whichever chat is currently visible in
@@ -3005,6 +3027,15 @@ export default defineContentScript({
                             avatars,
                         };
                         if (scrapeConvId) meta.conversationId = scrapeConvId;
+                        // Propagate the partial signal. Only flagged when we
+                        // saw a high-confidence partial-condition AND we have
+                        // SOME messages — empty exports aren't "partial",
+                        // they're just empty and the bundle's NO_HISTORY.txt
+                        // already covers that case.
+                        if (partialReason && messages.length > 0) {
+                            meta.partial = { reason: partialReason };
+                            console.warn(`[Teams Exporter] Export flagged as partial (${partialReason}); meta.partial set on streamed result`);
+                        }
                         const requestId = msg.requestId || `${Date.now()}`;
 
                         // Estimate payload for logging

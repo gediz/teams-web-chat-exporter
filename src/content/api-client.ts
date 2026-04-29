@@ -1711,6 +1711,33 @@ export async function fetchAllMessages(
  * Full API scrape pipeline: discover → extract conversation → fetch all messages.
  * Returns null if any step fails (caller should fall back to DOM scroll).
  */
+// Side channel: the most recent apiScrape failure. The function still
+// returns null on failure (preserves the simple "if (result)" call shape
+// at the one call site), but the caller can read this AFTER seeing null
+// to classify the failure. Set on every apiScrape entry; cleared on
+// success. Used by content.ts to distinguish a network failure (mark
+// the export as 'partial' with reason='network') from other API errors
+// (token / conversation-id / etc., where DOM fallback is still useful).
+type ApiScrapeFailure = {
+  reason: 'no-skype-token' | 'no-messaging-token' | 'no-conv-id' | 'thrown';
+  error?: unknown;
+  isNetworkError: boolean;
+};
+let lastApiScrapeFailure: ApiScrapeFailure | null = null;
+export function getLastApiScrapeFailure(): ApiScrapeFailure | null { return lastApiScrapeFailure; }
+
+// Browsers don't have a reliable "is this a network error" flag — we
+// pattern-match on the canonical error shapes Firefox and Chromium
+// produce when fetch() can't reach the server (DNS fail, offline, TCP
+// reset, certificate, etc.). Both throw TypeError; the message strings
+// differ slightly per browser but are stable across versions.
+function isNetworkError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  if ((err as { name?: string }).name !== 'TypeError') return false;
+  const msg = String((err as { message?: string }).message || '');
+  return /NetworkError|Failed to fetch|Load failed|networkerror/i.test(msg);
+}
+
 export async function apiScrape(
   onProgress?: (p: FetchProgress) => void,
   options?: { signal?: AbortSignal; startAtISO?: string | null; conversationId?: string | null },
@@ -1718,6 +1745,9 @@ export async function apiScrape(
   const signal = options?.signal;
   const startAtISO = options?.startAtISO ?? null;
   const explicitConvId = options?.conversationId ?? null;
+  // Reset the side-channel; success leaves this null so a stale failure
+  // from a previous call doesn't leak into the next.
+  lastApiScrapeFailure = null;
   try {
     // Step 1+2: Discover chat service & get a messaging token.
     onProgress?.({ phase: 'discover', page: 0, messagesSoFar: 0 });
@@ -1744,6 +1774,7 @@ export async function apiScrape(
       const skypeToken = await getSkypeToken();
       if (!skypeToken) {
         console.log('[API] No valid Skype token found, falling back to DOM');
+        lastApiScrapeFailure = { reason: 'no-skype-token', isNetworkError: false };
         return null;
       }
       const discovered = await discover(skypeToken);
@@ -1755,6 +1786,7 @@ export async function apiScrape(
       const fallback = discovered.messagingToken || (await getIc3Token()) || undefined;
       if (!fallback) {
         console.log('[API] No valid messaging token found, falling back to DOM');
+        lastApiScrapeFailure = { reason: 'no-messaging-token', isNetworkError: false };
         return null;
       }
       messagingAuthToken = fallback;
@@ -1769,6 +1801,7 @@ export async function apiScrape(
     const conversationId = explicitConvId || (await extractConversationId());
     if (!conversationId) {
       console.log('[API] Could not extract conversation ID, falling back to DOM');
+      lastApiScrapeFailure = { reason: 'no-conv-id', isNetworkError: false };
       return null;
     }
     console.log(`[API] Conversation: ${conversationId.substring(0, 30)}...`);
@@ -1828,7 +1861,8 @@ export async function apiScrape(
     // instead of treating it as a normal API failure (and triggering DOM
     // fallback or noisy logs).
     if (signal?.aborted || err?.name === 'AbortError') throw err;
-    console.log('[API] API scrape failed, falling back to DOM:', err);
+    lastApiScrapeFailure = { reason: 'thrown', error: err, isNetworkError: isNetworkError(err) };
+    console.log('[API] API scrape failed:', err, lastApiScrapeFailure.isNetworkError ? '(NETWORK ERROR)' : '');
     return null;
   }
 }
