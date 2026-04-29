@@ -61,6 +61,18 @@ export default defineConfig({
       'storage',
     ],
     host_permissions: [...TEAMS_MATCH_PATTERNS, ...API_FETCH_PATTERNS],
+    // page-helpers/urlp-fetcher.js runs in the Teams page's MAIN world
+    // so it can use the page's cookie partition for fetches against
+    // the asyncgw URL-image proxy. Content script injects it via a
+    // <script src=runtime.getURL(...)> element; that requires the file
+    // to be web-accessible. Restricted to Teams hosts so the helper
+    // can't be loaded from unrelated pages.
+    web_accessible_resources: [
+      {
+        resources: ['page-helpers/urlp-fetcher.js'],
+        matches: TEAMS_MATCH_PATTERNS,
+      },
+    ],
     icons: {
       16: 'icons/action-16.png',
       32: 'icons/action-32.png',

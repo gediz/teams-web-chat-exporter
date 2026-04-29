@@ -540,6 +540,132 @@ export default defineContentScript({
         // image fetcher can rewrite AMS/asyncgw URLs to the authenticated proxy form.
         let imgFetchAuth: { userId: string; userRegion: string; ic3Token: string } | null = null;
 
+        // ── /urlp/ URL-image-proxy fetch via page-context helper ──
+        //
+        // Cookies set by Teams' login flow on the asyncgw domain
+        // (authtoken_asm_urlp, skypetoken_asm) are partitioned to the
+        // teams.cloud.microsoft top-level origin in modern Firefox
+        // (Total Cookie Protection) and Chrome (3rd-party cookie
+        // phaseout). Three contexts can't see them:
+        //
+        //   1. Background fetch with credentials:'include' — uses the
+        //      extension's partition key, gets nothing.
+        //   2. Content-script direct fetch — Firefox content scripts
+        //      use the extension's network privileges, also a separate
+        //      partition. Verified empirically: returns 401 the same
+        //      as the background path.
+        //   3. The page itself — works. The page's MAIN world IS the
+        //      partition that owns those cookies.
+        //
+        // So we inject a tiny helper script (loaded from
+        // public/page-helpers/urlp-fetcher.js, declared as web-
+        // accessible in wxt.config.ts) into the page and RPC into it
+        // via window.postMessage. The helper does
+        // fetch(...,{credentials:'include'}) from the page world,
+        // where cookies attach normally, and ships the ArrayBuffer
+        // back to us via postMessage with transfer.
+
+        const URLP_REQ = 'tce-urlp-fetch';
+        const URLP_RES = 'tce-urlp-result';
+        const URLP_READY = 'tce-urlp-helper-ready';
+
+        // Lazy, idempotent: only inject the helper on first urlp use,
+        // then every subsequent fetch reuses it. The helper itself
+        // also guards via a window-scoped flag in case anyone else
+        // re-injects it.
+        let urlpHelperPromise: Promise<void> | null = null;
+        function ensureUrlpHelperLoaded(): Promise<void> {
+            if (urlpHelperPromise) return urlpHelperPromise;
+            urlpHelperPromise = new Promise<void>((resolve) => {
+                let resolved = false;
+                const finish = () => {
+                    if (resolved) return;
+                    resolved = true;
+                    window.removeEventListener('message', onReady);
+                    resolve();
+                };
+                function onReady(e: MessageEvent) {
+                    if (e.source !== window) return;
+                    const d = e.data as { type?: string } | null;
+                    if (d?.type === URLP_READY) finish();
+                }
+                window.addEventListener('message', onReady);
+                const script = document.createElement('script');
+                script.src = runtime.getURL('page-helpers/urlp-fetcher.js');
+                script.onload = () => { script.remove(); };
+                script.onerror = () => {
+                    console.warn('[Teams Exporter] urlp helper script failed to load — urlp fetches will fail.');
+                    finish();
+                };
+                (document.head || document.documentElement).appendChild(script);
+                // Safety timeout: if the helper never signals ready
+                // (CSP block, navigation, etc.), resolve anyway and let
+                // call sites time out individually.
+                setTimeout(finish, 5000);
+            });
+            return urlpHelperPromise;
+        }
+
+        let urlpDirectCallCount = 0;
+        // Tracked separately from urlpDirectCallCount so we can log the
+        // first response of each path independently. AMS-direct uses
+        // background bearer-auth (FETCH_BLOB → /v1/{userId}/objects/...);
+        // urlp uses page-helper cookie-auth. If the issue #22 user's
+        // pasted screenshots fail, knowing the AMS-direct first
+        // response status tells us whether it's a tenant-specific
+        // bearer-auth issue.
+        let amsDirectCallCount = 0;
+        async function fetchUrlpDirect(url: string): Promise<{
+            ok: boolean; dataUrl?: string; status?: number; statusText?: string; error?: string; sizeReason?: number;
+        }> {
+            urlpDirectCallCount++;
+            const isFirstCall = urlpDirectCallCount === 1;
+            await ensureUrlpHelperLoaded();
+            if (isFirstCall) {
+                console.log(`[Teams Exporter DEBUG] fetchUrlpDirect first call (page-helper RPC) — url: ${url.slice(0, 200)}`);
+            }
+            return new Promise((resolve) => {
+                const id = `u-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+                const timer = setTimeout(() => {
+                    window.removeEventListener('message', listener);
+                    if (isFirstCall) console.warn('[Teams Exporter DEBUG] fetchUrlpDirect first call timed out at 30s');
+                    resolve({ ok: false, error: 'urlp-helper-timeout-30s' });
+                }, 30_000);
+                function listener(e: MessageEvent) {
+                    if (e.source !== window) return;
+                    const d = e.data as {
+                        type?: string; id?: string; ok?: boolean;
+                        status?: number; statusText?: string; error?: string;
+                        mime?: string; bytes?: ArrayBuffer;
+                    } | null;
+                    if (d?.type !== URLP_RES || d.id !== id) return;
+                    window.removeEventListener('message', listener);
+                    clearTimeout(timer);
+                    if (isFirstCall) {
+                        const dump = d.ok && d.bytes
+                            ? `ok=true, bytes=${d.bytes.byteLength}, mime=${d.mime}`
+                            : `ok=false, status=${d.status ?? '-'} ${d.statusText ?? ''}, error=${d.error ?? ''}`;
+                        console.log(`[Teams Exporter DEBUG] fetchUrlpDirect first response — ${dump}`);
+                    }
+                    if (d.ok && d.bytes) {
+                        const buf = d.bytes;
+                        if (buf.byteLength > MAX_IMAGE_BYTES || buf.byteLength < 100) {
+                            resolve({ ok: false, sizeReason: buf.byteLength });
+                            return;
+                        }
+                        const bytes = new Uint8Array(buf);
+                        let bin = '';
+                        for (let k = 0; k < bytes.length; k++) bin += String.fromCharCode(bytes[k]);
+                        resolve({ ok: true, dataUrl: `data:${d.mime};base64,${btoa(bin)}` });
+                    } else {
+                        resolve({ ok: false, status: d.status, statusText: d.statusText, error: d.error });
+                    }
+                }
+                window.addEventListener('message', listener);
+                window.postMessage({ type: URLP_REQ, id, url }, '*');
+            });
+        }
+
         async function fetchImageAsDataUrl(url: string): Promise<string | null> {
             // All image fetches go through Teams' authenticated URL-image proxy:
             //   - AMS object URLs and asyncgw proxy URLs get rewritten with {userId}
@@ -557,14 +683,46 @@ export default defineContentScript({
                 imgFetchStats.skippedDomain++;
                 return null;
             }
+            // URL-image proxy paths (/urlp/.../url/image/Thumbnail) auth
+            // via cookies set by Teams' login flow on the asyncgw domain
+            // (authtoken_asm_urlp, skypetoken_asm). The IC3 Bearer we
+            // use for /v1/{userId}/objects/... gets a 401 from this
+            // endpoint — confirmed in a HAR of Teams' own UI requests,
+            // which send no Authorization header at all.
+            //
+            // We have to fetch from the content script (not background)
+            // because cookies on the asyncgw domain are partitioned to
+            // the teams.cloud.microsoft top-level origin. A background
+            // fetch with credentials:'include' uses a different
+            // partition key and gets no cookies; a content-script fetch
+            // shares the page's partition key and gets them. See
+            // fetchUrlpDirect above.
+            //
+            // We've only verified this in one tenant (eu-prod). Other
+            // tenants may differ; if 401s persist, the per-host
+            // breakdown + verbose DEBUG logging will say which.
+            const useCookies = /\/urlp\//i.test(fetchUrl);
+            const isFirstAmsDirectCall = !useCookies && amsDirectCallCount === 0;
+            if (isFirstAmsDirectCall) {
+                amsDirectCallCount++;
+                console.log(`[Teams Exporter DEBUG] AMS-direct first call (background bearer-auth) — url: ${fetchUrl.slice(0, 200)}`);
+            }
             try {
-                const resp = await runtime.sendMessage({
-                    type: 'FETCH_BLOB',
-                    url: fetchUrl,
-                    bearerToken: imgFetchAuth.ic3Token,
-                    maxBytes: MAX_IMAGE_BYTES,
-                    minBytes: 100,
-                }) as { ok: boolean; dataUrl?: string; status?: number; statusText?: string; error?: string; sizeReason?: number };
+                const resp = useCookies
+                    ? await fetchUrlpDirect(fetchUrl)
+                    : (await runtime.sendMessage({
+                        type: 'FETCH_BLOB',
+                        url: fetchUrl,
+                        bearerToken: imgFetchAuth.ic3Token,
+                        maxBytes: MAX_IMAGE_BYTES,
+                        minBytes: 100,
+                    }) as { ok: boolean; dataUrl?: string; status?: number; statusText?: string; error?: string; sizeReason?: number });
+                if (isFirstAmsDirectCall) {
+                    const dump = resp?.ok
+                        ? `ok=true, dataUrl=${resp.dataUrl ? `${resp.dataUrl.length}-char data: URL` : 'missing'}`
+                        : `ok=false, status=${resp?.status ?? '-'} ${resp?.statusText ?? ''}, error=${resp?.error ?? ''}, sizeReason=${resp?.sizeReason ?? '-'}`;
+                    console.log(`[Teams Exporter DEBUG] AMS-direct first response — ${dump}`);
+                }
                 if (resp?.ok && resp.dataUrl) {
                     hostStats.ok++;
                     return resp.dataUrl;
