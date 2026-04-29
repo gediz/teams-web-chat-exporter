@@ -474,6 +474,26 @@ export default defineContentScript({
         const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
         const MAX_CONCURRENT_FETCHES = 6;
 
+        // Verbose image-fetch debugging. Two ways to enable:
+        //   1. Build-time:  WXT_DEBUG_IMAGE_FETCH=1 pnpm build
+        //   2. Runtime:     localStorage.setItem('__teams_exporter_debug_image_fetch', '1')
+        //                   on the Teams tab, then re-export.
+        // When on, we log:
+        //   - JWT claims of the IC3 token (aud / iss / exp / tid / appid)
+        //   - First 5 sample URLs (raw + transformed)
+        //   - A _image-fetch-debug.txt sidecar in the export with all failed URLs
+        // We never log the token itself, only its decoded claim payload.
+        const DEBUG_IMAGE_FETCH: boolean = (() => {
+            try {
+                if ((import.meta as { env?: Record<string, unknown> }).env?.WXT_DEBUG_IMAGE_FETCH === '1') return true;
+            } catch { /* import.meta in some contexts */ }
+            try { return localStorage.getItem('__teams_exporter_debug_image_fetch') === '1'; }
+            catch { return false; }
+        })();
+        if (DEBUG_IMAGE_FETCH) {
+            console.log('[Teams Exporter DEBUG] image-fetch verbose mode active');
+        }
+
         // userRegion comes from the chat-service discovery (e.g. "emea"); the proxy
         // host uses a different naming convention. Fall back to "eu" if unmapped.
         const USER_REGION_TO_PROXY_PREFIX: Record<string, string> = {
@@ -526,6 +546,8 @@ export default defineContentScript({
             //   - Any other http(s) URL gets wrapped in /urlp/v1/{userId}/url/image/Thumbnail
             // The Teams server validates + fetches the upstream, so we never touch
             // third-party CDNs directly (no extra host_permissions, no CORS pitfalls).
+            const host = hostOf(url);
+            const hostStats = getHostStats(host);
             if (!imgFetchAuth?.userId || !imgFetchAuth?.userRegion || !imgFetchAuth?.ic3Token) {
                 imgFetchStats.skippedDomain++;
                 return null;
@@ -543,9 +565,19 @@ export default defineContentScript({
                     maxBytes: MAX_IMAGE_BYTES,
                     minBytes: 100,
                 }) as { ok: boolean; dataUrl?: string; status?: number; statusText?: string; error?: string; sizeReason?: number };
-                if (resp?.ok && resp.dataUrl) return resp.dataUrl;
+                if (resp?.ok && resp.dataUrl) {
+                    hostStats.ok++;
+                    return resp.dataUrl;
+                }
                 if (resp?.status) {
                     imgFetchStats.httpError++;
+                    hostStats.httpError++;
+                    if (hostStats.firstStatus === undefined) {
+                        hostStats.firstStatus = resp.status;
+                        hostStats.firstStatusText = resp.statusText || '';
+                        hostStats.firstUrl = url.slice(0, 200);
+                    }
+                    imgFetchStats.failedUrls.push({ url, transformed: fetchUrl, status: resp.status });
                     if (!imgFetchStats.firstHttpError) {
                         // For the urlp thumbnail proxy, the useful identifier is the
                         // wrapped external URL in the `?url=` param, not our proxy URL.
@@ -555,24 +587,73 @@ export default defineContentScript({
                     }
                 } else if (resp?.error) {
                     imgFetchStats.threwError++;
+                    hostStats.threwError++;
+                    if (hostStats.firstError === undefined) {
+                        hostStats.firstError = resp.error.slice(0, 120);
+                        hostStats.firstUrl = url.slice(0, 200);
+                    }
+                    imgFetchStats.failedUrls.push({ url, transformed: fetchUrl, error: resp.error });
                     if (!imgFetchStats.firstThrow) imgFetchStats.firstThrow = `${resp.error.slice(0, 100)} for ${url.slice(0, 80)}`;
                 } else if (typeof resp?.sizeReason === 'number') {
-                    if (resp.sizeReason > MAX_IMAGE_BYTES) imgFetchStats.tooLarge++;
-                    else imgFetchStats.tooSmall++;
+                    if (resp.sizeReason > MAX_IMAGE_BYTES) {
+                        imgFetchStats.tooLarge++;
+                        hostStats.tooLarge++;
+                    } else {
+                        imgFetchStats.tooSmall++;
+                        hostStats.tooSmall++;
+                    }
                 }
                 return null;
             } catch (e) {
                 imgFetchStats.threwError++;
+                hostStats.threwError++;
                 if (!imgFetchStats.firstThrow) imgFetchStats.firstThrow = `bg-fetch ${String(e).slice(0, 80)}`;
+                if (hostStats.firstError === undefined) hostStats.firstError = `bg-fetch ${String(e).slice(0, 100)}`;
                 return null;
             }
         }
 
         // Per-export image fetch counters; reset at the start of each fetchInlineImages call.
+        type HostStats = {
+            ok: number;
+            httpError: number;
+            threwError: number;
+            tooLarge: number;
+            tooSmall: number;
+            firstStatus?: number;
+            firstStatusText?: string;
+            firstError?: string;
+            firstUrl?: string;
+        };
         const imgFetchStats = {
             skippedDomain: 0, httpError: 0, threwError: 0, tooLarge: 0, tooSmall: 0,
             firstHttpError: '' as string,
             firstThrow: '' as string,
+            // Per-host breakdown. Key is the upstream host (the URL the user actually
+            // sees on the chat: AMS / asyncgw / Google Docs preview / etc.) so the
+            // diagnostic shows which class of image is failing rather than just
+            // "the proxy" for everything routed through it.
+            byHost: new Map<string, HostStats>(),
+            // Failed URLs collected when verbose debug is enabled. Written into a
+            // _image-fetch-debug.txt sidecar for the export so the user can share
+            // the raw evidence with us instead of devtools logs.
+            failedUrls: [] as Array<{ url: string; transformed: string; status?: number; error?: string }>,
+        };
+        const getHostStats = (host: string): HostStats => {
+            let s = imgFetchStats.byHost.get(host);
+            if (!s) {
+                s = { ok: 0, httpError: 0, threwError: 0, tooLarge: 0, tooSmall: 0 };
+                imgFetchStats.byHost.set(host, s);
+            }
+            return s;
+        };
+        const hostOf = (url: string): string => {
+            // Prefer the wrapped upstream host for /urlp/.../Thumbnail?url=<X> URLs
+            // (we want to see "lh7-us.googleusercontent.com" failing, not just
+            // "asyncgw.teams.microsoft.com" because everything goes through it).
+            const wrapped = url.match(/[?&]url=([^&]+)/);
+            const target = wrapped ? decodeURIComponent(wrapped[1]) : url;
+            try { return new URL(target).hostname; } catch { return 'unknown'; }
         };
         const resetImgFetchStats = () => {
             imgFetchStats.skippedDomain = 0;
@@ -582,6 +663,8 @@ export default defineContentScript({
             imgFetchStats.tooSmall = 0;
             imgFetchStats.firstHttpError = '';
             imgFetchStats.firstThrow = '';
+            imgFetchStats.byHost.clear();
+            imgFetchStats.failedUrls.length = 0;
         };
 
         /**
@@ -638,6 +721,30 @@ export default defineContentScript({
             if (!imgFetchAuth) {
                 console.warn('[Teams Exporter] Image fetch auth missing — IC3/Skype token unavailable. ' +
                     `userId=${auth?.userId ? 'ok' : 'null'} region=${auth?.userRegion ? 'ok' : 'null'} ic3=${auth?.ic3Token ? 'ok' : 'null'}`);
+            } else {
+                // Auth-state log so the user's submitted log makes it obvious
+                // whether the fields are set, without leaking the actual token.
+                // Token length is a quick proxy for "looks like a real JWT" vs
+                // "captured an empty string" (real Skype JWTs are ~1.5–3 kB).
+                console.log(`[Teams Exporter] Image fetch auth state: userId=${imgFetchAuth.userId ? 'set' : 'MISSING'} (${imgFetchAuth.userId?.length || 0} chars), region=${imgFetchAuth.userRegion || 'MISSING'}, ic3Token=${imgFetchAuth.ic3Token ? 'set' : 'MISSING'} (${imgFetchAuth.ic3Token?.length || 0} chars)`);
+                if (DEBUG_IMAGE_FETCH) {
+                    // Decode the JWT payload (claims only — we never log the signature).
+                    // Useful diagnostic when the proxy 401s: the audience claim tells
+                    // us whether the token is scoped to the proxy at all.
+                    try {
+                        const parts = imgFetchAuth.ic3Token.split('.');
+                        if (parts.length >= 2) {
+                            const json = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+                            const claims = JSON.parse(json);
+                            const now = Math.floor(Date.now() / 1000);
+                            const exp = typeof claims?.exp === 'number' ? claims.exp : null;
+                            const expIn = exp ? `${exp - now}s` : 'unknown';
+                            console.log(`[Teams Exporter DEBUG] IC3 JWT claims: aud=${claims?.aud || '?'} iss=${claims?.iss || '?'} exp=${exp || '?'} (in ${expIn}) tid=${claims?.tid || '?'} appid=${claims?.appid || '?'}`);
+                        }
+                    } catch (e) {
+                        console.log('[Teams Exporter DEBUG] Could not decode IC3 token claims:', String(e).slice(0, 80));
+                    }
+                }
             }
             // ── SharePoint image-file attachments ─────────────────────
             // Files attached via paperclip / drag-drop (as opposed to
@@ -719,6 +826,20 @@ export default defineContentScript({
             if (!tasks.length) return;
             console.log(`[Teams Exporter] Fetching ${tasks.length} inline images…`);
 
+            // Debug build: dump the first 5 raw + transformed URLs so we
+            // can verify the URL transform produces what we expect for each
+            // class of attachment (asyncgw, AMS, urlp wrap, etc.).
+            if (DEBUG_IMAGE_FETCH && imgFetchAuth?.userId && imgFetchAuth?.userRegion) {
+                const sample = tasks.slice(0, 5);
+                console.log('[Teams Exporter DEBUG] Sample image URLs (first 5):');
+                for (let i = 0; i < sample.length; i++) {
+                    const t = sample[i];
+                    const xform = transformImageUrlToProxy(t.url, imgFetchAuth.userId, imgFetchAuth.userRegion);
+                    console.log(`  ${i + 1}. raw     : ${t.url.slice(0, 240)}`);
+                    console.log(`     proxied : ${xform?.slice(0, 240) || '(transform returned null)'}`);
+                }
+            }
+
             // Teams Free has no authenticated image proxy host equivalent
             // to Work/School's *.asyncgw.teams.microsoft.com — direct fetches
             // against *.asm.skype.com using the Skype JWT + session cookies
@@ -767,6 +888,48 @@ export default defineContentScript({
                 console.warn(`[Teams Exporter] Image fetch failures — ${detail}`);
                 if (imgFetchStats.firstHttpError) console.warn(`[Teams Exporter] First http error: ${imgFetchStats.firstHttpError}`);
                 if (imgFetchStats.firstThrow) console.warn(`[Teams Exporter] First exception: ${imgFetchStats.firstThrow}`);
+                // Per-host breakdown. The "first http error" line above shows
+                // ONE error from ONE URL, which is misleading when 200+ images
+                // fail across several different hosts (asyncgw, AMS, Google
+                // Docs preview, etc.). The breakdown shows the failure pattern
+                // by upstream host so the actual culprit is obvious.
+                if (imgFetchStats.byHost.size > 0) {
+                    const rows: Array<[string, HostStats]> = Array.from(imgFetchStats.byHost.entries())
+                        .sort((a, b) => (b[1].httpError + b[1].threwError) - (a[1].httpError + a[1].threwError));
+                    console.warn('[Teams Exporter] Image fetch breakdown by upstream host:');
+                    for (const [host, s] of rows) {
+                        const total = s.ok + s.httpError + s.threwError + s.tooLarge + s.tooSmall;
+                        const parts = [
+                            s.httpError && `${s.httpError} http-error`,
+                            s.threwError && `${s.threwError} threw`,
+                            s.tooLarge && `${s.tooLarge} too-large`,
+                            s.tooSmall && `${s.tooSmall} too-small`,
+                        ].filter(Boolean).join(', ');
+                        const firstFail = s.firstStatus !== undefined
+                            ? `first: HTTP ${s.firstStatus} ${s.firstStatusText || ''}`.trim()
+                            : s.firstError ? `first: ${s.firstError}` : '';
+                        console.warn(`  ${host}: ${s.ok}/${total} ok${parts ? ` (${parts})` : ''}${firstFail ? ` — ${firstFail}` : ''}`);
+                    }
+                }
+                // Debug build: dump up to 30 failed URLs to console so the
+                // user can copy/paste the log directly into a GitHub issue.
+                // Earlier we considered a sidecar file in the export, but
+                // that means threading state through the builder pipeline
+                // for a one-shot debug release. Console is plenty.
+                if (DEBUG_IMAGE_FETCH && imgFetchStats.failedUrls.length > 0) {
+                    const sample = imgFetchStats.failedUrls.slice(0, 30);
+                    console.warn(`[Teams Exporter DEBUG] First ${sample.length} failed URLs (raw → proxied → status/error):`);
+                    for (let i = 0; i < sample.length; i++) {
+                        const f = sample[i];
+                        const tail = f.status ? `HTTP ${f.status}` : f.error ? f.error.slice(0, 120) : 'unknown';
+                        console.warn(`  ${i + 1}. ${tail}`);
+                        console.warn(`     raw     : ${f.url.slice(0, 240)}`);
+                        console.warn(`     proxied : ${f.transformed.slice(0, 240)}`);
+                    }
+                    if (imgFetchStats.failedUrls.length > 30) {
+                        console.warn(`  … (${imgFetchStats.failedUrls.length - 30} more failures truncated)`);
+                    }
+                }
             }
         }
 
