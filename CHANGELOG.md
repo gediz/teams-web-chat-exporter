@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.4] — 2026-04-29
+
+Big win for HTML / PDF exports that contain link previews (Giphy, YouTube, news article OG images, etc.). Plus a richer per-host diagnostic when image fetches fail.
+
+### Fixed
+
+- **URL-image-proxy thumbnails now embed correctly.** Teams' `/urlp/.../url/image/Thumbnail?url=<external>` endpoint authenticates via cookies set by Teams' login flow on the asyncgw domain (`authtoken_asm_urlp`, `skypetoken_asm`), not via the IC3 Bearer the rest of the image-fetch path uses. Background and content-script fetches both sit in different cookie partitions than Teams' top-level origin (Firefox Total Cookie Protection, Chrome 3rd-party cookie phaseout) so neither could see those cookies and every external link-preview thumbnail returned 401. Fix: a tiny page-world helper script (`src/public/page-helpers/urlp-fetcher.js`) injected into the Teams page does the urlp fetches in the page's cookie partition; result is shipped back via `window.postMessage` with ArrayBuffer transfer. AMS direct (`/v1/{userId}/objects/...`) is unchanged. On the test tenant, image embed rate jumped from 564/772 (73%) to 771/772 (99.87%).
+
+### Added
+
+- **Per-host failure breakdown** in the image-fetch log (always on). Replaces the previous single-line "First http error" with a host-by-host summary: which upstream hosts succeeded, which failed, by status code, with the first failed URL per host.
+- **Auth-state log** at the start of inline-image fetching: token presence and length, userId presence, region. No token contents.
+- **Verbose DEBUG mode** (opt-in via `WXT_DEBUG_IMAGE_FETCH=1` build flag or `localStorage.setItem('__teams_exporter_debug_image_fetch', '1')`): full IC3 JWT claims (decoded payload only, never the token), first 5 sample URLs (raw + transformed), first call + first response of each fetch path, first 30 failed URLs.
+
 ## [1.4.3] — 2026-04-28
 
 Hotfix for the popup-after-install case. If you installed the extension and opened the popup before refreshing your Teams tab, the auto-inject path was broken and you saw a generic "Could not load chats" with no actionable detail.
