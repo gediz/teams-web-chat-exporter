@@ -223,6 +223,11 @@ const COLOR_RULE = rgb(0.86, 0.86, 0.90);
 // Own-message accent. Matches the HTML `.own-msg` left rail color
 // (#2563eb) so the visual cue is consistent across formats.
 const COLOR_OWN_ACCENT = rgb(0.145, 0.388, 0.922);
+// Amber for the partial-export warning banner — matches the HTML
+// styling and the History page's amber badge for partial entries.
+const COLOR_WARN_BG = rgb(0.996, 0.953, 0.780);   // #fef3c7
+const COLOR_WARN_BORDER = rgb(0.961, 0.620, 0.043); // #f59e0b
+const COLOR_WARN_TEXT = rgb(0.471, 0.208, 0.067);   // #78350f
 
 export async function buildPdf(
   messages: ExportMessage[],
@@ -1036,6 +1041,35 @@ function renderHeader(cursor: Cursor, meta: ExportMeta, ctx: TextCtx) {
   const sub = subParts.join(' · ');
   if (sub) {
     drawLines(cursor, wrapText(sub, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.contentWidth), 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta);
+  }
+  // Partial-export banner. A small amber block right under the
+  // header so the warning is the first thing on page 1. We can't
+  // use drawLines for the body (it draws over the page background),
+  // so we draw a filled rectangle then write the text on top of it.
+  const partial = (meta as { partial?: { reason?: string } }).partial;
+  if (partial) {
+    cursor.y -= ctx.layout.blockGap / 2;
+    const bodyText = partial.reason === 'network'
+      ? 'A network interruption was detected during scraping; some messages may be missing.'
+      : 'Some messages may not have fully loaded before the export finished.';
+    const titleText = `WARNING: This export may be incomplete. [${partial.reason || 'partial'}]`;
+    const bodyLines = wrapText(bodyText, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.contentWidth - 16);
+    const lineHeight = ctx.layout.leadMeta;
+    const padY = 8;
+    const padX = 8;
+    const blockH = ctx.layout.sizeMeta + 4 /* title */ + bodyLines.length * lineHeight + padY * 2;
+    const x = MARGIN;
+    const y = cursor.y - blockH + padY;
+    cursor.page.drawRectangle({
+      x, y, width: ctx.layout.contentWidth, height: blockH,
+      color: COLOR_WARN_BG,
+      borderColor: COLOR_WARN_BORDER,
+      borderWidth: 1,
+    });
+    cursor.y -= padY + ctx.layout.sizeMeta + 2;
+    drawLines(cursor, [titleText], 'bold', ctx, ctx.layout.sizeMeta, COLOR_WARN_TEXT, lineHeight, padX);
+    drawLines(cursor, bodyLines, 'regular', ctx, ctx.layout.sizeMeta, COLOR_WARN_TEXT, lineHeight, padX);
+    cursor.y -= padY;
   }
   cursor.y -= ctx.layout.blockGap;
 }

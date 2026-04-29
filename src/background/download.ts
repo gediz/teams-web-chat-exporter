@@ -82,7 +82,13 @@ function toPdfOptions(knobs: PdfKnobs) {
 function computeBaseName(meta: ExportMeta): string {
   const baseTitle = sanitizeBase(meta.title || 'UnknownChat');
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19).replace('T', '_');
-  return `TeamsExport_${baseTitle}_${stamp}`;
+  // -PARTIAL suffix when the scrape detected an incomplete-export
+  // condition (NetworkError caught mid-scrape, etc). Visible at the
+  // OS file-browser level so users can spot a partial export without
+  // opening the file. Pairs with the in-file warning banner the
+  // builders inject.
+  const partial = meta.partial ? '-PARTIAL' : '';
+  return `TeamsExport_${baseTitle}_${stamp}${partial}`;
 }
 
 const DATA_URL_RE = /^data:([^;]+);base64,(.*)$/i;
@@ -288,12 +294,12 @@ function buildExportInternal(options: BuildExportOptions, imageMode: ImageMode):
     filename = `${base}.csv`;
     mime = 'text/csv';
     finalMessages = stripMessageDataUrls(processedMessages);
-    content = toCSV(finalMessages);
+    content = toCSV(finalMessages, enrichedMeta);
   } else if (format === 'txt') {
     filename = `${base}.txt`;
     mime = 'text/plain';
     finalMessages = stripMessageDataUrls(processedMessages);
-    content = toPlainText(finalMessages);
+    content = toPlainText(finalMessages, enrichedMeta);
   } else {
     filename = `${base}.json`;
     mime = 'application/json';
@@ -793,8 +799,26 @@ export async function buildAndDownloadBundlesZip(
   }
 }
 
-function toPlainText(messages: ExportMessage[]) {
+function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
   const lines: string[] = [];
+  // Partial-export warning: prepend a clearly visible banner so a
+  // user opening the .txt file in any editor sees it immediately.
+  // Plain-text format means we can't style it; ASCII border + caps
+  // is the universally-readable equivalent of an alert box.
+  const partial = meta.partial as { reason?: string } | undefined;
+  if (partial) {
+    const reason = partial.reason === 'network'
+      ? 'A network interruption was detected during scraping; some messages may be missing.'
+      : 'Some messages may not have fully loaded before the export finished.';
+    lines.push(
+      '======================================================================',
+      `  WARNING: This export may be incomplete. [${partial.reason || 'partial'}]`,
+      `  ${reason}`,
+      `  Captured ${messages?.length ?? 0} messages.`,
+      '======================================================================',
+      '',
+    );
+  }
   for (const m of messages) {
     const ts = m.timestamp || '';
     const author = m.author || '[unknown]';

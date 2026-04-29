@@ -118,6 +118,7 @@
   "history.cancelledTitle": "(cancelled — no file saved)",
   "history.cancelledMeta": "cancelled",
   "history.failedMeta": "all failed",
+  "history.partialMeta": "partial",
   "history.fileMissing": "file missing",
   "history.justNow": "just now",
   "history.today": "today",

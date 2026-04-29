@@ -519,10 +519,16 @@ function handleExportWithScrape(
             // pick the bundle treatment instead.
             const completeFormats = Array.isArray(buildOptions?.formats) ? buildOptions.formats : undefined;
             const singleFormat = completeFormats && completeFormats.length === 1 ? completeFormats[0] : undefined;
+            // Promote 'success' to 'partial' when the scrape signalled an
+            // incomplete-data condition. The file IS on disk and Open /
+            // Show still work, but History renders an amber badge so the
+            // user can tell this row apart from a clean export.
+            const completePartial = (scrapeRes.meta as { partial?: { reason: 'network' | 'truncation' } } | undefined)?.partial;
             await persistHistoryEntry({
                 id: makeEntryId(),
                 tabId,
-                kind: 'success',
+                kind: completePartial ? 'partial' : 'success',
+                partialReason: completePartial?.reason,
                 convId: completeConvId,
                 downloadId: buildRes.id,
                 filename: completeFname || undefined,

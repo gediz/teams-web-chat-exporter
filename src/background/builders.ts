@@ -48,7 +48,21 @@ export function summarizeAttachments(message: ExportMessage): string {
   return labels.join(' ');
 }
 
-export function toCSV(messages: ExportMessage[]) {
+export function toCSV(messages: ExportMessage[], meta: ExportMeta = {}) {
+  // Partial-export warning rendered as a leading comment block. CSV
+  // doesn't have a comment syntax in the standard, but most readers
+  // (Excel, LibreOffice, pandas) tolerate '#' lines at the top by
+  // either showing them as a single column or skipping them with a
+  // skip-rows option. Better to show the warning loudly even in CSV
+  // than to hide it because the format is rigid.
+  const partial = meta.partial as { reason?: string } | undefined;
+  const partialBanner = partial
+    ? [
+        `# WARNING: This export may be incomplete (${partial.reason || 'partial'}).`,
+        `# Captured ${messages?.length ?? 0} messages. The chat may contain more.`,
+        '',
+      ].join('\n')
+    : '';
   const header = ['id', 'author', 'timestamp', 'text', 'edited', 'system', 'subject', 'importance', 'mentions', 'reactions_json', 'attachments_json'];
 
   const rows = (messages || []).map(m => {
@@ -78,7 +92,7 @@ export function toCSV(messages: ExportMessage[]) {
     return row.map(v => `"${(v ?? '').toString().split('"').join('""')}"`).join(',');
   });
 
-  return [header.join(','), ...rows].join('\n');
+  return partialBanner + [header.join(','), ...rows].join('\n');
 }
 
 export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
@@ -200,6 +214,9 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     body{font:14px system-ui, -apple-system, Segoe UI, Roboto; background:#fff; color:#111; padding:20px}
     h1{margin:0 0 10px 0}
     .meta{color:var(--muted); margin:0 0 12px 0}
+    .partial-warning{background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; padding:10px 14px; margin:0 0 14px 0; color:#78350f; font-size:13px; line-height:1.5}
+    .partial-warning strong{color:#7c2d12}
+    .partial-warning .partial-tag{font-family:ui-monospace,Menlo,monospace; font-size:11px; color:#92400e; opacity:0.85}
     .toolbar{margin-bottom:12px; display:flex; gap:8px; align-items:center}
     .toolbar button{border:1px solid var(--border); background:#f9fafb; color:#111; padding:6px 10px; border-radius:6px; cursor:pointer; font:13px system-ui}
     .toolbar button:hover{background:#eef2f7}
@@ -351,8 +368,26 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
   if (meta.timeRange) metaParts.push(`<b>Range:</b> ${escapeHtml(meta.timeRange)}`);
   const metaLine = metaParts.length ? `<p class="meta">${metaParts.join(' &nbsp; ')}</p>` : '';
 
+  // Partial-export warning banner. Shown right at the top of the
+  // body when the scrape signalled an incomplete-data condition. The
+  // banner stays in the rendered file forever, so a user opening the
+  // export weeks later still sees the caveat. The reason tag (network
+  // / truncation) is included verbatim to help bug-report triage.
+  const partial = meta.partial as { reason?: string } | undefined;
+  const partialBanner = partial
+    ? `<div class="partial-warning" role="alert">
+         <strong>⚠ Export may be incomplete.</strong>
+         ${partial.reason === 'network'
+           ? 'A network interruption was detected during scraping; some messages may be missing.'
+           : 'Some messages may not have fully loaded before the export finished.'}
+         Captured ${escapeHtml(String(meta.count ?? meta.messages ?? '?'))} messages.
+         <span class="partial-tag">[${escapeHtml(String(partial.reason || 'partial'))}]</span>
+       </div>`
+    : '';
+
   const head = `<h1>${escapeHtml(meta.title || 'Teams Chat Export')}</h1>
     ${metaLine}
+    ${partialBanner}
     <div class="toolbar"><button type="button" data-toggle-compact>Toggle compact view</button></div><hr/>`;
 
   // Reactor chip (v9 spec, issue #17/#28). Renders emoji + avatar dot

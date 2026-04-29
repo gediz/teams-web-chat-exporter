@@ -352,7 +352,7 @@
   {:else}
     <div class="card history-card" on:scroll={onListScroll}>
       {#each entries as entry (entry.id)}
-        {@const hasFile = entry.kind === 'success' || entry.kind === 'failed'}
+        {@const hasFile = entry.kind === 'success' || entry.kind === 'failed' || entry.kind === 'partial'}
         {@const fileExists = !hasFile || entry.downloadId == null
           ? true
           : (existsById[entry.id] ?? true)}
@@ -367,6 +367,7 @@
           role="presentation"
           class:cancelled={entry.kind === 'cancelled'}
           class:failed={entry.kind === 'failed'}
+          class:partial={entry.kind === 'partial'}
           class:missing={isMissing}
           on:mouseenter={() => verifyOne(entry)}
         >
@@ -374,10 +375,11 @@
             class="badge badge-{formatClass(entry)}"
             class:badge-cancelled={entry.kind === 'cancelled'}
             class:badge-failed={entry.kind === 'failed'}
+            class:badge-partial={entry.kind === 'partial'}
             class:badge-missing={isMissing}
             title={formatBadgeTooltip(entry)}
           >
-            {#if entry.kind === 'cancelled'}✕{:else if entry.kind === 'failed'}!{:else}{formatLabel(entry)}{/if}
+            {#if entry.kind === 'cancelled'}✕{:else if entry.kind === 'failed'}!{:else if entry.kind === 'partial'}⚠{:else}{formatLabel(entry)}{/if}
           </div>
           <div class="body">
             <!-- Headline = chat title (more useful than auto filename).
@@ -390,6 +392,10 @@
                 <span class="status-pill status-cancelled">{t('history.cancelledMeta', {}, lang) || 'cancelled'}</span>
               {:else if entry.kind === 'failed'}
                 <span class="status-pill status-failed">{t('history.failedMeta', {}, lang) || 'all failed'}</span>
+              {:else if entry.kind === 'partial'}
+                <span class="status-pill status-partial" title={entry.partialReason ? `[${entry.partialReason}]` : ''}>
+                  {t('history.partialMeta', {}, lang) || 'partial'}
+                </span>
               {/if}
             </div>
             <div class="meta">
@@ -528,6 +534,7 @@
   /* Amber for "every chat failed" — distinct from cancelled (red) and
    * success badges. The "!" character reads as a warning. */
   .badge-failed { background: rgba(217, 119, 6, 0.12); color: #b45309; font-size: 16px; }
+  .badge-partial { background: rgba(217, 119, 6, 0.12); color: #b45309; font-size: 14px; }
   .badge-missing { background: rgba(0, 0, 0, 0.05); color: var(--color-text-muted); }
 
   .body {
@@ -575,6 +582,13 @@
     color: #dc2626;
   }
   .status-failed {
+    background: rgba(217, 119, 6, 0.12);
+    color: #b45309;
+  }
+  /* 'partial' shares the amber palette with 'failed' — both are
+     warning-class outcomes — but we distinguish by the badge glyph
+     (⚠ vs !) and the pill label so users can tell them apart. */
+  .status-partial {
     background: rgba(217, 119, 6, 0.12);
     color: #b45309;
   }
