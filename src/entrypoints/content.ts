@@ -615,6 +615,18 @@ export default defineContentScript({
         // response status tells us whether it's a tenant-specific
         // bearer-auth issue.
         let amsDirectCallCount = 0;
+        // Per-export auth-mode tracking for the AMS-direct path
+        // (/v1/{userId}/objects/...). Some tenants reject the IC3
+        // Bearer with HTTP 401 even though the same auth works for
+        // most users (see issue #22). When we see the first 401, flip
+        // to 'failed-401' and route every subsequent AMS-direct fetch
+        // in this export through the page-world cookie helper — same
+        // path that already works for /urlp/ thumbnails on those
+        // tenants. Reset on every fetchInlineImages call so each
+        // export starts fresh; a tenant-state change between exports
+        // (token refresh, re-login) is correctly re-detected.
+        type AmsBearerStatus = 'unknown' | 'works' | 'failed-401';
+        let amsBearerStatus: AmsBearerStatus = 'unknown';
         async function fetchUrlpDirect(url: string): Promise<{
             ok: boolean; dataUrl?: string; status?: number; statusText?: string; error?: string; sizeReason?: number;
         }> {
@@ -701,22 +713,53 @@ export default defineContentScript({
             // We've only verified this in one tenant (eu-prod). Other
             // tenants may differ; if 401s persist, the per-host
             // breakdown + verbose DEBUG logging will say which.
-            const useCookies = /\/urlp\//i.test(fetchUrl);
-            const isFirstAmsDirectCall = !useCookies && amsDirectCallCount === 0;
+            // Routing decision:
+            //   - /urlp/ paths ALWAYS go through the page-world cookie
+            //     helper. Their Bearer-auth path 401s on every tenant.
+            //   - /v1/{userId}/objects/... (AMS-direct) starts on the
+            //     Bearer path. If we've already detected this tenant
+            //     rejects Bearer (amsBearerStatus === 'failed-401'),
+            //     skip the doomed Bearer call and route through the
+            //     same cookie helper as urlp.
+            const isUrlpPath = /\/urlp\//i.test(fetchUrl);
+            const useCookies = isUrlpPath || amsBearerStatus === 'failed-401';
+            const isFirstAmsDirectCall = !isUrlpPath && amsDirectCallCount === 0;
             if (isFirstAmsDirectCall) {
                 amsDirectCallCount++;
-                console.log(`[Teams Exporter DEBUG] AMS-direct first call (background bearer-auth) — url: ${fetchUrl.slice(0, 200)}`);
+                const mode = useCookies ? 'page-world cookies (tenant Bearer 401d earlier)' : 'background bearer-auth';
+                console.log(`[Teams Exporter DEBUG] AMS-direct first call (${mode}) — url: ${fetchUrl.slice(0, 200)}`);
             }
             try {
-                const resp = useCookies
-                    ? await fetchUrlpDirect(fetchUrl)
-                    : (await runtime.sendMessage({
+                let resp: { ok: boolean; dataUrl?: string; status?: number; statusText?: string; error?: string; sizeReason?: number };
+                if (useCookies) {
+                    resp = await fetchUrlpDirect(fetchUrl);
+                } else {
+                    resp = await runtime.sendMessage({
                         type: 'FETCH_BLOB',
                         url: fetchUrl,
                         bearerToken: imgFetchAuth.ic3Token,
                         maxBytes: MAX_IMAGE_BYTES,
                         minBytes: 100,
-                    }) as { ok: boolean; dataUrl?: string; status?: number; statusText?: string; error?: string; sizeReason?: number });
+                    }) as typeof resp;
+                    // First AMS-direct response on a Bearer path tells
+                    // us whether the tenant accepts Bearer at all. On a
+                    // 401, flip the per-export switch and retry THIS
+                    // image via the cookie helper. All subsequent
+                    // AMS-direct fetches in this export will skip the
+                    // doomed Bearer attempt and go straight to cookies.
+                    if (!isUrlpPath && amsBearerStatus === 'unknown') {
+                        if (resp?.ok) {
+                            amsBearerStatus = 'works';
+                        } else if (resp?.status === 401) {
+                            amsBearerStatus = 'failed-401';
+                            console.warn('[Teams Exporter] AMS-direct Bearer auth returned 401 on first attempt; switching to page-world cookie auth for remaining AMS fetches in this export');
+                            // Retry this specific image via cookies so
+                            // we don't lose it just because it was the
+                            // canary call that revealed the issue.
+                            resp = await fetchUrlpDirect(fetchUrl);
+                        }
+                    }
+                }
                 if (isFirstAmsDirectCall) {
                     const dump = resp?.ok
                         ? `ok=true, dataUrl=${resp.dataUrl ? `${resp.dataUrl.length}-char data: URL` : 'missing'}`
@@ -823,6 +866,9 @@ export default defineContentScript({
             imgFetchStats.firstThrow = '';
             imgFetchStats.byHost.clear();
             imgFetchStats.failedUrls.length = 0;
+            urlpDirectCallCount = 0;
+            amsDirectCallCount = 0;
+            amsBearerStatus = 'unknown';
         };
 
         /**
