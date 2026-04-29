@@ -22,6 +22,7 @@
 - [ ] Native-speaker review pass over the 22 non-English, non-Turkish locales (they're at full parity but translations are AI-assisted, not native).
 - [ ] Optional advanced setting to expose `MutedChats` system folder in the picker rail (the only system folder that adds new filtering not covered by the kind tabs).
 - [ ] Layer B chunking inside `toHTML` / `toCSV` / `toPlainText` if heavy single-format exports show popup-stall symptoms after the v1.4 between-format yields.
+- [ ] Style pass: cull em-dashes (627 across the tree, mostly in code comments) and break the "X — because Y" comment pattern into shorter sentences. Risk-free in comments; user-facing strings need a per-locale review since em-dashes occasionally do real punctuation work.
 
 ## Done
 
