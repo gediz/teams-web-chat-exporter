@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "Показать",
   "onboarding.prompt.skip": "Нет, спасибо",
   "picker.stillLoading": "Teams ещё загружает ваши чаты — попробуйте обновить через несколько секунд.",
-  "picker.stillLoading.retry": "Обновить"
+  "picker.stillLoading.retry": "Обновить",
+  "errors.offline": "Нет сети. Восстановите соединение и попробуйте снова.",
+  "history.partialMeta": "частично"
 }

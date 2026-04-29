@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "Laat zien",
   "onboarding.prompt.skip": "Nee, bedankt",
   "picker.stillLoading": "Teams laadt je chats nog — probeer het over een paar seconden te vernieuwen.",
-  "picker.stillLoading.retry": "Vernieuwen"
+  "picker.stillLoading.retry": "Vernieuwen",
+  "errors.offline": "Geen netwerk. Verbind opnieuw en probeer het nog eens.",
+  "history.partialMeta": "gedeeltelijk"
 }

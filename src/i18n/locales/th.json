@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "ดูเลย",
   "onboarding.prompt.skip": "ไม่ ขอบคุณ",
   "picker.stillLoading": "Teams กำลังโหลดแชทของคุณอยู่ — ลองรีเฟรชอีกครั้งในไม่กี่วินาที",
-  "picker.stillLoading.retry": "รีเฟรช"
+  "picker.stillLoading.retry": "รีเฟรช",
+  "errors.offline": "ไม่มีเครือข่าย เชื่อมต่อใหม่แล้วลองอีกครั้ง",
+  "history.partialMeta": "บางส่วน"
 }

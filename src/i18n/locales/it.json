@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "Mostrami",
   "onboarding.prompt.skip": "No grazie",
   "picker.stillLoading": "Teams sta ancora caricando le tue chat — riprova tra qualche secondo.",
-  "picker.stillLoading.retry": "Aggiorna"
+  "picker.stillLoading.retry": "Aggiorna",
+  "errors.offline": "Nessuna rete. Riconnettiti e riprova.",
+  "history.partialMeta": "parziale"
 }

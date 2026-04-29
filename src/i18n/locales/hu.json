@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "Mutasd",
   "onboarding.prompt.skip": "Nem, köszönöm",
   "picker.stillLoading": "A Teams még tölti a csevegéseidet — próbáld meg pár másodperc múlva frissíteni.",
-  "picker.stillLoading.retry": "Frissítés"
+  "picker.stillLoading.retry": "Frissítés",
+  "errors.offline": "Nincs hálózat. Csatlakozz újra, és próbáld meg ismét.",
+  "history.partialMeta": "részleges"
 }

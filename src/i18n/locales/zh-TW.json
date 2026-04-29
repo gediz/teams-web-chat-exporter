@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "好的",
   "onboarding.prompt.skip": "不用了",
   "picker.stillLoading": "Teams 仍在載入您的聊天 — 請幾秒鐘後重試重新整理。",
-  "picker.stillLoading.retry": "重新整理"
+  "picker.stillLoading.retry": "重新整理",
+  "errors.offline": "無網路。請重新連線後再試。",
+  "history.partialMeta": "部分"
 }

@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "Ukázat",
   "onboarding.prompt.skip": "Ne, děkuji",
   "picker.stillLoading": "Teams stále načítá vaše chaty — zkuste obnovit za pár sekund.",
-  "picker.stillLoading.retry": "Obnovit"
+  "picker.stillLoading.retry": "Obnovit",
+  "errors.offline": "Žádná síť. Znovu se připojte a zkuste to znovu.",
+  "history.partialMeta": "částečné"
 }

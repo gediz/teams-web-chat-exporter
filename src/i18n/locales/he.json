@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "הראה לי",
   "onboarding.prompt.skip": "לא, תודה",
   "picker.stillLoading": "Teams עדיין טוען את השיחות שלך — נסה לרענן בעוד כמה שניות.",
-  "picker.stillLoading.retry": "רענן"
+  "picker.stillLoading.retry": "רענן",
+  "errors.offline": "אין רשת. התחבר מחדש ונסה שוב.",
+  "history.partialMeta": "חלקי"
 }

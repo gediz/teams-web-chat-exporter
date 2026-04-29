@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "Göster",
   "onboarding.prompt.skip": "Hayır, gerek yok",
   "picker.stillLoading": "Teams hâlâ sohbetlerini yüklüyor — birkaç saniye sonra yenilemeyi deneyin.",
-  "picker.stillLoading.retry": "Yenile"
+  "picker.stillLoading.retry": "Yenile",
+  "errors.offline": "Ağ yok. Tekrar bağlanıp deneyin.",
+  "history.partialMeta": "kısmi"
 }

@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "Tunjuk",
   "onboarding.prompt.skip": "Tak, terima kasih",
   "picker.stillLoading": "Teams masih memuatkan sembang anda — cuba muat semula dalam beberapa saat.",
-  "picker.stillLoading.retry": "Muat semula"
+  "picker.stillLoading.retry": "Muat semula",
+  "errors.offline": "Tiada rangkaian. Sambung semula dan cuba lagi.",
+  "history.partialMeta": "separa"
 }

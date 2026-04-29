@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "Pokaż mi",
   "onboarding.prompt.skip": "Nie, dziękuję",
   "picker.stillLoading": "Teams nadal ładuje twoje czaty — spróbuj odświeżyć za kilka sekund.",
-  "picker.stillLoading.retry": "Odśwież"
+  "picker.stillLoading.retry": "Odśwież",
+  "errors.offline": "Brak sieci. Połącz ponownie i spróbuj jeszcze raz.",
+  "history.partialMeta": "częściowy"
 }

@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "दिखाएँ",
   "onboarding.prompt.skip": "नहीं, धन्यवाद",
   "picker.stillLoading": "Teams अभी भी आपकी चैट्स लोड कर रहा है — कुछ सेकंड में रिफ्रेश करने की कोशिश करें।",
-  "picker.stillLoading.retry": "रिफ्रेश"
+  "picker.stillLoading.retry": "रिफ्रेश",
+  "errors.offline": "नेटवर्क नहीं। दोबारा कनेक्ट करके फिर कोशिश करें।",
+  "history.partialMeta": "आंशिक"
 }

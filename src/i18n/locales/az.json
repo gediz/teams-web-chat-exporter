@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "Göstər",
   "onboarding.prompt.skip": "Xeyr, sağ ol",
   "picker.stillLoading": "Teams hələ də söhbətlərini yükləyir — bir neçə saniyədən sonra yeniləməyə cəhd et.",
-  "picker.stillLoading.retry": "Yenilə"
+  "picker.stillLoading.retry": "Yenilə",
+  "errors.offline": "Şəbəkə yoxdur. Yenidən qoşulub yenidən cəhd et.",
+  "history.partialMeta": "qismən"
 }

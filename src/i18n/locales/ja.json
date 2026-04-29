@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "見る",
   "onboarding.prompt.skip": "いいえ、結構です",
   "picker.stillLoading": "Teams はまだチャットを読み込んでいます — 数秒後に更新してみてください。",
-  "picker.stillLoading.retry": "更新"
+  "picker.stillLoading.retry": "更新",
+  "errors.offline": "ネットワークなし。再接続してやり直してください。",
+  "history.partialMeta": "部分的"
 }

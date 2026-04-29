@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "أرني",
   "onboarding.prompt.skip": "لا، شكرًا",
   "picker.stillLoading": "لا يزال Teams يحمّل محادثاتك — حاول التحديث بعد بضع ثوانٍ.",
-  "picker.stillLoading.retry": "تحديث"
+  "picker.stillLoading.retry": "تحديث",
+  "errors.offline": "لا توجد شبكة. أعد الاتصال وحاول مرة أخرى.",
+  "history.partialMeta": "جزئي"
 }

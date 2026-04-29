@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "দেখান",
   "onboarding.prompt.skip": "না, ধন্যবাদ",
   "picker.stillLoading": "Teams এখনও আপনার চ্যাটগুলি লোড করছে — কয়েক সেকেন্ড পরে রিফ্রেশ করার চেষ্টা করুন।",
-  "picker.stillLoading.retry": "রিফ্রেশ"
+  "picker.stillLoading.retry": "রিফ্রেশ",
+  "errors.offline": "নেটওয়ার্ক নেই। আবার সংযোগ করে চেষ্টা করুন।",
+  "history.partialMeta": "আংশিক"
 }

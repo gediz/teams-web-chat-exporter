@@ -196,5 +196,7 @@
   "onboarding.prompt.show": "Montrez-moi",
   "onboarding.prompt.skip": "Non merci",
   "picker.stillLoading": "Teams charge encore vos discussions — réessayez dans quelques secondes.",
-  "picker.stillLoading.retry": "Actualiser"
+  "picker.stillLoading.retry": "Actualiser",
+  "errors.offline": "Pas de réseau. Reconnectez-vous et réessayez.",
+  "history.partialMeta": "partiel"
 }
