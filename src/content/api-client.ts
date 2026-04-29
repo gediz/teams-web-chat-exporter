@@ -1548,6 +1548,21 @@ function buildMessagingHeaders(url: string, token: string): Record<string, strin
   return { 'Authorization': `Bearer ${token}` };
 }
 
+// Combine two AbortSignals so the resulting signal aborts when EITHER
+// upstream signal aborts. AbortSignal.any() does this natively but
+// only landed in Firefox 124 / Chrome 116; we target Firefox 109+
+// so we ship the manual equivalent.
+function combineAbortSignals(a: AbortSignal | undefined, b: AbortSignal): AbortSignal {
+  if (!a) return b;
+  if (a.aborted) return a;
+  if (b.aborted) return b;
+  const ctrl = new AbortController();
+  const onAbort = () => ctrl.abort();
+  a.addEventListener('abort', onAbort, { once: true });
+  b.addEventListener('abort', onAbort, { once: true });
+  return ctrl.signal;
+}
+
 async function fetchPageWithRetry(
   url: string,
   token: string,
@@ -1562,12 +1577,39 @@ async function fetchPageWithRetry(
   const isTeamsFreeProxy = /teams\.live\.com\/api\/chatsvc\/consumer\b/i.test(url);
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const headers = buildMessagingHeaders(url, token);
+    // Always combine the caller's signal with an internal 30 s
+    // timeout. Earlier we did `signal || AbortSignal.timeout(...)`
+    // which silently dropped the timeout whenever the caller passed
+    // a signal — the result was that an export could hang forever
+    // if wifi died mid-fetch (Firefox doesn't reliably throw
+    // NetworkError when a connection silently drops; the request
+    // queues until the OS gives up, which can be many minutes).
+    // With the combined signal, fetch reliably aborts at 30 s and
+    // the throw bubbles to apiScrape which surfaces the partial
+    // signal.
+    const timeoutSignal = AbortSignal.timeout(30_000);
     const init: RequestInit = {
       headers,
-      signal: signal || AbortSignal.timeout(30_000),
+      signal: combineAbortSignals(signal, timeoutSignal),
     };
     if (isTeamsFreeProxy) init.credentials = 'include';
-    const resp = await fetch(url, init);
+    let resp: Response;
+    try {
+      resp = await fetch(url, init);
+    } catch (err) {
+      // If the user's own signal aborted, propagate as cancellation —
+      // apiScrape's catch re-throws AbortError so content.ts treats
+      // it as a user cancel rather than as an API failure.
+      if (signal?.aborted) throw err;
+      // Our internal timeout fired and the fetch threw AbortError.
+      // Convert to a TypeError with a NetworkError message so
+      // apiScrape's isNetworkError() classifier picks it up — that's
+      // what flips the export to partial=network downstream.
+      if (timeoutSignal.aborted) {
+        throw new TypeError(`NetworkError: fetch timed out after 30s (no network?) for ${url.slice(0, 200)}`);
+      }
+      throw err;
+    }
 
     // Diagnostic on 401: dump request shape (header names + value
     // lengths, never values) and response body (truncated) so we can
