@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.5] — 2026-04-29
+
+Detect partial exports (network drop mid-scrape) and signal them across every artifact users will see, so a truncated export never silently masquerades as a complete one.
+
+### Added
+
+- **Pre-flight offline check.** Popup refuses to start an export when `navigator.onLine === false`, with a clear "No network. Reconnect and try again." message. Cheap insurance for the "wifi already off when user clicks Export" case. The inverse case (online but actually offline, e.g. captive portal) is caught in-flight by the network-error detection below.
+- **In-flight partial-export detection.** When `apiScrape` fails with a `NetworkError` / `Failed to fetch` (browser-canonical fetch failure shapes), the content script flags the export as `partial` with `reason: 'network'`. DOM-scroll fallback still runs (it can recover messages already rendered before the network dropped) and any messages that come back are saved, but the partial flag travels through to every downstream consumer.
+- **Partial-export signals at every layer:**
+  - **Filename suffix** — single-chat outputs become `*-PARTIAL.html` / `*-PARTIAL.zip` / etc. Visible in the OS file browser without opening the file.
+  - **In-file warning banners** — HTML gets an amber alert block at the top of the body. PDF gets an amber-tinted rectangle under the title block on page 1. TXT gets an ASCII-bordered notice at the top of the file. CSV gets `#`-prefixed comment lines at the top. Each carries the cause tag (`[network]`) for bug-report triage.
+  - **History entry kind `partial`** — the popup history page renders these rows with an amber `⚠` badge and a `partial` status pill, distinct from `success` / `cancelled` / `failed`.
+  - **Bundle root `PARTIAL.txt`** — multi-chat bundles get a top-level summary listing each affected chat's folder, conversation id, and reason. Sits alongside the existing `FAILURES.txt` and `NO_HISTORY.txt`.
+  - **Bundle outer-zip `-PARTIAL` suffix** — the multi-chat zip itself becomes `TeamsExport_bundle_<date>-PARTIAL.zip` if any chat in it is partial.
+
+### Changed
+
+- `apiScrape` exposes a `getLastApiScrapeFailure()` getter so callers can distinguish "no token" / "no conv-id" / "network error" / "other" failure modes without changing the function's existing null-on-failure return shape.
+
+### i18n
+
+- New keys `errors.offline` and `history.partialMeta` translated across all 24 locales.
+
 ## [1.4.4] — 2026-04-29
 
 Big win for HTML / PDF exports that contain link previews (Giphy, YouTube, news article OG images, etc.). Plus a richer per-host diagnostic when image fetches fail.

@@ -33,7 +33,7 @@ export default defineConfig({
   },
   manifest: {
     name: 'Teams Chat Exporter',
-    version: '1.4.4',
+    version: '1.4.5',
     description: 'Export Microsoft Teams web chat conversations to JSON, CSV, HTML, TXT, or PDF with full message history.',
     homepage_url: 'https://github.com/gediz/teams-web-chat-exporter',
     browser_specific_settings: {
