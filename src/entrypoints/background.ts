@@ -690,6 +690,13 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
         const entries: BundleEntry[] = [];
         const failures: BundleFailure[] = [];
         const noHistory: BundleEmpty[] = [];
+        // Bundle-level partial accumulator. Each entry tracks a chat
+        // whose per-chat scrape signalled meta.partial. We surface this
+        // at the bundle level rather than tagging individual chat
+        // folders inside the zip — simpler to implement, and the
+        // bundle-root PARTIAL.txt + outer-zip filename suffix are the
+        // signals we want users to see anyway.
+        const partials: { folderName: string; conversationId: string; reason: 'network' | 'truncation' }[] = [];
 
         for (let i = 0; i < list.length; i++) {
             if (bundleStops.has(tabId)) break;
@@ -771,6 +778,15 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                     },
                 });
                 entries.push({ folderName, files });
+                // Record partial signal for bundle-level reporting. The
+                // chat's individual files inside its folder already carry
+                // their own banners + -PARTIAL filename suffix from the
+                // single-chat code path; this accumulation drives the
+                // bundle-root PARTIAL.txt and the outer zip's suffix.
+                const perChatPartial = (scrapeRes.meta as { partial?: { reason: 'network' | 'truncation' } } | undefined)?.partial;
+                if (perChatPartial) {
+                    partials.push({ folderName, conversationId: conv.id, reason: perChatPartial.reason });
+                }
             } catch (e: any) {
                 failures.push({ folderName, conversationId: conv.id, reason: e?.message || String(e) });
             }
@@ -950,7 +966,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                 bundleSuccessCount: entries.length,
                 bundleFailedCount: failures.length,
             });
-            const buildRes = await buildAndDownloadBundlesZip({ downloads, isFirefox }, entries, failures, noHistory);
+            const buildRes = await buildAndDownloadBundlesZip({ downloads, isFirefox }, entries, failures, noHistory, partials);
             const downloadOk = buildRes.id != null
                 ? await waitForDownloadComplete(buildRes.id, 60_000)
                 : true;
@@ -972,16 +988,27 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
             });
 
             const elapsedMs = Math.max(0, Date.now() - startedAt);
+            // Bundle-level history kind. If any chat in the bundle came
+            // back partial, the bundle as a whole is partial — even if
+            // the rest succeeded. The most conservative reason wins
+            // when partials carry mixed reasons (network beats
+            // truncation, same as single-chat).
+            const bundlePartialReason: 'network' | 'truncation' | undefined = partials.length
+                ? (partials.some(p => p.reason === 'network') ? 'network' : 'truncation')
+                : undefined;
+            const partialSuffix = partials.length ? ` (${partials.length} partial)` : '';
+            const failedSuffix = failures.length ? ` (${failures.length} failed)` : '';
             await persistHistoryEntry({
                 id: makeEntryId(),
                 tabId,
-                kind: 'success',
+                kind: bundlePartialReason ? 'partial' : 'success',
+                partialReason: bundlePartialReason,
                 downloadId: buildRes.id,
                 filename: buildRes.filename,
-                // Title carries chat count + failure marker. messageCount is
+                // Title carries chat count + status markers. messageCount is
                 // omitted because the per-chat counts don't aggregate into a
                 // single meaningful number for a bundle row.
-                title: `${entries.length} chats${failures.length ? ` (${failures.length} failed)` : ''}`,
+                title: `${entries.length} chats${failedSuffix}${partialSuffix}`,
                 isZip: true,
                 elapsedMs,
                 savedAt: Date.now(),

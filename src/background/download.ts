@@ -736,6 +736,18 @@ export type BundleEmpty = {
   conversationId: string;
 };
 
+// "Partial" chats — the API succeeded and produced output, but the
+// scrape detected an incomplete-data condition (NetworkError mid-scrape,
+// DOM-scroll truncation). Listed at the bundle root in PARTIAL.txt so
+// the user can see at a glance which chats may be missing content.
+// Distinct from BundleFailure (failures = no output) and BundleEmpty
+// (empty = API said the chat is empty server-side).
+export type BundlePartial = {
+  folderName: string;
+  conversationId: string;
+  reason: 'network' | 'truncation';
+};
+
 // Pack every per-chat result into a single outer zip and download it.
 // Failures (if any) are written as one line each into FAILURES.txt at
 // the zip's root so the user gets a concrete punch-list of what didn't
@@ -745,6 +757,7 @@ export async function buildAndDownloadBundlesZip(
   entries: BundleEntry[],
   failures: BundleFailure[],
   noHistory: BundleEmpty[] = [],
+  partials: BundlePartial[] = [],
 ) {
   const { downloads } = deps;
 
@@ -773,15 +786,36 @@ export async function buildAndDownloadBundlesZip(
     outerFiles.push({ path: 'NO_HISTORY.txt', data: new TextEncoder().encode(body) });
   }
 
+  if (partials.length) {
+    // Bundle-level partial signal. Lists which chats came back with a
+    // partial-data warning and the cause tag. Each chat's individual
+    // files inside its folder also carry the in-file banner +
+    // -PARTIAL filename suffix from the single-chat code path; this
+    // file is the bundle-root summary so users see "the bundle has
+    // problems" without opening every folder.
+    const lines = partials.map(p => `${p.folderName}\t${p.conversationId}\t${p.reason}`);
+    const header = '# Chats whose export may be incomplete. The API ran and produced\n'
+      + '# output, but a partial-data condition was detected during scraping\n'
+      + '# (e.g. a network interruption). The chat\'s own files carry their\n'
+      + '# warning banner and a -PARTIAL filename suffix; this list is the\n'
+      + '# bundle-root summary. Columns: folder\tconversationId\treason';
+    const body = `${header}\n${lines.join('\n')}\n`;
+    outerFiles.push({ path: 'PARTIAL.txt', data: new TextEncoder().encode(body) });
+  }
+
   // Async zip — yields to the event loop between file additions.
   // Critical for multi-chat bundles: a 100-chat ~900 MB sync zip
   // blocked the SW thread for ~34 s and froze any open popup.
   const totalOuterBytes = outerFiles.reduce((a, f) => a + f.data.byteLength, 0);
-  console.log(`[bundle-outer] entering buildZipAsync: entries=${entries.length} failures=${failures.length} files=${outerFiles.length} totalBytes=${totalOuterBytes}`);
+  console.log(`[bundle-outer] entering buildZipAsync: entries=${entries.length} failures=${failures.length} partials=${partials.length} files=${outerFiles.length} totalBytes=${totalOuterBytes}`);
   const zipBlob = await buildZipAsync(outerFiles, 'zip-outer-bundle');
   console.log(`[bundle-outer] zip built: outBytes=${zipBlob.size}`);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19).replace('T', '_');
-  const zipName = `TeamsExport_bundle_${stamp}.zip`;
+  // Bundle outer-zip filename gets -PARTIAL when any chat in the
+  // bundle is partial. Visible in the OS file browser without
+  // opening the zip.
+  const partialSuffix = partials.length ? '-PARTIAL' : '';
+  const zipName = `TeamsExport_bundle_${stamp}${partialSuffix}.zip`;
   const tUrl = performance.now();
   const url = URL.createObjectURL(zipBlob);
   console.log(`[bundle-outer] blob-url created in ${Math.round(performance.now() - tUrl)}ms`);
