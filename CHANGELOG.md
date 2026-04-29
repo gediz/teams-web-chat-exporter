@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.6] — 2026-04-30
+
+Fixes the "pasted screenshots and attached images don't appear in the export" regression that affected some tenants in v1.4.0–v1.4.5 (see issue #22). Plus a small PDF banner geometry fix.
+
+### Fixed
+
+- **AMS-direct image fetches now fall back to cookie auth on Bearer 401.** On some tenants, the `*.asyncgw.teams.microsoft.com/v1/{userId}/objects/...` proxy rejects the IC3 Bearer token even though the same token works for the chat-service API on the same host. Result: every real chat image (pasted screenshots, paperclip uploads, etc.) silently came up missing in the export. The fix adds a per-export auth-mode state machine: the first AMS-direct image is the canary. Bearer success keeps everyone on the existing fast path with no behavior change. Bearer 401 trips the state to `failed-401`, the canary is retried via the page-world cookie helper already in place for `/urlp/` thumbnails, and every subsequent AMS-direct fetch in that export uses cookies directly. Confirmed end-to-end fix on the affected tenant: image embed rate went from 9/214 to 214/214.
+- **PDF partial-export banner no longer overlaps the title block.** The amber banner under the title on page 1 had two geometry bugs: the text was being drawn at the message-body column (past the avatar gutter), and the surrounding rectangle's top edge was placed *above* the cursor instead of below it, causing the banner to bleed up into the header. Fixed by switching to `drawMixed` directly with correct `x` offsets and anchoring the rectangle's bottom at `top - blockH`.
+
 ## [1.4.5] — 2026-04-29
 
 Detect partial exports (network drop mid-scrape) and signal them across every artifact users will see, so a truncated export never silently masquerades as a complete one.
