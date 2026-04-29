@@ -331,7 +331,7 @@ const isHistoryEntry = (raw: unknown): raw is HistoryEntry => {
   return typeof e.id === 'string'
       && typeof e.tabId === 'number'
       && typeof e.savedAt === 'number'
-      && (e.kind === 'success' || e.kind === 'cancelled' || e.kind === 'failed');
+      && (e.kind === 'success' || e.kind === 'cancelled' || e.kind === 'failed' || e.kind === 'partial');
 };
 
 export async function loadHistory(storage: ExtensionStorage): Promise<HistoryEntry[]> {

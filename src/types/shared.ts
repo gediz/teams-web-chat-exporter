@@ -96,6 +96,18 @@ export type ExportMeta = {
   // resolve it). Used by the background to pin the persisted outcome snapshot
   // to a specific conversation, not just a tab.
   conversationId?: string;
+  // Set by the content script when the scrape is known to be incomplete.
+  // Drives the -PARTIAL filename suffix, in-file warning banner, and
+  // history kind='partial'. Two known causes:
+  //   'network'    — a NetworkError was caught during the API path or
+  //                  during message hydration; some pages may not have
+  //                  been fetched.
+  //   'truncation' — DOM-scroll fallback ended with messages still
+  //                  hydrating ("hydration pending after retries"
+  //                  fired) — Teams' UI couldn't load the full content
+  //                  of some visible messages.
+  // When both apply, 'network' wins (higher-confidence root cause).
+  partial?: { reason: 'network' | 'truncation' };
   [key: string]: unknown;
 };
 
@@ -208,7 +220,18 @@ export type HistoryEntry = {
   // 'failed'    — bundle export where 0 chats succeeded; FAILURES.txt was
   //               saved directly (no .zip wrapper since there's nothing
   //               to wrap). The file IS on disk, so Open/Show still work.
-  kind: 'success' | 'cancelled' | 'failed';
+  // 'partial'   — file IS on disk, but the scrape detected incomplete data
+  //               (NetworkError mid-export, or DOM-scroll truncation
+  //               leaving messages without full content). The output gets
+  //               a -PARTIAL filename suffix and an in-file warning banner.
+  //               Distinct from 'cancelled' (cancelled writes no file at
+  //               all) and from 'failed' (failed = nothing usable).
+  kind: 'success' | 'cancelled' | 'failed' | 'partial';
+  // For kind === 'partial', the dominant cause. 'network' = a NetworkError
+  // was observed during scraping; 'truncation' = DOM scroll ended with
+  // messages still hydrating. Used by the popup history label and helps
+  // future bug reports distinguish the cause without re-asking the user.
+  partialReason?: 'network' | 'truncation';
   // Teams conversation id (from the content script's resolver). Optional;
   // present helps verify "this entry belongs to the chat I'm looking at."
   convId?: string;
