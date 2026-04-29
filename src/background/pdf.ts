@@ -1042,10 +1042,12 @@ function renderHeader(cursor: Cursor, meta: ExportMeta, ctx: TextCtx) {
   if (sub) {
     drawLines(cursor, wrapText(sub, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.contentWidth), 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta);
   }
-  // Partial-export banner. A small amber block right under the
-  // header so the warning is the first thing on page 1. We can't
-  // use drawLines for the body (it draws over the page background),
-  // so we draw a filled rectangle then write the text on top of it.
+  // Partial-export banner. Amber block immediately under the
+  // header so it's the first thing on page 1. Drawn as a filled
+  // rectangle with text laid on top via drawMixed (NOT drawLines —
+  // drawLines positions text at textColX, the message-body column
+  // past the avatar gutter, which is the wrong column for a banner
+  // that spans the full content width).
   const partial = (meta as { partial?: { reason?: string } }).partial;
   if (partial) {
     cursor.y -= ctx.layout.blockGap / 2;
@@ -1057,19 +1059,33 @@ function renderHeader(cursor: Cursor, meta: ExportMeta, ctx: TextCtx) {
     const lineHeight = ctx.layout.leadMeta;
     const padY = 8;
     const padX = 8;
-    const blockH = ctx.layout.sizeMeta + 4 /* title */ + bodyLines.length * lineHeight + padY * 2;
-    const x = MARGIN;
-    const y = cursor.y - blockH + padY;
+    const fontSize = ctx.layout.sizeMeta;
+    const totalLines = 1 /* title */ + bodyLines.length;
+    const blockH = padY * 2 + totalLines * lineHeight;
+    // Rectangle anchored at the TOP of the banner block:
+    //   top    = cursor.y
+    //   bottom = cursor.y - blockH
+    // pdf-lib's drawRectangle takes y=bottom, so y = cursor.y - blockH.
+    const top = cursor.y;
     cursor.page.drawRectangle({
-      x, y, width: ctx.layout.contentWidth, height: blockH,
+      x: MARGIN,
+      y: top - blockH,
+      width: ctx.layout.contentWidth,
+      height: blockH,
       color: COLOR_WARN_BG,
       borderColor: COLOR_WARN_BORDER,
       borderWidth: 1,
     });
-    cursor.y -= padY + ctx.layout.sizeMeta + 2;
-    drawLines(cursor, [titleText], 'bold', ctx, ctx.layout.sizeMeta, COLOR_WARN_TEXT, lineHeight, padX);
-    drawLines(cursor, bodyLines, 'regular', ctx, ctx.layout.sizeMeta, COLOR_WARN_TEXT, lineHeight, padX);
-    cursor.y -= padY;
+    // Lay the lines inside the box. drawMixed uses (x, y) where y is
+    // the baseline. First baseline sits one full lineHeight below the
+    // top inset, so the ascenders fit within the padY breathing room.
+    let baselineY = top - padY - fontSize;
+    drawMixed(cursor.page, titleText, MARGIN + padX, baselineY, fontSize, 'bold', ctx, COLOR_WARN_TEXT);
+    for (const line of bodyLines) {
+      baselineY -= lineHeight;
+      drawMixed(cursor.page, line, MARGIN + padX, baselineY, fontSize, 'regular', ctx, COLOR_WARN_TEXT);
+    }
+    cursor.y = top - blockH;
   }
   cursor.y -= ctx.layout.blockGap;
 }
