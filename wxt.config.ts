@@ -31,7 +31,7 @@ export default defineConfig({
       '*.zip',
     ],
   },
-  manifest: {
+  manifest: ({ manifestVersion }) => ({
     name: 'Teams Chat Exporter',
     version: '1.4.6',
     description: 'Export Microsoft Teams web chat conversations to JSON, CSV, HTML, TXT, or PDF with full message history.',
@@ -49,7 +49,24 @@ export default defineConfig({
     // Firefox Add-ons data collection disclosure
     // This extension does not collect or transmit any user data
     // All exports are saved locally to the user's device
-    optional_permissions: [],
+    //
+    // Optional <all_urls> for the "Image fetch fallback" feature in
+    // Settings. Off by default; users opt in deliberately, and the
+    // browser shows the permission prompt only when they flip the
+    // toggle. Manifest V3 (Chrome) and MV2 (Firefox) split where
+    // host wildcards live:
+    //   - Chrome MV3: dedicated `optional_host_permissions` key.
+    //     Putting URL patterns in `optional_permissions` is REJECTED
+    //     by Chrome MV3 — the manifest function gates the wrong key
+    //     out per platform.
+    //   - Firefox MV2: combined into `optional_permissions`.
+    // Listing in optional_* never appears in the install dialog —
+    // it's invisible until permissions.request() is called from the
+    // Settings toggle.
+    ...(manifestVersion === 3
+      ? { optional_host_permissions: ['<all_urls>'] as any }
+      : { optional_permissions: ['<all_urls>'] as any }
+    ),
     permissions: [
       'scripting',
       'activeTab',
@@ -88,5 +105,5 @@ export default defineConfig({
         128: 'icons/action-128.png',
       },
     },
-  },
+  }),
 });

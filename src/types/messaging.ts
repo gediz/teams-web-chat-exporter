@@ -77,6 +77,25 @@ export type FetchBlobRequest = {
   maxBytes?: number;
   minBytes?: number;
 };
+// Direct upstream fetch — used by the image-fetch-fallback feature when
+// Teams' urlp/AMS proxy returns a permanent-shaped failure (4xx). No
+// auth headers; relies on the user having granted <all_urls> via the
+// "Image fetch fallback" toggle in Settings. Same response shape as
+// FETCH_BLOB so the call site can treat them uniformly.
+export type FetchBlobDirectRequest = {
+  type: 'FETCH_BLOB_DIRECT';
+  url: string;
+  maxBytes?: number;
+  minBytes?: number;
+};
+// Image-fetch-fallback feature gate. Content scripts can't reliably
+// access the permissions API in Firefox MV2 — this message routes the
+// check to the background, which has full API access. Returns the AND
+// of (a) user toggled ON in Settings AND (b) <all_urls> permission is
+// currently granted. Content asks once at scrape start to decide
+// whether to bother sending FETCH_BLOB_DIRECT on proxy failures.
+export type FallbackStatusRequest = { type: 'FALLBACK_STATUS' };
+export type FallbackStatusResponse = { enabled: boolean };
 export type StopExportRequest = { type: 'STOP_EXPORT'; tabId?: number | null };
 export type StopExportResponse = { ok: boolean; error?: string };
 
@@ -136,6 +155,8 @@ export type BackgroundIncomingMessage =
   | ExportStatusUpdateMessage
   | ScrapeProgressMessage
   | FetchBlobRequest
+  | FetchBlobDirectRequest
+  | FallbackStatusRequest
   | ListConversationsRequest
   | ListConversationsQuickRequest;
 

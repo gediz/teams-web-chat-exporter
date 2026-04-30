@@ -303,7 +303,7 @@
   // older cached rows useless (e.g. adding isSelfChat, folders). Old
   // caches are dropped rather than served stale; users see one cold
   // fetch after the extension updates, then instant loads again.
-  const CONV_LIST_CACHE_VERSION = 10;
+  const CONV_LIST_CACHE_VERSION = 11;
   let isRefreshingList = false;
 
   type CachedConvList = {
@@ -1470,6 +1470,27 @@
       if (!alive) return;
       options = loaded;
       __popupTrace('options-loaded');
+      // Reconcile imageFetchFallback with the live <all_urls>
+      // permission state on every popup open. Both Firefox and Chrome
+      // can close the popup mid-await on focus-loss when the permission
+      // prompt appears, killing our dispatch chain. The user accepts in
+      // the prompt, the browser grants the permission, but the popup
+      // never persists the option flag. Next open, Settings shows the
+      // toggle as off even though permission is granted. Trust the
+      // browser's permission state as the source of truth and update
+      // the option to match. Also handles the inverse: user revoked
+      // <all_urls> from the browser's settings page (chrome://extensions
+      // / about:addons) while the popup was closed; the live
+      // permission removal listener only catches in-popup-session
+      // changes. Failure to call the API leaves the option alone.
+      try {
+        // @ts-ignore - browser global on Firefox; chrome polyfill on Chrome
+        const reconcilePerms = typeof browser !== 'undefined' ? browser.permissions : chrome.permissions;
+        const granted = await reconcilePerms.contains({ origins: ['<all_urls>'] });
+        if (alive && granted !== options.imageFetchFallback) {
+          void updateOption('imageFetchFallback', !!granted);
+        }
+      } catch { /* permissions API unavailable in this context — leave option alone */ }
       // Restore the picker's collapsed/expanded preference. Read in the
       // same early phase as the language so the very first paint already
       // reflects the user's choice — no flash of "expanded then collapse".
@@ -1635,6 +1656,15 @@
     };
     void init();
     runtime.onMessage.addListener(onRuntimeMessage);
+    // Keep imageFetchFallback in sync with the actual permission state.
+    // Firing on browser-side revocation (chrome://extensions or
+    // about:addons) means the toggle reflects reality even if the user
+    // revokes outside our UI. We only react to <all_urls> removal —
+    // other permission events are unrelated. Use browser.* on Firefox
+    // (chrome.* there is callback-only) and chrome.* on Chrome MV3.
+    // @ts-ignore
+    const permsEvents = typeof browser !== 'undefined' ? browser.permissions : chrome.permissions;
+    permsEvents.onRemoved.addListener(onPermissionsRemoved);
     __popupTrace('listener-registered');
   });
 
@@ -1642,8 +1672,21 @@
     alive = false;
     try { clearInterval(__reportExportStatusRate); } catch { /* noop */ }
     runtime.onMessage.removeListener(onRuntimeMessage);
+    try {
+      // @ts-ignore
+      const permsEvents = typeof browser !== 'undefined' ? browser.permissions : chrome.permissions;
+      (permsEvents.onRemoved as unknown as { removeListener: (cb: typeof onPermissionsRemoved) => void })
+        .removeListener(onPermissionsRemoved);
+    } catch { /* best-effort */ }
     clearElapsedTimer();
   });
+
+  function onPermissionsRemoved(perms: chrome.permissions.Permissions) {
+    if (!alive) return;
+    if (!perms.origins || !perms.origins.includes('<all_urls>')) return;
+    if (!options.imageFetchFallback) return;
+    void updateOption('imageFetchFallback', false);
+  }
 </script>
 
 <div class="popup">
@@ -1660,6 +1703,7 @@
         pdfBodyFontSize={options.pdfBodyFontSize}
         pdfShowPageNumbers={options.pdfShowPageNumbers}
         pdfIncludeAvatars={options.pdfIncludeAvatars}
+        imageFetchFallback={options.imageFetchFallback}
         on:back={() => (showSettings = false)}
         on:themeChange={(e) => updateOption("theme", e.detail)}
         on:langChange={(e) => updateOption("lang", e.detail)}
@@ -1669,6 +1713,7 @@
         on:pdfBodyFontSizeChange={(e) => updateOption("pdfBodyFontSize", e.detail)}
         on:pdfShowPageNumbersChange={(e) => updateOption("pdfShowPageNumbers", e.detail)}
         on:pdfIncludeAvatarsChange={(e) => updateOption("pdfIncludeAvatars", e.detail)}
+        on:imageFetchFallbackChange={(e) => updateOption("imageFetchFallback", e.detail)}
         on:replayTour={replayTour}
       />
     </div>

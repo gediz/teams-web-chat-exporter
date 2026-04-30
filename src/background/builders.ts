@@ -916,6 +916,26 @@ export function textToDownloadUrl(text: string | string[], mime: string): string
   return binaryToDownloadUrl(bytes, mime);
 }
 
+/**
+ * Create a downloadable URL from a Blob. Uses Blob URL when the API
+ * is available (everywhere except some Chrome MV3 SW configurations);
+ * falls back to a base64 data: URL by reading the blob bytes when it
+ * isn't. The data: URL path adds ~33% memory overhead and won't scale
+ * past a few hundred MB of payload, but it works wherever blob URLs
+ * fail. Used by the zip-output download paths (per-chat-zip,
+ * html-zip, bundle-outer) which all receive a Blob directly from
+ * buildZipAsync.
+ */
+export async function blobToDownloadUrl(blob: Blob, mime: string): Promise<string> {
+  if (canCreateBlobUrls()) {
+    try {
+      return URL.createObjectURL(blob);
+    } catch { /* fall through to data: URL */ }
+  }
+  const buf = await blob.arrayBuffer();
+  return binaryToDownloadUrl(new Uint8Array(buf), mime);
+}
+
 /** Create a downloadable URL from binary data. Uses Blob URL when available, data URL in service workers. */
 export function binaryToDownloadUrl(data: Uint8Array, mime: string): string {
   if (canCreateBlobUrls()) {

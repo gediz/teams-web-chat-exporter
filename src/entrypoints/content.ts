@@ -377,7 +377,12 @@ export default defineContentScript({
             try {
                 const res = await fetch(url, { credentials: 'include' });
                 if (!res.ok) {
-                    console.warn(`[Avatar Fetch] HTTP ${res.status} for ${url.substring(0, 100)}...`);
+                    // log (not warn): per-avatar HTTP failures are
+                    // external state (deleted user, expired blob URL,
+                    // etc.) — not extension code errors. Avoids
+                    // flooding Chrome's Errors panel for routine
+                    // upstream unavailability.
+                    console.log(`[Avatar Fetch] HTTP ${res.status} for ${url.substring(0, 100)}...`);
                     return null;
                 }
                 const blob = await res.blob();
@@ -539,6 +544,14 @@ export default defineContentScript({
         // Set by fetchInlineImages before any concurrent fetches start, so the
         // image fetcher can rewrite AMS/asyncgw URLs to the authenticated proxy form.
         let imgFetchAuth: { userId: string; userRegion: string; ic3Token: string } | null = null;
+
+        // Toggled per-export by fetchInlineImages based on the user's
+        // "Image fetch fallback" Setting + the current <all_urls>
+        // permission state. When true, fetchImageAsDataUrl will retry
+        // a failed proxy fetch directly against the original upstream
+        // host via FETCH_BLOB_DIRECT in the background script. When
+        // false, proxy failure stays a failure (legacy behaviour).
+        let imgFetchFallbackEnabled = false;
 
         // ── /urlp/ URL-image-proxy fetch via page-context helper ──
         //
@@ -752,7 +765,14 @@ export default defineContentScript({
                             amsBearerStatus = 'works';
                         } else if (resp?.status === 401) {
                             amsBearerStatus = 'failed-401';
-                            console.warn('[Teams Exporter] AMS-direct Bearer auth returned 401 on first attempt; switching to page-world cookie auth for remaining AMS fetches in this export');
+                            // log (not warn): the cookie fallback is a
+                            // successful recovery path, not a failure.
+                            // Chrome's chrome://extensions Errors panel
+                            // surfaces both warn and error; keeping
+                            // recovery-fired messages at log level
+                            // avoids cosmetic "errors" for what is
+                            // actually working as designed.
+                            console.log('[Teams Exporter] AMS-direct Bearer auth returned 401 on first attempt; switching to page-world cookie auth for remaining AMS fetches in this export');
                             // Retry this specific image via cookies so
                             // we don't lose it just because it was the
                             // canary call that revealed the issue.
@@ -769,6 +789,43 @@ export default defineContentScript({
                 if (resp?.ok && resp.dataUrl) {
                     hostStats.ok++;
                     return resp.dataUrl;
+                }
+                // Image fetch fallback (opt-in feature). When the proxy
+                // returns a 4xx that suggests a permanent failure
+                // (Teams' negative cache, gone-upstream, hotlink-blocked,
+                // rate-limit), retry directly against the original
+                // upstream host. Only meaningful for urlp-wrapped URLs
+                // (the upstream is a public CDN/URL); AMS-direct paths
+                // point at private Teams storage and aren't fetchable
+                // without auth, so skip fallback for those.
+                if (
+                    imgFetchFallbackEnabled
+                    && resp?.status !== undefined
+                    && (resp.status === 410 || resp.status === 429 || resp.status === 403 || resp.status === 404)
+                ) {
+                    const wrapped = url.match(/[?&]url=([^&]+)/);
+                    if (wrapped) {
+                        let upstreamUrl: string | null = null;
+                        try { upstreamUrl = decodeURIComponent(wrapped[1]); } catch { /* skip */ }
+                        if (upstreamUrl) {
+                            try {
+                                const directResp = await runtime.sendMessage({
+                                    type: 'FETCH_BLOB_DIRECT',
+                                    url: upstreamUrl,
+                                    maxBytes: MAX_IMAGE_BYTES,
+                                    minBytes: 100,
+                                }) as typeof resp;
+                                if (directResp?.ok && directResp.dataUrl) {
+                                    hostStats.ok++;
+                                    hostStats.directRecovered = (hostStats.directRecovered || 0) + 1;
+                                    imgFetchStats.directRecovered++;
+                                    return directResp.dataUrl;
+                                }
+                                hostStats.directFailed = (hostStats.directFailed || 0) + 1;
+                                imgFetchStats.directFailed++;
+                            } catch { /* fall through to record proxy failure */ }
+                        }
+                    }
                 }
                 if (resp?.status) {
                     imgFetchStats.httpError++;
@@ -821,6 +878,14 @@ export default defineContentScript({
             threwError: number;
             tooLarge: number;
             tooSmall: number;
+            // Image fetch fallback (opt-in feature): when the proxy
+            // fetch fails with a 4xx that suggests permanent failure,
+            // we retry directly against the upstream host. Tracked
+            // separately so the diagnostic breakdown shows how often
+            // the fallback rescued an image vs. how often it failed
+            // alongside the proxy.
+            directRecovered?: number;
+            directFailed?: number;
             firstStatus?: number;
             firstStatusText?: string;
             firstError?: string;
@@ -828,6 +893,11 @@ export default defineContentScript({
         };
         const imgFetchStats = {
             skippedDomain: 0, httpError: 0, threwError: 0, tooLarge: 0, tooSmall: 0,
+            // Image fetch fallback counters (opt-in feature). Surface
+            // in the post-export log so the user can see how many
+            // images the fallback recovered vs. how many it couldn't.
+            directRecovered: 0,
+            directFailed: 0,
             firstHttpError: '' as string,
             firstThrow: '' as string,
             // Per-host breakdown. Key is the upstream host (the URL the user actually
@@ -862,6 +932,8 @@ export default defineContentScript({
             imgFetchStats.threwError = 0;
             imgFetchStats.tooLarge = 0;
             imgFetchStats.tooSmall = 0;
+            imgFetchStats.directRecovered = 0;
+            imgFetchStats.directFailed = 0;
             imgFetchStats.firstHttpError = '';
             imgFetchStats.firstThrow = '';
             imgFetchStats.byHost.clear();
@@ -914,6 +986,23 @@ export default defineContentScript({
             auth?: { userId: string | null; userRegion: string; ic3Token: string },
         ): Promise<void> {
             resetImgFetchStats();
+            // Resolve the image-fetch-fallback feature state for this
+            // export by asking the background. Firefox MV2 content
+            // scripts can't reliably call permissions.contains
+            // themselves (the API is gated to the background), so we
+            // delegate. Background ANDs the option flag with the
+            // current <all_urls> permission state, so a revoked
+            // permission disables the feature even if the option flag
+            // still says on. Cached for the export to avoid one
+            // message per image. Fail-closed: any error disables.
+            imgFetchFallbackEnabled = false;
+            try {
+                const statusResp = await runtime.sendMessage({ type: 'FALLBACK_STATUS' }) as { enabled?: boolean } | undefined;
+                imgFetchFallbackEnabled = !!statusResp?.enabled;
+            } catch { /* fall closed */ }
+            if (imgFetchFallbackEnabled) {
+                console.log('[Teams Exporter] Image fetch fallback enabled (direct upstream retry on proxy 4xx).');
+            }
             // Only the IC3 token is strictly required (Teams Free's direct
             // AMS fetch needs only the Skype JWT; Work/School's asyncgw
             // proxy ALSO needs userId+userRegion, but checking those at
@@ -994,7 +1083,11 @@ export default defineContentScript({
                         const result = await fetchSharePointFile(url, currentAbortController?.signal);
                         if (result.ok) {
                             if (result.bytes.byteLength > MAX_IMAGE_BYTES) {
-                                console.warn(`[Teams Exporter] SharePoint file too large (${result.bytes.byteLength} bytes), skipping: ${url.slice(0, 120)}`);
+                                // log (not warn): an oversized attachment
+                                // is a soft skip — file too big to embed,
+                                // not a code bug. Keeps Chrome's
+                                // Errors panel scoped to extension issues.
+                                console.log(`[Teams Exporter] SharePoint file too large (${result.bytes.byteLength} bytes), skipping: ${url.slice(0, 120)}`);
                                 return;
                             }
                             let bin = '';
@@ -1002,7 +1095,11 @@ export default defineContentScript({
                             att.dataUrl = `data:${result.mime};base64,${btoa(bin)}`;
                             spOk++;
                         } else {
-                            console.warn(`[Teams Exporter] SharePoint fetch failed (${result.status} ${result.statusText} — ${result.reason}) for ${url.slice(0, 120)}`);
+                            // log (not warn): SharePoint may decline to
+                            // serve a file (auth scope, deleted folder,
+                            // permission revoked, etc) — that's external
+                            // state, not an extension code error.
+                            console.log(`[Teams Exporter] SharePoint fetch failed (${result.status} ${result.statusText} — ${result.reason}) for ${url.slice(0, 120)}`);
                         }
                     }));
                 }
@@ -1080,6 +1177,9 @@ export default defineContentScript({
                 );
             }
             console.log(`[Teams Exporter] Image fetch: ${succeeded} succeeded, ${tasks.length - succeeded} failed (of ${tasks.length} attempted)`);
+            if (imgFetchStats.directRecovered > 0 || imgFetchStats.directFailed > 0) {
+                console.log(`[Teams Exporter] Image fetch fallback: ${imgFetchStats.directRecovered} recovered, ${imgFetchStats.directFailed} still failed via direct upstream fetch.`);
+            }
             const failures = imgFetchStats.httpError + imgFetchStats.threwError + imgFetchStats.tooLarge + imgFetchStats.tooSmall + imgFetchStats.skippedDomain;
             if (failures > 0) {
                 const detail = [
@@ -1089,9 +1189,17 @@ export default defineContentScript({
                     imgFetchStats.tooSmall && `${imgFetchStats.tooSmall} too-small`,
                     imgFetchStats.skippedDomain && `${imgFetchStats.skippedDomain} domain-blocked`,
                 ].filter(Boolean).join(', ');
-                console.warn(`[Teams Exporter] Image fetch failures — ${detail}`);
-                if (imgFetchStats.firstHttpError) console.warn(`[Teams Exporter] First http error: ${imgFetchStats.firstHttpError}`);
-                if (imgFetchStats.firstThrow) console.warn(`[Teams Exporter] First exception: ${imgFetchStats.firstThrow}`);
+                // log (not warn): these are reports of external state
+                // (upstream returned 4xx, network blip, etc), not errors
+                // in our own code. Chrome's chrome://extensions Errors
+                // panel surfaces warn + error and treats anything there
+                // as "the extension misbehaved" — surfacing external
+                // failures via that channel misleads users into
+                // thinking the extension is buggy. Stays accessible in
+                // DevTools console for support / debugging.
+                console.log(`[Teams Exporter] Image fetch failures — ${detail}`);
+                if (imgFetchStats.firstHttpError) console.log(`[Teams Exporter] First http error: ${imgFetchStats.firstHttpError}`);
+                if (imgFetchStats.firstThrow) console.log(`[Teams Exporter] First exception: ${imgFetchStats.firstThrow}`);
                 // Per-host breakdown. The "first http error" line above shows
                 // ONE error from ONE URL, which is misleading when 200+ images
                 // fail across several different hosts (asyncgw, AMS, Google
@@ -1100,7 +1208,15 @@ export default defineContentScript({
                 if (imgFetchStats.byHost.size > 0) {
                     const rows: Array<[string, HostStats]> = Array.from(imgFetchStats.byHost.entries())
                         .sort((a, b) => (b[1].httpError + b[1].threwError) - (a[1].httpError + a[1].threwError));
-                    console.warn('[Teams Exporter] Image fetch breakdown by upstream host:');
+                    // log (not warn): the breakdown is informational —
+                    // every host's success/failure tally, including all
+                    // the fully-OK rows. Chrome's chrome://extensions
+                    // Errors panel surfaces both warn and error, so an
+                    // export with any failures used to flood it with
+                    // dozens of "ok" rows. The summary line above
+                    // (`Image fetch failures — N http-error`) stays at
+                    // warn so real failures still surface there.
+                    console.log('[Teams Exporter] Image fetch breakdown by upstream host:');
                     for (const [host, s] of rows) {
                         const total = s.ok + s.httpError + s.threwError + s.tooLarge + s.tooSmall;
                         const parts = [
@@ -1112,7 +1228,7 @@ export default defineContentScript({
                         const firstFail = s.firstStatus !== undefined
                             ? `first: HTTP ${s.firstStatus} ${s.firstStatusText || ''}`.trim()
                             : s.firstError ? `first: ${s.firstError}` : '';
-                        console.warn(`  ${host}: ${s.ok}/${total} ok${parts ? ` (${parts})` : ''}${firstFail ? ` — ${firstFail}` : ''}`);
+                        console.log(`  ${host}: ${s.ok}/${total} ok${parts ? ` (${parts})` : ''}${firstFail ? ` — ${firstFail}` : ''}`);
                     }
                 }
                 // Debug build: dump up to 30 failed URLs to console so the

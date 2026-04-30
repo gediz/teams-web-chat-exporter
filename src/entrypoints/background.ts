@@ -568,6 +568,11 @@ function handleExportWithScrape(
             if (message === 'cancelled') {
                 sendResponse({ cancelled: true });
             } else {
+                // Surface the error message in the SW console so a red-badge
+                // failure is debuggable. Without this, broadcastStatus only
+                // updates state — the actual reason never reaches the log.
+                log('export failed:', message);
+                if (err?.stack) log('export stack:', err.stack);
                 broadcastStatus({ tabId, phase: 'error', error: message });
                 sendResponse({ error: message });
             }
@@ -1178,6 +1183,94 @@ async function handleFetchBlobMessage(
     }
 }
 
+// Image-fetch-fallback feature gate. Background owns the check
+// because Firefox MV2 content scripts can't reliably access
+// permissions.contains. Content asks once at scrape start. Returns
+// the AND of: (a) user has flipped the toggle ON in Settings, (b)
+// <all_urls> permission is currently granted. Both can drift apart
+// if the user revokes the host permission outside our UI; the AND
+// keeps the feature gate honest.
+async function handleFallbackStatusMessage(sendResponse: (resp: unknown) => void) {
+    try {
+        const stored = await storage.local.get('teamsExporterOptions');
+        const opts = (stored as { teamsExporterOptions?: { imageFetchFallback?: boolean } })
+            .teamsExporterOptions;
+        const optionOn = !!opts?.imageFetchFallback;
+        if (!optionOn) {
+            sendResponse({ enabled: false });
+            return;
+        }
+        // @ts-ignore - browser global on Firefox; chrome polyfill on Chrome
+        const permsApi = typeof browser !== 'undefined' ? browser.permissions : chrome.permissions;
+        const granted = await permsApi.contains({ origins: ['<all_urls>'] });
+        sendResponse({ enabled: !!granted });
+    } catch {
+        sendResponse({ enabled: false });
+    }
+}
+
+// Direct upstream fetch — used by the image-fetch-fallback feature when
+// Teams' proxy returns a permanent-shaped failure on a thumbnail. No
+// auth headers, no retries, single attempt with a 10 s timeout. Caller
+// is content.ts:fetchImageAsDataUrl, which only invokes this when the
+// user has both opted in via the Settings toggle AND granted
+// <all_urls>. We re-check the permission here as a safety guard —
+// permission state can change between scrape-start and a later fetch.
+// Reuses the tab-grouped abort tracking so STOP_EXPORT also kills
+// these in-flight fetches.
+async function handleFetchBlobDirectMessage(
+    msg: { url: string; maxBytes?: number; minBytes?: number },
+    sendResponse: (resp: unknown) => void,
+    tabId?: number,
+) {
+    try {
+        // @ts-ignore - browser global on Firefox; chrome polyfill on Chrome
+        const permsApi = typeof browser !== 'undefined' ? browser.permissions : chrome.permissions;
+        const granted = await permsApi.contains({ origins: ['<all_urls>'] });
+        if (!granted) {
+            sendResponse({ ok: false, error: 'permission-revoked' });
+            return;
+        }
+    } catch {
+        sendResponse({ ok: false, error: 'permission-check-failed' });
+        return;
+    }
+    const maxBytes = msg.maxBytes ?? 5 * 1024 * 1024;
+    const minBytes = msg.minBytes ?? 100;
+    const TIMEOUT_MS = 10_000;
+    const controller = new AbortController();
+    trackFetch(tabId, controller);
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+        const resp = await fetch(msg.url, { signal: controller.signal });
+        if (!resp.ok) {
+            sendResponse({ ok: false, status: resp.status, statusText: resp.statusText });
+            return;
+        }
+        const blob = await resp.blob();
+        if (blob.size > maxBytes || blob.size < minBytes) {
+            sendResponse({ ok: false, sizeReason: blob.size });
+            return;
+        }
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(blob);
+        });
+        sendResponse({ ok: true, dataUrl, size: blob.size });
+    } catch (e) {
+        if (controller.signal.aborted) {
+            sendResponse({ ok: false, cancelled: true });
+            return;
+        }
+        sendResponse({ ok: false, error: String(e) });
+    } finally {
+        clearTimeout(timeoutId);
+        untrackFetch(tabId, controller);
+    }
+}
+
 resetBadge();
 
 runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendResponse) => {
@@ -1235,6 +1328,16 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
         // sender.tab.id groups in-flight fetches under the originating tab so
         // STOP_EXPORT can abort them all at once.
         handleFetchBlobMessage(msg, sendResponse, sender?.tab?.id);
+        return true;
+    }
+
+    if (msg.type === 'FETCH_BLOB_DIRECT') {
+        handleFetchBlobDirectMessage(msg, sendResponse, sender?.tab?.id);
+        return true;
+    }
+
+    if (msg.type === 'FALLBACK_STATUS') {
+        handleFallbackStatusMessage(sendResponse);
         return true;
     }
 

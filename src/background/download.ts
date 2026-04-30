@@ -1,4 +1,4 @@
-import { binaryToDownloadUrl, removeAvatars, revokeDownloadUrl, summarizeAttachments, textToDownloadUrl, toCSV, toHTML } from './builders';
+import { binaryToDownloadUrl, blobToDownloadUrl, removeAvatars, revokeDownloadUrl, summarizeAttachments, textToDownloadUrl, toCSV, toHTML } from './builders';
 // binaryToDownloadUrl is still used for the PDF single-format path; the
 // zip paths bypass it because `new Blob([uint8array])` doubles peak
 // memory for large bundles (see zip.ts comments + take3 OOM trace).
@@ -333,10 +333,13 @@ export async function buildAndDownload(
     onStatus?.({ phase: 'build', filename, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
     const url = binaryToDownloadUrl(bytes, 'application/pdf');
     try {
+      console.log(`[pdf-single] downloads.download calling: filename=${filename} bytes=${bytes.byteLength}`);
       const id = await downloads.download({ url, filename, saveAs });
+      console.log(`[pdf-single] downloads.download resolved: id=${id}`);
       setTimeout(() => revokeDownloadUrl(url), 60_000);
       return { ok: true, filename, id };
     } catch (e: any) {
+      console.log(`[pdf-single] downloads.download rejected: ${e?.message || String(e)}`);
       revokeDownloadUrl(url);
       throw new Error(e?.message || String(e));
     }
@@ -366,18 +369,23 @@ export async function buildAndDownload(
 
   const url = textToDownloadUrl(built.content, built.mime);
   try {
+    console.log(`[text-single] downloads.download calling: filename=${built.filename} format=${format}`);
     const id = await downloads.download({ url, filename: built.filename, saveAs });
+    console.log(`[text-single] downloads.download resolved: id=${id}`);
     setTimeout(() => revokeDownloadUrl(url), 60_000);
     return { ok: true, filename: built.filename, id };
   } catch (e: any) {
+    console.log(`[text-single] downloads.download rejected: ${e?.message || String(e)} — retrying with sanitized filename`);
     const safe = `${sanitizeBase('teams-chat')}-${Date.now()}.${format === 'html' ? 'html' : format === 'csv' ? 'csv' : format === 'txt' ? 'txt' : 'json'}`;
     revokeDownloadUrl(url);
     try {
       const url2 = textToDownloadUrl(built.content, built.mime);
       const id2 = await downloads.download({ url: url2, filename: safe, saveAs });
+      console.log(`[text-single] downloads.download retry resolved: id=${id2}`);
       setTimeout(() => URL.revokeObjectURL(url2), 60_000);
       return { ok: true, filename: safe, id: id2 };
     } catch (e2: any) {
+      console.log(`[text-single] downloads.download retry rejected: ${e2?.message || String(e2)}`);
       throw new Error(e2?.message || String(e2));
     }
   }
@@ -441,12 +449,15 @@ export async function buildAndDownloadZip(
 
   const zipBlob = await buildZipAsync(files, 'zip-html-images');
   const zipName = `${built.baseFolder}.zip`;
-  const url = URL.createObjectURL(zipBlob);
+  const url = await blobToDownloadUrl(zipBlob, 'application/zip');
   try {
+    console.log(`[html-zip] downloads.download calling: filename=${zipName} zipBytes=${zipBlob.size}`);
     const id = await downloads.download({ url, filename: zipName, saveAs: true });
+    console.log(`[html-zip] downloads.download resolved: id=${id}`);
     setTimeout(() => revokeDownloadUrl(url), 60_000);
     return { ok: true, filename: zipName, id };
   } catch (e: any) {
+    console.log(`[html-zip] downloads.download rejected: ${e?.message || String(e)}`);
     revokeDownloadUrl(url);
     throw new Error(e?.message || String(e));
   }
@@ -563,12 +574,18 @@ export async function buildAndDownloadBundle(
 
   const zipBlob = await buildZipAsync(files, 'zip-per-chat-bundle');
   const zipName = `${baseFolder}.zip`;
-  const url = URL.createObjectURL(zipBlob);
+  const tUrl = performance.now();
+  const url = await blobToDownloadUrl(zipBlob, 'application/zip');
+  console.log(`[per-chat-zip] download-url created in ${Math.round(performance.now() - tUrl)}ms (zipBytes=${zipBlob.size}, scheme=${url.slice(0, 5)})`);
   try {
+    const tDl = performance.now();
+    console.log(`[per-chat-zip] downloads.download calling: filename=${zipName}`);
     const id = await downloads.download({ url, filename: zipName, saveAs: true });
+    console.log(`[per-chat-zip] downloads.download resolved: id=${id} ms=${Math.round(performance.now() - tDl)}`);
     setTimeout(() => revokeDownloadUrl(url), 60_000);
     return { ok: true, filename: zipName, id };
   } catch (e: any) {
+    console.log(`[per-chat-zip] downloads.download rejected: ${e?.message || String(e)}`);
     revokeDownloadUrl(url);
     throw new Error(e?.message || String(e));
   }
@@ -817,8 +834,8 @@ export async function buildAndDownloadBundlesZip(
   const partialSuffix = partials.length ? '-PARTIAL' : '';
   const zipName = `TeamsExport_bundle_${stamp}${partialSuffix}.zip`;
   const tUrl = performance.now();
-  const url = URL.createObjectURL(zipBlob);
-  console.log(`[bundle-outer] blob-url created in ${Math.round(performance.now() - tUrl)}ms`);
+  const url = await blobToDownloadUrl(zipBlob, 'application/zip');
+  console.log(`[bundle-outer] download-url created in ${Math.round(performance.now() - tUrl)}ms (scheme=${url.slice(0, 5)})`);
   try {
     const tDl = performance.now();
     console.log(`[bundle-outer] downloads.download calling: filename=${zipName}`);

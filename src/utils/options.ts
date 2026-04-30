@@ -77,6 +77,13 @@ export type Options = {
   // "Got it" at the final step or "Skip"). Persisted so the overlay
   // doesn't re-appear on subsequent popup opens.
   onboardingDismissed: boolean;
+  // Opt-in: when an image fetch fails through Teams' urlp/AMS proxy,
+  // try fetching the image directly from its original source. Requires
+  // the user to grant <all_urls> via permissions.request() — the
+  // Settings toggle is what triggers that prompt. We persist this flag
+  // independent of the actual permission state so re-enabling the
+  // feature after a permission revocation re-prompts cleanly.
+  imageFetchFallback: boolean;
 };
 
 // Storage shape kept compatible with the pre-multi-format release: older
@@ -174,6 +181,7 @@ export const DEFAULT_OPTIONS: Options = {
   pdfShowPageNumbers: true,
   pdfIncludeAvatars: true,
   onboardingDismissed: false,
+  imageFetchFallback: false,
 };
 
 const VALID_FORMATS: readonly OptionFormat[] = ['json', 'csv', 'html', 'txt', 'pdf'];
@@ -239,6 +247,9 @@ const normalizeOptions = (raw: LegacyOptions, defaults: Options = DEFAULT_OPTION
   }
   if (typeof merged.pdfIncludeAvatars !== 'boolean') {
     merged.pdfIncludeAvatars = defaults.pdfIncludeAvatars;
+  }
+  if (typeof merged.imageFetchFallback !== 'boolean') {
+    merged.imageFetchFallback = defaults.imageFetchFallback;
   }
   return merged;
 };

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { ArrowLeft, Sun, Moon, Globe, FolderOpen, CircleUserRound, Printer, Info, ExternalLink, Bug, Star, GraduationCap } from 'lucide-svelte';
+  import { ArrowLeft, Sun, Moon, Globe, FolderOpen, CircleUserRound, Printer, Info, ExternalLink, Bug, Star, GraduationCap, Image } from 'lucide-svelte';
   import { t } from '../../../i18n/i18n';
   import { getReviewStoreUrl } from '../../../utils/store-urls';
 
@@ -49,6 +49,7 @@
   export let pdfBodyFontSize = 10;
   export let pdfShowPageNumbers = true;
   export let pdfIncludeAvatars = true;
+  export let imageFetchFallback = false;
 
   const dispatch = createEventDispatcher<{
     back: void;
@@ -60,6 +61,7 @@
     pdfBodyFontSizeChange: number;
     pdfShowPageNumbersChange: boolean;
     pdfIncludeAvatarsChange: boolean;
+    imageFetchFallbackChange: boolean;
     replayTour: void;
   }>();
 
@@ -94,6 +96,58 @@
 
   function onPdfIncludeAvatarsChange(e: Event) {
     dispatch('pdfIncludeAvatarsChange', (e.target as HTMLInputElement).checked);
+  }
+
+  // Permissions API selector. Firefox MV2 ships a callback-based
+  // `chrome.permissions.*` polyfill that returns void from
+  // request()/remove(); only `browser.permissions.*` is promise-based.
+  // Chrome MV3 makes `chrome.permissions.*` itself promise-based and
+  // doesn't expose `browser` (unless polyfilled). Picking
+  // `browser ?? chrome` selects the promise-returning surface on
+  // both. Same pattern App.svelte uses for runtime.
+  // @ts-ignore - `browser` is the WebExtension global on Firefox
+  const permsApi: typeof browser.permissions =
+    // @ts-ignore
+    typeof browser !== 'undefined' ? browser.permissions : chrome.permissions;
+
+  // Image-fetch-fallback toggle. Two-phase because flipping ON has to
+  // succeed at requesting <all_urls> before we can persist the option.
+  // The browser's permission prompt requires a live user gesture (this
+  // click handler runs inside one).
+  //
+  // We intercept `click` (not `change`) and preventDefault to stop the
+  // browser's default toggle. That keeps the checkbox visually pinned
+  // to whatever the prop says until *we* dispatch a state change. The
+  // checkbox only flips visually after the parent's option update
+  // flows back through the prop — i.e., after permission was actually
+  // granted. While the prompt is visible the checkbox stays unchecked,
+  // matching the user's mental model ("not enabled yet — pending").
+  // On disable we also remove the host permission as cleanup; users
+  // who re-enable will see the prompt again, which feels more honest
+  // than silently re-arming a previously-granted permission.
+  let imageFetchFallbackBusy = false;
+  async function onImageFetchFallbackClick(e: MouseEvent) {
+    e.preventDefault();
+    if (imageFetchFallbackBusy) return;
+    const desired = !imageFetchFallback;
+    imageFetchFallbackBusy = true;
+    try {
+      if (desired) {
+        let granted = false;
+        try {
+          granted = await permsApi.request({ origins: ['<all_urls>'] });
+        } catch { /* user gesture lost / API unavailable — treat as denied */ }
+        if (!granted) return;
+        dispatch('imageFetchFallbackChange', true);
+      } else {
+        try {
+          await permsApi.remove({ origins: ['<all_urls>'] });
+        } catch { /* removal isn't critical — user can revoke from browser settings */ }
+        dispatch('imageFetchFallbackChange', false);
+      }
+    } finally {
+      imageFetchFallbackBusy = false;
+    }
   }
 </script>
 
@@ -224,6 +278,29 @@
     </label>
   </div>
 
+  <!-- Image fetch fallback card. Off by default. Flipping ON triggers
+       a runtime permission prompt for <all_urls>; copy is intentionally
+       restrained about the broad permission so users opting in are
+       making an informed choice. Tooltip on the ⓘ explains the
+       use case + the permission cost. -->
+  <div class="card settings-card">
+    <div class="card-header">
+      <span class="card-icon"><Image size={16} /></span>
+      <span class="card-title">{t('settings.imageFallback', {}, lang) || 'Image fetch fallback'}</span>
+      <span
+        class="card-info"
+        title={t('settings.imageFallback.tooltip', {}, lang) || 'Sometimes Teams\' image proxy fails to load external images (link previews, repo cards, article thumbnails). When enabled, the extension falls back to fetching them directly from the source. Requires permission to access all websites.'}
+        aria-label={t('settings.imageFallback.tooltip', {}, lang) || 'Tooltip'}
+        role="note"
+      >ⓘ</span>
+    </div>
+    <div class="settings-subtitle">{t('settings.imageFallback.hint', {}, lang) || 'Try to get images directly when Teams\' proxy fails.'}</div>
+    <label class="pdf-toggle">
+      <input type="checkbox" checked={imageFetchFallback} on:click={onImageFetchFallbackClick} />
+      <span>{t('settings.imageFallback.enable', {}, lang) || 'Enable'}</span>
+    </label>
+  </div>
+
   <!-- Language Card -->
   <div class="card settings-card">
     <div class="card-header">
@@ -334,5 +411,16 @@
     stroke: currentColor;
     fill: none;
     stroke-width: 2;
+  }
+
+  /* Inline ⓘ next to a card title — same affordance as the
+     bundle.zip pill in FormatSection. Native title= tooltip on
+     hover; no custom popover. */
+  .card-info {
+    margin-left: 4px;
+    font-size: 12px;
+    color: var(--color-muted);
+    cursor: help;
+    user-select: none;
   }
 </style>
