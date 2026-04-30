@@ -44,6 +44,19 @@ export const sanitizeBase = (name: string | null | undefined): string => {
   // Strip control chars + characters illegal on common filesystems.
   // Includes DEL (\x7F) alongside the C0 range.
   cleaned = cleaned.replace(/[<>:"/\\|?*\x00-\x1F\x7F]/g, '-');
+  // Strip zero-width and bidirectional formatting characters that
+  // sometimes appear invisibly in chat names (often pasted from rich
+  // text). Chrome's chrome.downloads.download rejects filenames
+  // containing these as "filename must not contain illegal
+  // characters" (issue #21). Removed entirely (not replaced with a
+  // dash) since they have no visible representation — substituting
+  // would produce names like "Jane---Doe" for what looks like
+  // "Jane Doe". Covers:
+  //   U+200B–U+200F  zero-width space, ZWNJ, ZWJ, LRM, RLM
+  //   U+202A–U+202E  directional formatting overrides (LRE/RLE/PDF/LRO/RLO)
+  //   U+2060–U+2064  word joiner + invisible math operators
+  //   U+FEFF         BOM / zero-width no-break space
+  cleaned = cleaned.replace(/[​-‏‪-‮⁠-⁤﻿]/g, '');
   // Collapse whitespace.
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
   // Strip leading dots (prevents Unix "hidden file" names like ".config")
