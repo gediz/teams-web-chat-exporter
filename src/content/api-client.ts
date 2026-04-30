@@ -848,6 +848,17 @@ function extractOtherPartyUuid(id: string, selfUuid: string | null): string | 's
 // batch-resolve it alongside the MRIs that come from roster lookups.
 const uuidToMri = (uuid: string): string => `8:orgid:${uuid}`;
 
+// Teams stamps these placeholder labels onto chats whose counterparty it
+// can no longer resolve (left-org user, deleted account). They look like
+// real chat titles to our picker and hide which user the chat is with —
+// our own resolution chain (Graph → contacts → replychain → roster) often
+// still has the name cached. Treat them as "missing topic" so the chain
+// runs instead. English only for now; extend per user report in other
+// locales as needed.
+const TEAMS_SCRUBBED_TOPICS = new Set(['unknown user', 'just me']);
+const isScrubbedTopic = (topic: string | undefined | null): boolean =>
+  !!topic && TEAMS_SCRUBBED_TOPICS.has(topic.toLowerCase().trim());
+
 // Short date formatter for meeting subtitles. Same-year meetings show
 // "Apr 24"; cross-year meetings include the year. Locale-aware so
 // Turkish shows "24 Nis" etc.
@@ -1054,10 +1065,12 @@ async function enrichClassifiedConversations(
         name = (selfUuid && nameMap.get(uuidToMri(selfUuid)))
           || conv.lastMessage?.imdisplayname?.trim()
           || '';
-      } else if (topic) {
+      } else if (topic && !isScrubbedTopic(topic)) {
         // chatTitle.shortTitle was promoted into topic upstream —
         // for federated 1:1s this is Teams' own pre-computed name
-        // (e.g. "Jane Doe"), already correct.
+        // (e.g. "Jane Doe"), already correct. Sentinels like
+        // "Unknown User" are filtered above so the resolution chain
+        // below gets a chance to surface a cached name instead.
         name = topic;
       } else {
         const mri = other ? uuidToMri(other) : null;
@@ -1104,7 +1117,7 @@ async function enrichClassifiedConversations(
         }
       }
     } else if (kind === 'group') {
-      if (topic) {
+      if (topic && !isScrubbedTopic(topic)) {
         name = topic;
       } else {
         // Unnamed group: collect all candidate names (roster + recent
@@ -1161,7 +1174,18 @@ async function enrichClassifiedConversations(
       const when = formatMeetingDate(conv.lastMessage?.composetime || conv.lastMessage?.originalarrivaltime);
       if (when) subtitle = when;
     } else if (kind === 'channel') {
-      if (topic) name = topic;
+      if (topic && !isScrubbedTopic(topic)) {
+        name = topic;
+      } else {
+        // Channel-side analogue of the chat resolution chain. Triggers
+        // when Teams' precomputed channel title is a scrubbed sentinel
+        // (typically a private channel whose only-other-member was
+        // removed from the directory). Surface the most-recent non-self
+        // sender from the cached message authors.
+        const senders = sendersByConv.get(conv.id!) || [];
+        const nonSelfSender = senders.find(s => !selfMriSubstring || !s.mri.toLowerCase().includes(selfMriSubstring));
+        if (nonSelfSender) name = nonSelfSender.name;
+      }
       const gid = conv.threadProperties?.groupId?.toLowerCase();
       const teamName = gid ? teamMap.get(gid) : undefined;
       if (teamName) subtitle = teamName;
@@ -1269,9 +1293,12 @@ export async function listConversationsFromIdbQuick(): Promise<ListConversations
     // chatTitle.shortTitle — exact "Alice, Bob, Carol, +N" / "Jane
     // Doe" string. Use it when available; fall back to topic; then
     // to last-message sender. Skips all the Graph/roster work.
-    let name = r.chatTitle?.shortTitle?.trim()
-      || r.threadProperties?.topic?.trim()
-      || '';
+    // Scrubbed sentinels ("Unknown User" / "Just me") are treated as
+    // missing — better to show "(direct message)" briefly until the
+    // full enrichment surfaces a real name than to lock in a label
+    // that hides which person the chat is with.
+    const rawTitle = r.chatTitle?.shortTitle?.trim() || r.threadProperties?.topic?.trim() || '';
+    let name = isScrubbedTopic(rawTitle) ? '' : rawTitle;
     if (!name && kind === 'chat' && !isSelfChat) {
       const lmFrom = r.lastMessage?.from || '';
       const lmSenderIsSelf = selfMriSubstring && lmFrom.toLowerCase().includes(selfMriSubstring);
