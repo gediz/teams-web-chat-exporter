@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.7] — 2026-05-01
+
+Picker labels now resolve real names for chats Teams scrubbed (issue #22 follow-up). New opt-in image-recovery toggle for users who want to embed external thumbnails Teams' proxy fails to deliver. Two Chrome-only bug fixes (download path, filename sanitization).
+
+### Fixed
+
+- **Picker no longer accepts "Unknown User" / "Just me" as final names.** Teams stamps these placeholder labels onto chats whose counterparty it can no longer resolve (left-org users, deleted accounts). The picker was using them as the chat name and skipping past its own resolution chain — which usually still has the actual name cached in the Teams replychain-manager (the most-recent non-self sender's display name from cached message authors). Now we treat those two strings as "no name set" and run the resolution chain. For private channels in the same degenerate state, added a senders-based fallback so they get the same recovery treatment as 1:1 chats. Cache version bumped (10 → 11) so existing users with cached "Unknown User" rows actually see the fix on their first popup open after upgrade — one cold refresh, then instant loads resume. Verified against the JSON exports user `simbamford` emailed: the names were sitting in cached message authors all along.
+- **Chrome MV3 download path no longer fails with `URL.createObjectURL is not a function`.** Some Chrome versions don't expose `URL.createObjectURL` in extension service workers (Google has flipped this on/off across releases for security reasons). The three zip-output download paths (`per-chat-zip`, `html-zip`, `bundle-outer`) called it directly and broke silently — red error badge, no history entry, no actionable error. Added `blobToDownloadUrl()` that tries Object URL first and falls back to a base64 `data:` URL (read via `Blob.arrayBuffer()`). Existing `binaryToDownloadUrl` / `textToDownloadUrl` already had this fallback; the zip paths didn't. Same fallback shape extended to them. ~33% memory overhead during the conversion (68 MB blob → 90 MB data URL), but works wherever blob URLs fail.
+- **Filenames with invisible Unicode characters no longer fail with "filename must not contain illegal characters" on Chrome (issue #21).** Some chat names contain zero-width spaces (U+200B–U+200F), directional formatting overrides (U+202A–U+202E), word joiners (U+2060–U+2064), or BOMs (U+FEFF) — typically pasted in from rich text editors. `chrome.downloads.download` rejects these characters in filenames. `sanitizeBase` now strips them entirely (not replaced with a dash) so a name that visually reads "Jane Doe" but has a hidden ZWNJ doesn't end up as "Jane-Doe". Reproduction credit + diagnosis credit to user `GeorgeDuckman`.
+
+### Added
+
+- **"Image fetch fallback" toggle in Settings.** Opt-in. Off by default. When Teams' image proxy returns a permanent-shaped failure (HTTP 410, 429, 403, 404) on an external link-preview thumbnail, the extension can fall back to fetching the image directly from the original source. Recovers thumbnails for sites like asciinema, GitHub OG cards, news article images, etc. — anywhere the proxy's negative cache outlives upstream availability. Requires the user to grant `<all_urls>` permission on toggle-on (declared as `optional_host_permissions` on Chrome MV3 / `optional_permissions` on Firefox MV2 — invisible at install time). Permission flow handles popup-died-during-prompt cleanly: sync-on-mount reconciliation reads the live permission state on every popup open and aligns the option flag with reality, so the user doesn't have to click the toggle twice if the prompt killed the popup. Permission-revocation listener also flips the option off if the user revokes the permission from `chrome://extensions` / `about:addons`. Background-mediated direct fetch (`FETCH_BLOB_DIRECT`) re-checks permission as a safety guard before each call. New post-export log line: `Image fetch fallback: N recovered, M still failed via direct upstream fetch`.
+
+### Changed
+
+- **External-state log lines demoted from `console.warn` to `console.log`.** Chrome's `chrome://extensions` Errors panel surfaces both warn and error and treats anything there as "the extension misbehaved." Network blips, AMS Bearer 401 → cookie auth recovery, per-host fetch breakdowns, SharePoint fetch failures, per-avatar HTTP failures, image fetch failure summaries: all reports of external state, not extension code errors. Now scoped to `console.log` so the Errors panel reflects actual extension issues. Still in DevTools console at log level for support / debugging. Stayed at `warn`: missing IC3 token, urlp helper script load failure, scrape errors, partial-export markers, DOM parsing surprises — all real code-side warnings worth surfacing.
+- **Diagnostic logging on download paths.** `per-chat-zip`, `bundle-outer`, `pdf-single`, `text-single`, `html-zip` all now log `downloads.download calling`, `resolved` (with id), or `rejected` (with error message). Outer error catch in `handleExportWithScrape` now logs the actual error text — without this, red-badge failures were silent in the SW console and there was no way to debug them.
+
+### i18n
+
+- 5 new keys (`settings.imageFallback`, `settings.imageFallback.hint`, `settings.imageFallback.tooltip`, `settings.imageFallback.enable`, `settings.imageFallback.permissionDenied`) translated across all 24 locales.
+
 ## [1.4.6] — 2026-04-30
 
 Fixes the "pasted screenshots and attached images don't appear in the export" regression that affected some tenants in v1.4.0–v1.4.5 (see issue #22). Plus a small PDF banner geometry fix.
