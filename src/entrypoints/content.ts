@@ -961,6 +961,7 @@ export default defineContentScript({
                 if (imgFetchFallbackEnabled && (fallbackEligibleStatus || fallbackEligibleNetworkError)) {
                     const upstreamUrl = getDirectFallbackUrl();
                     if (upstreamUrl) {
+                        try { directFetchHosts.add(new URL(upstreamUrl).hostname); } catch { /* ignore */ }
                         try {
                             const directResp = await runtime.sendMessage({
                                 type: 'FETCH_BLOB_DIRECT',
@@ -1068,6 +1069,11 @@ export default defineContentScript({
             // the raw evidence with us instead of devtools logs.
             failedUrls: [] as Array<{ url: string; transformed: string; status?: number; error?: string }>,
         };
+        // Hosts that received a direct (non-Teams-proxied) fetch during this
+        // export. Populated only when the opt-in image-fetch fallback fires.
+        // Surfaced in the post-export log so the user can see which third-
+        // party hosts their browser contacted on their behalf.
+        const directFetchHosts: Set<string> = new Set();
         const getHostStats = (host: string): HostStats => {
             let s = imgFetchStats.byHost.get(host);
             if (!s) {
@@ -1097,6 +1103,7 @@ export default defineContentScript({
             imgFetchStats.firstThrow = '';
             imgFetchStats.byHost.clear();
             imgFetchStats.failedUrls.length = 0;
+            directFetchHosts.clear();
             urlpDirectCallCount = 0;
             amsDirectCallCount = 0;
             amsBearerStatus = 'unknown';
@@ -1342,6 +1349,10 @@ export default defineContentScript({
             }
             if (imgFetchStats.amsRawRecovered > 0) {
                 console.log(`[Teams Exporter] Recovered ${imgFetchStats.amsRawRecovered} private image(s) via raw AMS fallback`);
+            }
+            if (directFetchHosts.size > 0) {
+                const hosts = [...directFetchHosts].sort().join(', ');
+                console.log(`[Teams Exporter] Image fetch fallback contacted ${directFetchHosts.size} upstream host(s) directly: ${hosts}`);
             }
             const failures = imgFetchStats.httpError + imgFetchStats.threwError + imgFetchStats.tooLarge + imgFetchStats.tooSmall + imgFetchStats.skippedDomain;
             if (failures > 0) {
