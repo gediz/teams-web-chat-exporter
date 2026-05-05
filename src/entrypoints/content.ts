@@ -692,11 +692,17 @@ export default defineContentScript({
         }
 
         async function fetchImageAsDataUrl(url: string): Promise<string | null> {
-            // All image fetches go through Teams' authenticated URL-image proxy:
-            //   - AMS object URLs and asyncgw proxy URLs get rewritten with {userId}
-            //   - Any other http(s) URL gets wrapped in /urlp/v1/{userId}/url/image/Thumbnail
-            // The Teams server validates + fetches the upstream, so we never touch
-            // third-party CDNs directly (no extra host_permissions, no CORS pitfalls).
+            // Image fetch routing, in order of attempts:
+            //   1. Primary: Teams' authenticated proxy (asyncgw) via Bearer token.
+            //   2. If the tenant rejects Bearer or the proxy host is unreachable,
+            //      retry through the page-world cookie helper.
+            //   3. For raw AMS object URLs, also retry the original AMS host with
+            //      page-world cookies. Covers environments where asyncgw fails
+            //      DNS but the raw AMS host still resolves.
+            //   4. For public preview images, when the user has opted into the
+            //      "Image fetch fallback" setting and granted <all_urls>, retry
+            //      the upstream URL directly via FETCH_BLOB_DIRECT (background
+            //      fetch with no credentials).
             const host = hostOf(url);
             const hostStats = getHostStats(host);
             if (!imgFetchAuth?.userId || !imgFetchAuth?.userRegion || !imgFetchAuth?.ic3Token) {
