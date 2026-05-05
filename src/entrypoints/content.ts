@@ -806,15 +806,54 @@ export default defineContentScript({
                 const isRawAmsObject = /\.asm\.skype\.com\/v1\/objects\/[^/]+\/views\//i.test(url);
 
                 if (isRawAmsObject) {
+                    let rawAmsResp: typeof resp | undefined;
                     try {
-                        const rawAmsResp = await fetchUrlpDirect(url);
-                        if (rawAmsResp?.ok && rawAmsResp.dataUrl) {
-                            hostStats.ok++;
-                            return rawAmsResp.dataUrl;
-                        }
+                        rawAmsResp = await fetchUrlpDirect(url);
                     } catch {
-                        // fall through to the existing failure accounting
+                        rawAmsResp = { ok: false, error: 'rescue threw' };
                     }
+                    if (rawAmsResp?.ok && rawAmsResp.dataUrl) {
+                        hostStats.ok++;
+                        imgFetchStats.amsRawRecovered++;
+                        return rawAmsResp.dataUrl;
+                    }
+                    // Record the rescue's own failure rather than falling through
+                    // to record `resp` (the prior asyncgw failure). Otherwise the
+                    // summary log mislabels rescue failures as asyncgw failures
+                    // and the debug failedUrls dump never shows the raw AMS URL.
+                    if (rawAmsResp?.status) {
+                        imgFetchStats.httpError++;
+                        hostStats.httpError++;
+                        if (hostStats.firstStatus === undefined) {
+                            hostStats.firstStatus = rawAmsResp.status;
+                            hostStats.firstStatusText = rawAmsResp.statusText || '';
+                            hostStats.firstUrl = url.slice(0, 200);
+                        }
+                        imgFetchStats.failedUrls.push({ url, transformed: fetchUrl, status: rawAmsResp.status });
+                        if (!imgFetchStats.firstHttpError) {
+                            imgFetchStats.firstHttpError = `HTTP ${rawAmsResp.status} ${rawAmsResp.statusText || ''} for ${url.slice(0, 200)}`;
+                        }
+                    } else if (rawAmsResp?.error) {
+                        imgFetchStats.threwError++;
+                        hostStats.threwError++;
+                        if (hostStats.firstError === undefined) {
+                            hostStats.firstError = rawAmsResp.error.slice(0, 120);
+                            hostStats.firstUrl = url.slice(0, 200);
+                        }
+                        imgFetchStats.failedUrls.push({ url, transformed: fetchUrl, error: rawAmsResp.error });
+                        if (!imgFetchStats.firstThrow) {
+                            imgFetchStats.firstThrow = `${rawAmsResp.error.slice(0, 100)} for ${url.slice(0, 80)}`;
+                        }
+                    } else if (typeof rawAmsResp?.sizeReason === 'number') {
+                        if (rawAmsResp.sizeReason > MAX_IMAGE_BYTES) {
+                            imgFetchStats.tooLarge++;
+                            hostStats.tooLarge++;
+                        } else {
+                            imgFetchStats.tooSmall++;
+                            hostStats.tooSmall++;
+                        }
+                    }
+                    return null;
                 }
                 // Image fetch fallback (opt-in feature). When Teams'
                 // proxy/page-helper cannot return a public preview image,
@@ -943,6 +982,10 @@ export default defineContentScript({
             // images the fallback recovered vs. how many it couldn't.
             directRecovered: 0,
             directFailed: 0,
+            // Raw AMS rescue counter. Incremented when the rescue branch
+            // (or the Fix 1 short-circuit) saves a private image that the
+            // asyncgw proxy could not deliver.
+            amsRawRecovered: 0,
             firstHttpError: '' as string,
             firstThrow: '' as string,
             // Per-host breakdown. Key is the upstream host (the URL the user actually
@@ -979,6 +1022,7 @@ export default defineContentScript({
             imgFetchStats.tooSmall = 0;
             imgFetchStats.directRecovered = 0;
             imgFetchStats.directFailed = 0;
+            imgFetchStats.amsRawRecovered = 0;
             imgFetchStats.firstHttpError = '';
             imgFetchStats.firstThrow = '';
             imgFetchStats.byHost.clear();
@@ -1224,6 +1268,9 @@ export default defineContentScript({
             console.log(`[Teams Exporter] Image fetch: ${succeeded} succeeded, ${tasks.length - succeeded} failed (of ${tasks.length} attempted)`);
             if (imgFetchStats.directRecovered > 0 || imgFetchStats.directFailed > 0) {
                 console.log(`[Teams Exporter] Image fetch fallback: ${imgFetchStats.directRecovered} recovered, ${imgFetchStats.directFailed} still failed via direct upstream fetch.`);
+            }
+            if (imgFetchStats.amsRawRecovered > 0) {
+                console.log(`[Teams Exporter] Recovered ${imgFetchStats.amsRawRecovered} private image(s) via raw AMS fallback`);
             }
             const failures = imgFetchStats.httpError + imgFetchStats.threwError + imgFetchStats.tooLarge + imgFetchStats.tooSmall + imgFetchStats.skippedDomain;
             if (failures > 0) {
