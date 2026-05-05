@@ -741,6 +741,7 @@ export default defineContentScript({
             //     skip the doomed Bearer call and route through the
             //     same cookie helper as urlp.
             const isUrlpPath = /\/urlp\//i.test(fetchUrl);
+            const isRawAmsObject = /\.asm\.skype\.com\/v1\/objects\/[^/]+\/views\//i.test(url);
             const useCookies = isUrlpPath || amsBearerStatus === 'failed';
             const isFirstAmsDirectCall = !isUrlpPath && amsDirectCallCount === 0;
             if (isFirstAmsDirectCall) {
@@ -750,6 +751,56 @@ export default defineContentScript({
             }
             try {
                 let resp: { ok: boolean; dataUrl?: string; status?: number; statusText?: string; error?: string; sizeReason?: number };
+                // Once we have detected the tenant's Bearer auth is dead
+                // (amsBearerStatus === 'failed') AND the URL is a raw AMS
+                // object, the existing routing would call asyncgw via cookies
+                // (which we already know fails for this tenant) and only
+                // then fall into the rescue branch which calls the raw AMS
+                // URL. Two helper calls per image when one suffices. Skip
+                // straight to the raw AMS attempt and bail on its result so
+                // the failure path stays at one helper call too (falling
+                // through would cost three).
+                if (amsBearerStatus === 'failed' && isRawAmsObject) {
+                    const direct = await fetchUrlpDirect(url);
+                    if (direct?.ok && direct.dataUrl) {
+                        hostStats.ok++;
+                        imgFetchStats.amsRawRecovered++;
+                        return direct.dataUrl;
+                    }
+                    if (direct?.status) {
+                        imgFetchStats.httpError++;
+                        hostStats.httpError++;
+                        if (hostStats.firstStatus === undefined) {
+                            hostStats.firstStatus = direct.status;
+                            hostStats.firstStatusText = direct.statusText || '';
+                            hostStats.firstUrl = url.slice(0, 200);
+                        }
+                        imgFetchStats.failedUrls.push({ url, transformed: fetchUrl, status: direct.status });
+                        if (!imgFetchStats.firstHttpError) {
+                            imgFetchStats.firstHttpError = `HTTP ${direct.status} ${direct.statusText || ''} for ${url.slice(0, 200)}`;
+                        }
+                    } else if (direct?.error) {
+                        imgFetchStats.threwError++;
+                        hostStats.threwError++;
+                        if (hostStats.firstError === undefined) {
+                            hostStats.firstError = direct.error.slice(0, 120);
+                            hostStats.firstUrl = url.slice(0, 200);
+                        }
+                        imgFetchStats.failedUrls.push({ url, transformed: fetchUrl, error: direct.error });
+                        if (!imgFetchStats.firstThrow) {
+                            imgFetchStats.firstThrow = `${direct.error.slice(0, 100)} for ${url.slice(0, 80)}`;
+                        }
+                    } else if (typeof direct?.sizeReason === 'number') {
+                        if (direct.sizeReason > MAX_IMAGE_BYTES) {
+                            imgFetchStats.tooLarge++;
+                            hostStats.tooLarge++;
+                        } else {
+                            imgFetchStats.tooSmall++;
+                            hostStats.tooSmall++;
+                        }
+                    }
+                    return null;
+                }
                 if (useCookies) {
                     resp = await fetchUrlpDirect(fetchUrl);
                 } else {
@@ -803,8 +854,6 @@ export default defineContentScript({
                 // the page-world cookie helper. This covers environments where
                 // asyncgw DNS fails (ERR_NAME_NOT_RESOLVED) but the raw AMS host
                 // still resolves and serves the image with page cookies.
-                const isRawAmsObject = /\.asm\.skype\.com\/v1\/objects\/[^/]+\/views\//i.test(url);
-
                 if (isRawAmsObject) {
                     let rawAmsResp: typeof resp | undefined;
                     try {
