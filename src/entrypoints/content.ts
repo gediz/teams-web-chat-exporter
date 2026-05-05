@@ -478,6 +478,11 @@ export default defineContentScript({
         // ── Inline Image Fetching (API mode) ──────────────────────
         const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
         const MAX_CONCURRENT_FETCHES = 6;
+        // When Teams' urlp proxy starts returning HTTP 429 we drop
+        // concurrency for the rest of the export to give the rate
+        // limit a chance to clear. 4 is empirical: low enough to
+        // unblock most retries, high enough not to halve throughput.
+        const MAX_CONCURRENT_FETCHES_THROTTLED = 4;
 
         // Verbose image-fetch debugging. Two ways to enable:
         //   1. Build-time:  WXT_DEBUG_IMAGE_FETCH=1 pnpm build
@@ -650,6 +655,10 @@ export default defineContentScript({
         // path.
         let amsBearerFailureCount = 0;
         const AMS_BEARER_FAILURE_THRESHOLD = 2;
+        // Set to true the first time any image fetch sees HTTP 429.
+        // Stays true for the rest of the export so the batched loop
+        // can permanently drop to throttled concurrency.
+        let sawRateLimit = false;
         async function fetchUrlpDirect(url: string): Promise<{
             ok: boolean; dataUrl?: string; status?: number; statusText?: string; error?: string; sizeReason?: number;
         }> {
@@ -858,6 +867,31 @@ export default defineContentScript({
                             }
                             resp = await fetchUrlpDirect(fetchUrl);
                         }
+                    }
+                }
+                // 429 retry: a single per-image retry with a small jittered
+                // delay. Teams' urlp proxy rate-limits per session and
+                // returns 429 when too many requests land too quickly. A
+                // brief pause is usually enough to clear it. Sets
+                // sawRateLimit so the batched loop in fetchInlineImages
+                // drops concurrency for the remaining batches in this
+                // export. Honours abort so a Stop click during the wait
+                // bails immediately.
+                if (resp?.status === 429) {
+                    sawRateLimit = true;
+                    const delay = 1500 + Math.floor(Math.random() * 600);
+                    await new Promise(r => setTimeout(r, delay));
+                    if (currentAbortController?.signal.aborted) return null;
+                    if (useCookies) {
+                        resp = await fetchUrlpDirect(fetchUrl);
+                    } else {
+                        resp = await runtime.sendMessage({
+                            type: 'FETCH_BLOB',
+                            url: fetchUrl,
+                            bearerToken: imgFetchAuth.ic3Token,
+                            maxBytes: MAX_IMAGE_BYTES,
+                            minBytes: 100,
+                        }) as typeof resp;
                     }
                 }
                 if (isFirstAmsDirectCall) {
@@ -1119,6 +1153,7 @@ export default defineContentScript({
             amsDirectCallCount = 0;
             amsBearerStatus = 'unknown';
             amsBearerFailureCount = 0;
+            sawRateLimit = false;
         };
 
         /**
@@ -1340,10 +1375,18 @@ export default defineContentScript({
             currentAbortController?.signal.addEventListener('abort', () => {
                 try { window.postMessage({ type: URLP_CANCEL }, '*'); } catch { /* ignore */ }
             }, { once: true });
-            // Process in batches to limit concurrency
-            for (let i = 0; i < tasks.length; i += MAX_CONCURRENT_FETCHES) {
+            // Process in batches to limit concurrency. Concurrency starts at
+            // MAX_CONCURRENT_FETCHES and drops to MAX_CONCURRENT_FETCHES_THROTTLED
+            // for the rest of the export the first time any image fetch sees
+            // a 429 from the urlp proxy. The transition is logged once.
+            let concurrency = MAX_CONCURRENT_FETCHES;
+            for (let i = 0; i < tasks.length; i += concurrency) {
                 if (currentAbortController?.signal.aborted) break;
-                const batch = tasks.slice(i, i + MAX_CONCURRENT_FETCHES);
+                if (sawRateLimit && concurrency !== MAX_CONCURRENT_FETCHES_THROTTLED) {
+                    concurrency = MAX_CONCURRENT_FETCHES_THROTTLED;
+                    console.log(`[Teams Exporter] Rate limit detected (HTTP 429); reducing concurrency to ${concurrency} for the rest of this export`);
+                }
+                const batch = tasks.slice(i, i + concurrency);
                 await Promise.all(
                     batch.map(async ({ att, url }) => {
                         if (currentAbortController?.signal.aborted) return;
