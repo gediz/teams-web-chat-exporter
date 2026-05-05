@@ -581,6 +581,7 @@ export default defineContentScript({
         const URLP_REQ = 'tce-urlp-fetch';
         const URLP_RES = 'tce-urlp-result';
         const URLP_READY = 'tce-urlp-helper-ready';
+        const URLP_CANCEL = 'tce-urlp-cancel';
 
         // Lazy, idempotent: only inject the helper on first urlp use,
         // then every subsequent fetch reuses it. The helper itself
@@ -1321,6 +1322,14 @@ export default defineContentScript({
 
             let done = 0;
             let succeeded = 0;
+            // Forward export-level abort to the page-world helper so
+            // pending fetch()s are torn down immediately when the user
+            // clicks Stop. Without this, each in-flight helper call has
+            // to wait out the content-side 30s timeout. One-shot listener
+            // since we only need to fire the cancel once per export.
+            currentAbortController?.signal.addEventListener('abort', () => {
+                try { window.postMessage({ type: URLP_CANCEL }, '*'); } catch { /* ignore */ }
+            }, { once: true });
             // Process in batches to limit concurrency
             for (let i = 0; i < tasks.length; i += MAX_CONCURRENT_FETCHES) {
                 if (currentAbortController?.signal.aborted) break;

@@ -20,6 +20,11 @@
 //   response: { type: 'tce-urlp-result', id: string, ok: boolean,
 //               status?: number, statusText?: string,
 //               mime?: string, bytes?: ArrayBuffer, error?: string }
+//   cancel  : { type: 'tce-urlp-cancel' } — aborts every in-flight
+//             fetch this helper started in the current export. Used
+//             when the user clicks Stop while many slow helper calls
+//             are pending; without it we wait on the 30s content-side
+//             timeout for each one.
 //   ready   : { type: 'tce-urlp-helper-ready' } — emitted once on load.
 //
 // All responses go to window with a wildcard targetOrigin so the
@@ -34,19 +39,38 @@
   if (window.__teamsExporterUrlpHelperLoaded) return;
   window.__teamsExporterUrlpHelperLoaded = true;
 
+  // Track every in-flight fetch's AbortController by request id so we
+  // can cancel them all in response to a tce-urlp-cancel message.
+  var inflight = new Map();
+
   window.addEventListener('message', async function (e) {
     if (e.source !== window) return;
     var data = e.data;
+    if (!data) return;
+
+    if (data.type === 'tce-urlp-cancel') {
+      inflight.forEach(function (controller) {
+        try { controller.abort(); } catch (_) { /* ignore */ }
+      });
+      inflight.clear();
+      return;
+    }
+
     if (
-      !data
-      || data.type !== 'tce-urlp-fetch'
+      data.type !== 'tce-urlp-fetch'
       || typeof data.id !== 'string'
       || typeof data.url !== 'string'
     ) return;
 
+    var controller = new AbortController();
+    inflight.set(data.id, controller);
+
     var reply;
     try {
-      var resp = await fetch(data.url, { credentials: 'include' });
+      var resp = await fetch(data.url, {
+        credentials: 'include',
+        signal: controller.signal,
+      });
       if (!resp.ok) {
         reply = {
           type: 'tce-urlp-result',
@@ -74,10 +98,12 @@
         ok: false,
         error: String((err && err.message) || err),
       };
+    } finally {
+      inflight.delete(data.id);
     }
 
     // Transfer the ArrayBuffer to avoid copying ~MB-sized image bytes.
-    var transfer = reply.bytes ? [reply.bytes] : [];
+    var transfer = reply && reply.bytes ? [reply.bytes] : [];
     window.postMessage(reply, '*', transfer);
   });
 
