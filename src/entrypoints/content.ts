@@ -936,23 +936,33 @@ export default defineContentScript({
                 // (TypeError: Failed to fetch / ERR_NAME_NOT_RESOLVED), so
                 // treat resp.error as fallback-eligible too.
                 const getDirectFallbackUrl = (): string | null => {
+                    // A target URL is fallback-eligible only if it is a real
+                    // public http(s) URL on a host the unauthenticated direct
+                    // path can actually serve. Teams-own hosts (raw AMS, the
+                    // asyncgw proxy) need auth, so a direct fetch will 401.
+                    // Filtering them here also keeps the per-export privacy
+                    // log honest: it lists third-party hosts the extension
+                    // contacted, not Teams hosts the user already knows about.
+                    const isFallbackEligible = (target: string): boolean => {
+                        try {
+                            const u = new URL(target);
+                            if (!/^https?:$/i.test(u.protocol)) return false;
+                            if (/\.asm\.skype\.com$/i.test(u.hostname)) return false;
+                            if (/\.asyncgw\.teams\.microsoft\.com$/i.test(u.hostname)) return false;
+                            return true;
+                        } catch {
+                            return false;
+                        }
+                    };
+
                     const wrapped = fetchUrl.match(/[?&]url=([^&]+)/) || url.match(/[?&]url=([^&]+)/);
                     if (wrapped) {
-                        try { return decodeURIComponent(wrapped[1]); } catch { return null; }
+                        let target: string | null = null;
+                        try { target = decodeURIComponent(wrapped[1]); } catch { return null; }
+                        return target && isFallbackEligible(target) ? target : null;
                     }
-
                     // Raw public preview/GIF URLs are wrapped by transformImageUrlToProxy().
-                    // Private Teams/AMS object URLs are not useful for unauthenticated
-                    // direct fallback, so skip those.
-                    try {
-                        const u = new URL(url);
-                        if (!/^https?:$/i.test(u.protocol)) return null;
-                        if (/\.asm\.skype\.com$/i.test(u.hostname)) return null;
-                        if (/\.asyncgw\.teams\.microsoft\.com$/i.test(u.hostname)) return null;
-                        return url;
-                    } catch {
-                        return null;
-                    }
+                    return isFallbackEligible(url) ? url : null;
                 };
 
                 const fallbackEligibleStatus = resp?.status !== undefined
