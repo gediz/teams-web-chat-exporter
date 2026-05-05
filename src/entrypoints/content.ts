@@ -632,13 +632,13 @@ export default defineContentScript({
         // (/v1/{userId}/objects/...). Some tenants reject the IC3
         // Bearer with HTTP 401 even though the same auth works for
         // most users (see issue #22). When we see the first 401, flip
-        // to 'failed-401' and route every subsequent AMS-direct fetch
+        // to 'failed' and route every subsequent AMS-direct fetch
         // in this export through the page-world cookie helper — same
         // path that already works for /urlp/ thumbnails on those
         // tenants. Reset on every fetchInlineImages call so each
         // export starts fresh; a tenant-state change between exports
         // (token refresh, re-login) is correctly re-detected.
-        type AmsBearerStatus = 'unknown' | 'works' | 'failed-401';
+        type AmsBearerStatus = 'unknown' | 'works' | 'failed';
         let amsBearerStatus: AmsBearerStatus = 'unknown';
         async function fetchUrlpDirect(url: string): Promise<{
             ok: boolean; dataUrl?: string; status?: number; statusText?: string; error?: string; sizeReason?: number;
@@ -731,11 +731,11 @@ export default defineContentScript({
             //     helper. Their Bearer-auth path 401s on every tenant.
             //   - /v1/{userId}/objects/... (AMS-direct) starts on the
             //     Bearer path. If we've already detected this tenant
-            //     rejects Bearer (amsBearerStatus === 'failed-401'),
+            //     rejects Bearer (amsBearerStatus === 'failed'),
             //     skip the doomed Bearer call and route through the
             //     same cookie helper as urlp.
             const isUrlpPath = /\/urlp\//i.test(fetchUrl);
-            const useCookies = isUrlpPath || amsBearerStatus === 'failed-401';
+            const useCookies = isUrlpPath || amsBearerStatus === 'failed';
             const isFirstAmsDirectCall = !isUrlpPath && amsDirectCallCount === 0;
             if (isFirstAmsDirectCall) {
                 amsDirectCallCount++;
@@ -763,8 +763,8 @@ export default defineContentScript({
                     if (!isUrlpPath && amsBearerStatus === 'unknown') {
                         if (resp?.ok) {
                             amsBearerStatus = 'works';
-                        } else if (resp?.status === 401) {
-                            amsBearerStatus = 'failed-401';
+                        } else if (resp?.status === 401 || resp?.error) {
+                            amsBearerStatus = 'failed';
                             // log (not warn): the cookie fallback is a
                             // successful recovery path, not a failure.
                             // Chrome's chrome://extensions Errors panel
@@ -772,7 +772,8 @@ export default defineContentScript({
                             // recovery-fired messages at log level
                             // avoids cosmetic "errors" for what is
                             // actually working as designed.
-                            console.log('[Teams Exporter] AMS-direct Bearer auth returned 401 on first attempt; switching to page-world cookie auth for remaining AMS fetches in this export');
+                            const reason = resp?.status === 401 ? '401' : (resp?.error || 'network error');
+                            console.log(`[Teams Exporter] AMS-direct Bearer auth failed on first attempt (${reason}); switching to page-world cookie auth for remaining AMS fetches in this export`);
                             // Retry this specific image via cookies so
                             // we don't lose it just because it was the
                             // canary call that revealed the issue.
@@ -790,41 +791,79 @@ export default defineContentScript({
                     hostStats.ok++;
                     return resp.dataUrl;
                 }
-                // Image fetch fallback (opt-in feature). When the proxy
-                // returns a 4xx that suggests a permanent failure
-                // (Teams' negative cache, gone-upstream, hotlink-blocked,
-                // rate-limit), retry directly against the original
-                // upstream host. Only meaningful for urlp-wrapped URLs
-                // (the upstream is a public CDN/URL); AMS-direct paths
-                // point at private Teams storage and aren't fetchable
-                // without auth, so skip fallback for those.
-                if (
-                    imgFetchFallbackEnabled
-                    && resp?.status !== undefined
-                    && (resp.status === 410 || resp.status === 429 || resp.status === 403 || resp.status === 404)
-                ) {
-                    const wrapped = url.match(/[?&]url=([^&]+)/);
-                    if (wrapped) {
-                        let upstreamUrl: string | null = null;
-                        try { upstreamUrl = decodeURIComponent(wrapped[1]); } catch { /* skip */ }
-                        if (upstreamUrl) {
-                            try {
-                                const directResp = await runtime.sendMessage({
-                                    type: 'FETCH_BLOB_DIRECT',
-                                    url: upstreamUrl,
-                                    maxBytes: MAX_IMAGE_BYTES,
-                                    minBytes: 100,
-                                }) as typeof resp;
-                                if (directResp?.ok && directResp.dataUrl) {
-                                    hostStats.ok++;
-                                    hostStats.directRecovered = (hostStats.directRecovered || 0) + 1;
-                                    imgFetchStats.directRecovered++;
-                                    return directResp.dataUrl;
-                                }
-                                hostStats.directFailed = (hostStats.directFailed || 0) + 1;
-                                imgFetchStats.directFailed++;
-                            } catch { /* fall through to record proxy failure */ }
+                // Private Teams AMS fallback:
+                // If the asyncgw/proxy path failed, but the original URL is a raw
+                // *.asm.skype.com object URL, retry the ORIGINAL raw AMS URL through
+                // the page-world cookie helper. This covers environments where
+                // asyncgw DNS fails (ERR_NAME_NOT_RESOLVED) but the raw AMS host
+                // still resolves and serves the image with page cookies.
+                const isRawAmsObject = /\.asm\.skype\.com\/v1\/objects\/[^/]+\/views\//i.test(url);
+
+                if (isRawAmsObject) {
+                    try {
+                        const rawAmsResp = await fetchUrlpDirect(url);
+                        if (rawAmsResp?.ok && rawAmsResp.dataUrl) {
+                            hostStats.ok++;
+                            return rawAmsResp.dataUrl;
                         }
+                    } catch {
+                        // fall through to the existing failure accounting
+                    }
+                }
+                // Image fetch fallback (opt-in feature). When Teams'
+                // proxy/page-helper cannot return a public preview image,
+                // retry the original upstream URL directly. v1.4.7 only
+                // tried this for proxy HTTP 4xx *and* only when the raw URL
+                // itself had a ?url= wrapper, so ordinary link previews like
+                // https://cdn.overleaf.com/... never actually reached the
+                // fallback. Some users also see network-layer failures
+                // (TypeError: Failed to fetch / ERR_NAME_NOT_RESOLVED), so
+                // treat resp.error as fallback-eligible too.
+                const getDirectFallbackUrl = (): string | null => {
+                    const wrapped = fetchUrl.match(/[?&]url=([^&]+)/) || url.match(/[?&]url=([^&]+)/);
+                    if (wrapped) {
+                        try { return decodeURIComponent(wrapped[1]); } catch { return null; }
+                    }
+
+                    // Raw public preview/GIF URLs are wrapped by transformImageUrlToProxy().
+                    // Private Teams/AMS object URLs are not useful for unauthenticated
+                    // direct fallback, so skip those.
+                    try {
+                        const u = new URL(url);
+                        if (!/^https?:$/i.test(u.protocol)) return null;
+                        if (/\.asm\.skype\.com$/i.test(u.hostname)) return null;
+                        if (/\.asyncgw\.teams\.microsoft\.com$/i.test(u.hostname)) return null;
+                        return url;
+                    } catch {
+                        return null;
+                    }
+                };
+
+                const fallbackEligibleStatus = resp?.status !== undefined
+                    && (resp.status === 410 || resp.status === 429 || resp.status === 403 || resp.status === 404);
+                const fallbackEligibleNetworkError = !resp?.status && !!resp?.error;
+
+                if (imgFetchFallbackEnabled && (fallbackEligibleStatus || fallbackEligibleNetworkError)) {
+                    const upstreamUrl = getDirectFallbackUrl();
+                    if (upstreamUrl) {
+                        try {
+                            const directResp = await runtime.sendMessage({
+                                type: 'FETCH_BLOB_DIRECT',
+                                url: upstreamUrl,
+                                maxBytes: MAX_IMAGE_BYTES,
+                                minBytes: 100,
+                            }) as typeof resp;
+
+                            if (directResp?.ok && directResp.dataUrl) {
+                                hostStats.ok++;
+                                hostStats.directRecovered = (hostStats.directRecovered || 0) + 1;
+                                imgFetchStats.directRecovered++;
+                                return directResp.dataUrl;
+                            }
+
+                            hostStats.directFailed = (hostStats.directFailed || 0) + 1;
+                            imgFetchStats.directFailed++;
+                        } catch { /* fall through to record proxy failure */ }
                     }
                 }
                 if (resp?.status) {
@@ -1001,7 +1040,7 @@ export default defineContentScript({
                 imgFetchFallbackEnabled = !!statusResp?.enabled;
             } catch { /* fall closed */ }
             if (imgFetchFallbackEnabled) {
-                console.log('[Teams Exporter] Image fetch fallback enabled (direct upstream retry on proxy 4xx).');
+                console.log('[Teams Exporter] Image fetch fallback enabled (direct upstream retry on proxy/network failure).');
             }
             // Only the IC3 token is strictly required (Teams Free's direct
             // AMS fetch needs only the Skype JWT; Work/School's asyncgw
