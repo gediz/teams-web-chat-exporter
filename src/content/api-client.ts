@@ -1657,11 +1657,14 @@ async function fetchPageWithRetry(
       if (attempt >= MAX_RETRIES) {
         throw new Error('Rate limited after max retries');
       }
-      // Use Retry-After header if available, otherwise exponential backoff
+      // Floor the wait at the exponential backoff. Teams sometimes
+      // returns Retry-After: 0 (a "back off" signal, not "go now");
+      // honouring 0 literally would burn every retry slot in a hot
+      // loop. Use whichever is larger of the header and the backoff.
+      const backoffWait = Math.min(2000 * Math.pow(2, attempt), 30_000); // 2s, 4s, 8s, 16s, 30s
       const retryAfter = resp.headers.get('Retry-After');
-      const waitMs = retryAfter
-        ? parseInt(retryAfter, 10) * 1000
-        : Math.min(2000 * Math.pow(2, attempt), 30_000); // 2s, 4s, 8s, 16s, 30s
+      const retryAfterMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 0;
+      const waitMs = Math.max(backoffWait, Number.isFinite(retryAfterMs) ? retryAfterMs : 0);
       console.log(`[API] Rate limited (429), retrying in ${waitMs}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
       await sleep(waitMs);
       continue;

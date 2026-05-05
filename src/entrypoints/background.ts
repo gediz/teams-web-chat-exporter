@@ -1158,8 +1158,14 @@ async function handleFetchBlobMessage(
                     return;
                 }
                 if (attempt < maxAttempts - 1) {
+                    // Floor the wait at the configured backoff. Teams
+                    // sometimes returns Retry-After: 0; honouring 0
+                    // literally would spin retries without giving the
+                    // rate limit a chance to clear.
+                    const backoffWait = backoffMs(attempt);
                     const retryAfter = resp.headers.get('Retry-After');
-                    const waitMs = retryAfter ? Math.min(parseInt(retryAfter, 10) * 1000, 30_000) : backoffMs(attempt);
+                    const retryAfterMs = retryAfter ? Math.min(parseInt(retryAfter, 10) * 1000, 30_000) : 0;
+                    const waitMs = Math.max(backoffWait, Number.isFinite(retryAfterMs) ? retryAfterMs : 0);
                     await sleep(waitMs);
                 }
             } catch (e) {
