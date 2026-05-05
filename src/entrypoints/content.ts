@@ -640,6 +640,15 @@ export default defineContentScript({
         // (token refresh, re-login) is correctly re-detected.
         type AmsBearerStatus = 'unknown' | 'works' | 'failed';
         let amsBearerStatus: AmsBearerStatus = 'unknown';
+        // Two-strikes counter for ambiguous network errors. A clear HTTP
+        // 401 still flips the status to 'failed' immediately because it is
+        // a definitive auth rejection from the server. Network errors
+        // (TypeError: Failed to fetch / ERR_NAME_NOT_RESOLVED) can be
+        // transient blips, so we require two in a row before flipping the
+        // global flag and slowing the rest of the export to the cookie
+        // path.
+        let amsBearerFailureCount = 0;
+        const AMS_BEARER_FAILURE_THRESHOLD = 2;
         async function fetchUrlpDirect(url: string): Promise<{
             ok: boolean; dataUrl?: string; status?: number; statusText?: string; error?: string; sizeReason?: number;
         }> {
@@ -820,7 +829,9 @@ export default defineContentScript({
                     if (!isUrlpPath && amsBearerStatus === 'unknown') {
                         if (resp?.ok) {
                             amsBearerStatus = 'works';
-                        } else if (resp?.status === 401 || resp?.error) {
+                            amsBearerFailureCount = 0;
+                        } else if (resp?.status === 401) {
+                            // Definitive auth rejection. Flip immediately.
                             amsBearerStatus = 'failed';
                             // log (not warn): the cookie fallback is a
                             // successful recovery path, not a failure.
@@ -829,11 +840,21 @@ export default defineContentScript({
                             // recovery-fired messages at log level
                             // avoids cosmetic "errors" for what is
                             // actually working as designed.
-                            const reason = resp?.status === 401 ? '401' : (resp?.error || 'network error');
-                            console.log(`[Teams Exporter] AMS-direct Bearer auth failed on first attempt (${reason}); switching to page-world cookie auth for remaining AMS fetches in this export`);
+                            console.log('[Teams Exporter] AMS-direct Bearer auth returned 401 on first attempt; switching to page-world cookie auth for remaining AMS fetches in this export');
                             // Retry this specific image via cookies so
                             // we don't lose it just because it was the
                             // canary call that revealed the issue.
+                            resp = await fetchUrlpDirect(fetchUrl);
+                        } else if (resp?.error) {
+                            // Ambiguous network error. Could be a one-off blip.
+                            // Require two in a row before flipping the global
+                            // flag, but still try this specific image via the
+                            // cookie helper so we do not lose it.
+                            amsBearerFailureCount++;
+                            if (amsBearerFailureCount >= AMS_BEARER_FAILURE_THRESHOLD) {
+                                amsBearerStatus = 'failed';
+                                console.log(`[Teams Exporter] AMS-direct Bearer auth failed ${amsBearerFailureCount} time(s) (last: ${resp?.error || 'network error'}); switching to page-world cookie auth for remaining AMS fetches in this export`);
+                            }
                             resp = await fetchUrlpDirect(fetchUrl);
                         }
                     }
@@ -1079,6 +1100,7 @@ export default defineContentScript({
             urlpDirectCallCount = 0;
             amsDirectCallCount = 0;
             amsBearerStatus = 'unknown';
+            amsBearerFailureCount = 0;
         };
 
         /**
