@@ -7,9 +7,13 @@
 // 19 MB of assets that are better modeled as a dependency. Copying at
 // install time keeps the repo clean while preserving offline builds.
 //
-// Also generates a manifest.json listing all available emoji keys so the
+// Also generates an index.json listing all available emoji keys so the
 // PDF builder can answer "is this codepoint-sequence renderable?" in O(1)
-// without one HTTP 404 per unknown character.
+// without one HTTP 404 per unknown character. Named index.json (not
+// manifest.json) so the Chrome Web Store package validator does not
+// flag the build as having multiple manifests — its check rejects any
+// file literally named manifest.json anywhere in the tree, even though
+// only the one at the package root is the real extension manifest.
 
 import { copyFileSync, mkdirSync, readdirSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -29,8 +33,8 @@ if (existsSync(twemojiSrc)) {
   const files = readdirSync(twemojiSrc).filter(f => f.endsWith('.svg'));
   for (const f of files) copyFileSync(join(twemojiSrc, f), join(twemojiDest, f));
   const keys = files.map(f => f.replace(/\.svg$/, ''));
-  writeFileSync(join(twemojiDest, 'manifest.json'), JSON.stringify(keys));
-  console.log(`[vendor] copied ${files.length} Twemoji SVGs + manifest.json`);
+  writeFileSync(join(twemojiDest, 'index.json'), JSON.stringify(keys));
+  console.log(`[vendor] copied ${files.length} Twemoji SVGs + index.json`);
 } else {
   console.warn(`[vendor] ${twemojiSrc} not found — skipping Twemoji copy`);
 }

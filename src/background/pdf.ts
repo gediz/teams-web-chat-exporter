@@ -78,12 +78,16 @@ const FONT_REGULAR_PATH = 'fonts/NotoSans-Regular.ttf';
 const FONT_BOLD_PATH = 'fonts/NotoSans-Bold.ttf';
 const FONT_CJK_PATH = 'fonts/NotoSansSC-Regular.ttf';
 
-// Twemoji vendored SVG set (public/twemoji/<key>.svg). The manifest
+// Twemoji vendored SVG set (public/twemoji/<key>.svg). The index
 // enumerates the ~4000 available emoji keys so we can tell "this is
 // an emoji I can render" from "this is a regular character" without
 // doing a 404 per unknown codepoint. Loaded once per export via
-// loadTwemojiManifest.
-const TWEMOJI_MANIFEST_PATH = 'twemoji/manifest.json';
+// loadTwemojiManifest. Named index.json (not manifest.json) so the
+// Chrome Web Store package validator does not flag the build as
+// having multiple manifests — its check rejects any file literally
+// named manifest.json anywhere in the tree, even though only the one
+// at the package root is the real extension manifest.
+const TWEMOJI_MANIFEST_PATH = 'twemoji/index.json';
 
 // Emoji rendered inline with text as a small colored image. We
 // rasterize each unique emoji sequence once via OffscreenCanvas, embed
