@@ -32,9 +32,10 @@ export default defineConfig({
     ],
   },
   manifest: ({ manifestVersion }) => ({
-    name: 'Teams Chat Exporter',
-    version: '1.4.10',
-    description: 'Export Microsoft Teams web chat conversations to JSON, CSV, HTML, TXT, or PDF with full message history.',
+    name: '__MSG_extName__',
+    version: '1.4.11',
+    description: '__MSG_extDescription__',
+    default_locale: 'en',
     homepage_url: 'https://github.com/gediz/teams-web-chat-exporter',
     browser_specific_settings: {
       gecko: {
@@ -97,7 +98,7 @@ export default defineConfig({
       128: 'icons/action-128.png',
     },
     action: {
-      default_title: 'Teams Chat Exporter',
+      default_title: '__MSG_extName__',
       default_icon: {
         16: 'icons/action-16.png',
         32: 'icons/action-32.png',
