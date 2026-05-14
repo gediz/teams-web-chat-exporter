@@ -1,10 +1,10 @@
 {
   "extName": {
     "message": "Teams Chat Exporter",
-    "description": "Extension display name shown in chrome://extensions, the popup tooltip, and the Chrome Web Store listing card."
+    "description": "Extension display name shown in chrome://extensions and edge://extensions, the popup tooltip, and the Chrome Web Store / Microsoft Edge Add-ons listing card."
   },
   "extDescription": {
     "message": "Microsoft Teams 웹 채팅 대화를 전체 메시지 기록과 함께 JSON, CSV, HTML, TXT 또는 PDF로 내보냅니다.",
-    "description": "Short tagline (max 132 chars) shown in chrome://extensions and the store listing card."
+    "description": "Short tagline (max 132 chars) shown in chrome://extensions and edge://extensions, and the Chrome Web Store / Microsoft Edge Add-ons listing card."
   }
 }
