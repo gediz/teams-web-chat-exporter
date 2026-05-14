@@ -2,7 +2,8 @@
 
 ## Build artifacts
 
-- Chrome/Edge build: `.output/chrome-mv3/`
+- Chrome build: `.output/chrome-mv3/`
+- Edge build: `.output/edge-mv3/`
 - Firefox build: `.output/firefox-mv2/`
 
 ## Commands
@@ -10,10 +11,12 @@
 ```bash
 # Build
 pnpm build
+pnpm build:edge
 pnpm build:firefox
 
 # Zip packages
 pnpm zip
+pnpm zip:edge
 pnpm zip:firefox
 ```
 
@@ -26,9 +29,9 @@ Update version in both files before release:
 
 ## Store uploads
 
-- Chrome Web Store: upload Chrome zip (`pnpm zip` output)
-- Edge Add-ons: use same Chrome zip
-- Firefox Add-ons (AMO): upload Firefox zip (`pnpm zip:firefox` output)
+- Chrome Web Store: upload Chrome zip (`pnpm zip` output).
+- Microsoft Edge Add-ons: upload Edge zip (`pnpm zip:edge` output).
+- Firefox Add-ons (AMO): upload Firefox zip (`pnpm zip:firefox` output).
 
 ## AMO reviewer notes
 
@@ -53,8 +56,8 @@ to the extension developer.
 
 1. Update versions in both `package.json` and `wxt.config.ts`.
 2. Run `pnpm check`.
-3. Build both targets (`pnpm build` and `pnpm build:firefox`).
-4. Create both zip packages (`pnpm zip` and `pnpm zip:firefox`).
+3. Build all targets (`pnpm build`, `pnpm build:edge`, and `pnpm build:firefox`).
+4. Create all zip packages (`pnpm zip`, `pnpm zip:edge`, and `pnpm zip:firefox`).
 5. Verify install in target browsers.
 6. Upload to stores.
 7. Tag and publish release notes.

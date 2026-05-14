@@ -30,8 +30,11 @@ pnpm dev:firefox
 ## Build
 
 ```bash
-# Chrome/Edge
+# Chrome
 pnpm build
+
+# Microsoft Edge
+pnpm build:edge
 
 # Firefox
 pnpm build:firefox
@@ -40,13 +43,19 @@ pnpm build:firefox
 Build output folders:
 
 - `.output/chrome-mv3/`
+- `.output/edge-mv3/`
 - `.output/firefox-mv2/`
+
+The Edge build is functionally identical to the Chrome build. The only difference is a 2-byte change in `content-scripts/content.js`, where WXT bakes `import.meta.env.BROWSER` as the literal string `"edge"` instead of `"chrome"`. The source doesn't read this constant, so runtime behavior is the same. The separate target exists so the release artifact carries an `-edge` filename for clean Partner Center upload history, and as a one-line hook if Edge ever needs to diverge.
 
 ## Create zip packages
 
 ```bash
-# Chrome/Edge zip
+# Chrome zip
 pnpm zip
+
+# Edge zip
+pnpm zip:edge
 
 # Firefox zip
 pnpm zip:firefox
@@ -66,7 +75,7 @@ pnpm build
 pnpm build:firefox
 ```
 
-Always run both builds. Chrome MV3 (service worker) and Firefox MV2 (background script) run the same source on different runtimes and some APIs (`createImageBitmap` on SVG blobs, `browser.action` vs `browser.browserAction`) behave differently between them.
+Always run both builds. Chrome MV3 (service worker) and Firefox MV2 (background script) run the same source on different runtimes and some APIs (`createImageBitmap` on SVG blobs, `browser.action` vs `browser.browserAction`) behave differently between them. Edge runs on the same MV3 runtime as Chrome, so a separate Edge build is not needed for pre-PR verification.
 
 ## Quick test checklist
 
@@ -117,6 +126,7 @@ Always run both builds. Chrome MV3 (service worker) and Firefox MV2 (background 
 - [ ] **Firefox**: PDF emoji rasterization works (reactions show colour emoji, not tofu).
 - [ ] **Firefox**: Storage persistence works across restarts.
 - [ ] **Chrome**: Same as above under MV3 service worker.
+- [ ] **Edge**: Load `.output/edge-mv3/` unpacked; walk the same checklist as Chrome. Pay extra attention to the Settings → "Image fetch fallback" toggle, since it exercises `optional_host_permissions` which Edge has historically been slower to ship parity on.
 
 ### Large exports (pre-release)
 - [ ] Export a chat with 5,000+ messages (all options enabled, all formats selected).

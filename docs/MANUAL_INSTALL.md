@@ -15,8 +15,11 @@ If you don't have pnpm yet, `npm install -g pnpm` or Corepack (`corepack enable 
 ### 2) Build the target you need
 
 ```bash
-# Chrome/Edge
+# Chrome
 pnpm build
+
+# Microsoft Edge
+pnpm build:edge
 
 # Firefox
 pnpm build:firefox
@@ -27,7 +30,7 @@ pnpm build:firefox
 1. Open `chrome://extensions/` (or `edge://extensions/`).
 2. Turn on **Developer mode**.
 3. Click **Load unpacked**.
-4. Select `.output/chrome-mv3/`.
+4. Select `.output/chrome-mv3/` (Chrome) or `.output/edge-mv3/` (Edge).
 
 ## Load in Firefox (temporary)
 
@@ -39,5 +42,6 @@ Firefox temporary add-ons are removed when Firefox restarts.
 
 ## From release downloads
 
-- Chrome/Edge: extract zip, then load unpacked folder.
+- Chrome: extract the `-chrome.zip` file, then load the unpacked folder.
+- Edge: extract the `-edge.zip` file, then load the unpacked folder.
 - Firefox: if the release contains Firefox build files, extract and load `manifest.json` as above.
