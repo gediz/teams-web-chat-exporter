@@ -10,9 +10,11 @@
     "build": "wxt build",
     "build:firefox": "wxt build -b firefox",
     "build:edge": "wxt build -b edge",
+    "build:safari": "wxt build -b safari",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "zip:edge": "wxt zip -b edge",
+    "zip:safari": "wxt zip -b safari",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "postinstall": "wxt prepare && node scripts/vendor-twemoji.mjs"
   },

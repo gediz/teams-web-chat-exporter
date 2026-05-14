@@ -236,6 +236,7 @@ Full pattern list is in `src/utils/teams-urls.ts`.
 - Chrome build target: MV3 output (`.output/chrome-mv3/`)
 - Microsoft Edge build target: MV3 output (`.output/edge-mv3/`); same content as the Chrome build, separate artifact for Partner Center upload history.
 - Firefox build target: MV2 output (`.output/firefox-mv2/`)
+- Safari build target: MV2 output (`.output/safari-mv2/`); intended to be wrapped via Xcode's Safari Web Extension Converter for macOS / iOS App Store distribution.
 - Background code uses `browser.action` when available, falls back to `browser.browserAction` (Firefox MV2).
 - Download URL creation (`textToDownloadUrl`, `binaryToDownloadUrl` in `src/background/builders.ts`) uses `URL.createObjectURL` (blob URLs) when available. In Chrome MV3 service workers where blob URLs are not supported, it falls back to base64 data URLs.
 

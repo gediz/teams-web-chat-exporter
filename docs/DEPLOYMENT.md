@@ -5,6 +5,7 @@
 - Chrome build: `.output/chrome-mv3/`
 - Edge build: `.output/edge-mv3/`
 - Firefox build: `.output/firefox-mv2/`
+- Safari build: `.output/safari-mv2/`
 
 ## Commands
 
@@ -13,11 +14,13 @@
 pnpm build
 pnpm build:edge
 pnpm build:firefox
+pnpm build:safari
 
 # Zip packages
 pnpm zip
 pnpm zip:edge
 pnpm zip:firefox
+pnpm zip:safari
 ```
 
 ## Version update
@@ -32,6 +35,7 @@ Update version in both files before release:
 - Chrome Web Store: upload Chrome zip (`pnpm zip` output).
 - Microsoft Edge Add-ons: upload Edge zip (`pnpm zip:edge` output).
 - Firefox Add-ons (AMO): upload Firefox zip (`pnpm zip:firefox` output).
+- Safari (macOS / iOS App Store): the Safari zip (`pnpm zip:safari` output) is a web-extension folder. To install or distribute, wrap it with Xcode's Safari Web Extension Converter (`xcrun safari-web-extension-converter`) and build the resulting `.app` / `.appex`. Apple Developer account required for distribution.
 
 ## AMO reviewer notes
 

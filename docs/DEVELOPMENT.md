@@ -38,6 +38,9 @@ pnpm build:edge
 
 # Firefox
 pnpm build:firefox
+
+# Safari
+pnpm build:safari
 ```
 
 Build output folders:
@@ -45,8 +48,11 @@ Build output folders:
 - `.output/chrome-mv3/`
 - `.output/edge-mv3/`
 - `.output/firefox-mv2/`
+- `.output/safari-mv2/`
 
 The Edge build is functionally identical to the Chrome build. The only difference is a 2-byte change in `content-scripts/content.js`, where WXT bakes `import.meta.env.BROWSER` as the literal string `"edge"` instead of `"chrome"`. The source doesn't read this constant, so runtime behavior is the same. The separate target exists so the release artifact carries an `-edge` filename for clean Partner Center upload history, and as a one-line hook if Edge ever needs to diverge.
+
+The Safari build outputs an MV2 manifest (WXT's Safari default) and is intended to be wrapped via Xcode's Safari Web Extension Converter for distribution on the macOS / iOS App Store. The same artifact serves both Safari on macOS and Safari on iOS; the platform target is chosen at Xcode-wrap time, not at build time.
 
 ## Create zip packages
 
@@ -59,6 +65,9 @@ pnpm zip:edge
 
 # Firefox zip
 pnpm zip:firefox
+
+# Safari zip
+pnpm zip:safari
 ```
 
 ## Type check

@@ -23,6 +23,9 @@ pnpm build:edge
 
 # Firefox
 pnpm build:firefox
+
+# Safari (requires Xcode wrapping to install)
+pnpm build:safari
 ```
 
 ## Load in Chrome / Edge
@@ -45,3 +48,4 @@ Firefox temporary add-ons are removed when Firefox restarts.
 - Chrome: extract the `-chrome.zip` file, then load the unpacked folder.
 - Edge: extract the `-edge.zip` file, then load the unpacked folder.
 - Firefox: if the release contains Firefox build files, extract and load `manifest.json` as above.
+- Safari: extract the `-safari.zip`, then on a Mac with Xcode installed run `xcrun safari-web-extension-converter <extracted-folder>`. This generates an Xcode project. Build it to produce a `.app` (macOS) or `.appex` (iOS) bundle. For development you can install the resulting `.app` and enable the extension in Safari → Settings → Extensions, with "Allow unsigned extensions" enabled under the Develop menu. Distribution to the App Store requires an Apple Developer account.
