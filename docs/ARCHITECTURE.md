@@ -250,7 +250,7 @@ Full pattern list is in `src/utils/teams-urls.ts`.
 ## PDF specifics
 
 - Fonts: bundled Noto Sans Regular/Bold/SC are shipped in `src/public/fonts/`. Before embedding, each font is subsetted at runtime with HarfBuzz (via `harfbuzzjs` + `hb-subset.wasm` loaded through `src/background/font-subset.ts`) to exactly the codepoints the document uses. The GSUB/GPOS/GDEF/kern tables are dropped from the subset so pdf-lib's per-codepoint drawing matches per-codepoint measurement (prevents the "confl uence"-style ligature gap).
-- Emoji: Twemoji SVGs are vendored from `@twemoji/svg` at postinstall into `src/public/twemoji/`. The PDF builder rasterizes only the emoji actually used in the document. Firefox MV2 background takes an `<img>` + OffscreenCanvas path; Chrome MV3 service worker uses `createImageBitmap(svgBlob, { resizeWidth, resizeHeight })`.
+- Emoji: Twemoji SVGs are vendored from `@twemoji/svg` at postinstall into `src/public/twemoji/`. The PDF builder rasterizes only the emoji actually used in the document and assembles them into a per-export PDF Type 3 font (see `src/background/pdf-type3-emoji.ts`). The font's ToUnicode CMap maps glyph codes back to Unicode codepoints (including multi-codepoint ZWJ sequences), so emoji in exported PDFs are selectable, searchable, and copy-pasteable as text. Firefox MV2 background takes an `<img>` + OffscreenCanvas path directly; Chrome / Edge MV3 service workers route through a `chrome.offscreen` document (`src/entrypoints/offscreen/`) because MV3 SWs lack DOM. Both paths share the same rasterizer in `src/utils/svg-rasterize.ts`.
 - URLs: detected `http(s)` substrings in message body, reply quotes, forwarded bodies, and single-line attachment labels become PDF `/Annot /Link` annotations.
 
 ## Known quirks

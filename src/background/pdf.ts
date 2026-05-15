@@ -17,8 +17,11 @@
 //   text body word-wrapped to the content width.
 // - Reply context rendered as a short quote above the body.
 // - Reactions rendered as a compact "👍 3 · ❤️ 1" line under the body.
-//   Emoji render in color via Twemoji SVGs rasterized through
-//   OffscreenCanvas at build time (see prewarmTwemoji).
+//   Emoji render in color via a per-export Type 3 font whose glyphs
+//   are PNG-rasterized Twemoji SVGs. ToUnicode CMap maps glyph codes
+//   back to the source codepoints (including multi-CP ZWJ sequences),
+//   so emoji are selectable, searchable, and copy/paste-able as text.
+//   See pdf-type3-emoji.ts.
 // - Attachments: one line per attachment, "[attachment] label". No
 //   embedded raster images in v1 (keeps file size predictable).
 // - Page breaks: measured per block; if the current block won't fit we
@@ -104,8 +107,8 @@ const AVATAR_PAD = 6;        // constant — not size-dependent
 // Noto family — chosen for international coverage. Noto Sans covers
 // Latin + Cyrillic + Greek + Hebrew + Arabic basic; Noto Sans SC adds
 // Chinese / Japanese / Korean ideographs (10 MB, the heaviest font in
-// the bundle). Emoji are handled separately via Twemoji SVG (see below)
-// so we no longer bundle Noto Emoji.
+// the bundle). Emoji are handled separately via a per-export Type 3
+// font assembled from Twemoji rasters, so we don't bundle Noto Emoji.
 const FONT_REGULAR_PATH = 'fonts/NotoSans-Regular.ttf';
 const FONT_BOLD_PATH = 'fonts/NotoSans-Bold.ttf';
 const FONT_CJK_PATH = 'fonts/NotoSansSC-Regular.ttf';
@@ -121,11 +124,11 @@ const FONT_CJK_PATH = 'fonts/NotoSansSC-Regular.ttf';
 // at the package root is the real extension manifest.
 const TWEMOJI_MANIFEST_PATH = 'twemoji/index.json';
 
-// Emoji rendered inline with text as a small colored image. We
-// rasterize each unique emoji sequence once via OffscreenCanvas, embed
-// the resulting PNG via pdf-lib, and draw it at font-size dimensions.
-// EMOJI_RASTER_PX is the canvas render size — ~2x the PDF font size so
-// the image stays crisp at 100% zoom on retina.
+// Each unique emoji sequence becomes one glyph in a per-export Type 3
+// font. EMOJI_RASTER_PX is the PNG render size used as the glyph image
+// — ~2x the PDF font size so the image stays crisp at 100% zoom on
+// retina. Rasterization runs in the offscreen document on Chromium MV3
+// (the SW lacks DOM), or directly in the Firefox MV2 background page.
 const EMOJI_RASTER_PX = 72;
 
 type Fonts = {
