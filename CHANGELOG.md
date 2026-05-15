@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.12] — 2026-05-15
+
+Released to Microsoft Edge Add-ons. PDF emoji rendering on Chromium MV3 is fixed (color emoji instead of tofu boxes), and emoji in exported PDFs are now real selectable text: Ctrl+F finds them, drag-select copies the codepoints, screen readers announce them.
+
+### Added
+
+- **Microsoft Edge Add-ons listing.** Live at https://microsoftedge.microsoft.com/addons/detail/teams-chat-exporter/phlomfiieaggnbfpacmjmidcjdlaiplp. README install section now shows three badges: Chrome Web Store, Microsoft Edge, Firefox. Build pipeline ships `pnpm build:edge` and `pnpm zip:edge` for the Partner Center submission artifact.
+- **Safari build target.** `pnpm build:safari` produces `.output/safari-mv2/`, a web-extension folder that can be wrapped via Xcode's `safari-web-extension-converter` for macOS or iOS App Store distribution. Not on a public Safari store yet.
+- **PDF emoji are now selectable text.** Each unique emoji used in a document becomes one glyph in a per-export PDF Type 3 font whose ToUnicode CMap maps glyph codes back to the source Unicode codepoints, including multi-codepoint sequences (family emoji, flag emoji with skin-tone modifiers, ZWJ joins). Ctrl+F finds emoji. Drag-select across mixed text and emoji preserves the codepoints on copy. PDF text-extraction tools (pdftotext, Acrobat export) include emoji in the output.
+
+### Fixed
+
+- **PDF emoji no longer render as tofu boxes on Chrome and Edge.** Chromium MV3 service workers throw `InvalidStateError` when decoding SVG blobs via `createImageBitmap`, which broke the Twemoji rasterization pipeline for the entire Chromium audience (96% of users). The fix routes SVG decoding through a `chrome.offscreen` document, which has DOM access and runs the same HTMLImageElement + OffscreenCanvas pipeline that already worked in Firefox. Adds the silent `offscreen` permission (no user-facing install prompt). Requires Chromium 109+, which covers effectively every current user.
+- **In-app "Rate this extension" link routes Edge users to the Edge Add-ons listing.** The user-agent detection that previously sent Edge users to the Chrome Web Store reviews page now resolves Edge to its own listing URL.
+
+### Changed
+
+- **PDF emoji pipeline reworked internally.** The old "rasterize SVG, embed as inline image, draw at font-size dimensions" path is replaced by a Type 3 font assembled per export from the same Twemoji rasters. PDF size is comparable; the font wraps each unique PNG with thin metadata and a ToUnicode CMap. Layout, positioning, and visible rendering match the previous output.
+
+### Known limitations introduced by Type 3 emoji
+
+- **Triple-click line-selection in Chrome's PDF viewer**: lines containing both text and emoji split into two selection units at the emoji boundary. Drag-select across the full line works and produces the correct text. PDFium quirk specific to Type 3 fonts; no structural change to the PDF makes triple-click cross the boundary.
+- **Edge on Linux**: copying supplementary-plane codepoints (most emoji, U+10000+) from any PDF produces U+FFFD replacement characters. Reproduces with PDFs from Chrome and Firefox under the same conditions; the bug is in Edge's clipboard write path on Linux, not in any PDF. Edge on Windows and macOS is unaffected. Visual rendering is fine on Edge Linux; only the clipboard copy is broken.
+
+### i18n
+
+- Translator-hint fields for `extName` and `extDescription` updated across all 23 locales to mention both Chrome Web Store and Microsoft Edge Add-ons surfaces. User-facing strings unchanged.
+
 ## [1.4.7] — 2026-05-01
 
 Picker labels now resolve real names for chats Teams scrubbed (issue #22 follow-up). New opt-in image-recovery toggle for users who want to embed external thumbnails Teams' proxy fails to deliver. Two Chrome-only bug fixes (download path, filename sanitization).

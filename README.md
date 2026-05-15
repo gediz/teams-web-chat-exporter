@@ -31,7 +31,7 @@ The result is built into your chosen format and downloaded locally. No data is s
 
 ## Install
 
-[![Available in the Chrome Web Store](docs/badges/available-in-the-chrome-web-store.png)](https://chromewebstore.google.com/detail/teams-chat-exporter/jmghclbfbbapimhbgnpffbimphlpolnm) [![Get the Add-on for Firefox](docs/badges/mozilla-firefox-get-the-addon.png)](https://addons.mozilla.org/en-US/firefox/addon/teams-chat-exporter/)
+[![Available in the Chrome Web Store](docs/badges/available-in-the-chrome-web-store.png)](https://chromewebstore.google.com/detail/teams-chat-exporter/jmghclbfbbapimhbgnpffbimphlpolnm) [![Get it from Microsoft Edge](docs/badges/English_Get-it-from-Microsoft-Edge.png)](https://microsoftedge.microsoft.com/addons/detail/teams-chat-exporter/phlomfiieaggnbfpacmjmidcjdlaiplp) [![Get the Add-on for Firefox](docs/badges/mozilla-firefox-get-the-addon.png)](https://addons.mozilla.org/en-US/firefox/addon/teams-chat-exporter/)
 
 Manual install: [docs/MANUAL_INSTALL.md](docs/MANUAL_INSTALL.md)
 
