@@ -28,6 +28,8 @@ import { PDFDocument, PDFName, PDFString, PDFArray, rgb, type PDFFont, type PDFI
 import fontkit from '@pdf-lib/fontkit';
 import type { Attachment, ExportMessage, ExportMeta } from '../types/shared';
 import { subsetFont } from './font-subset';
+import { rasterizeSvgInDom } from '../utils/svg-rasterize';
+import { rasterizeViaOffscreen } from '../utils/offscreen-client';
 
 // Match-anywhere regex for URL detection inside rendered text. Kept
 // deliberately conservative — URLs end at whitespace or any character
@@ -561,18 +563,11 @@ function scanDocument(
   return { emojiKeys, codepoints };
 }
 
-// Rasterize a Twemoji SVG to PNG bytes via OffscreenCanvas +
-// createImageBitmap. Works in MV3 service workers on Chromium 2020+
-// and Firefox 113+.
-//
-// Twemoji SVGs carry only `viewBox="0 0 36 36"` with no width/height
-// attributes. Firefox's createImageBitmap silently fails to rasterize
-// such "viewport-only" SVGs even when resizeWidth/Height are passed —
-// the returned bitmap is a 0×0 phantom that draws as transparent,
-// producing tofu boxes in the final PDF. Fix: fetch as text, inject
-// explicit width + height attributes, then hand the fixed string to
-// createImageBitmap. Chromium works either way; Firefox only works
-// with the sized version.
+// Rasterize a Twemoji SVG to PNG bytes. Fetches the SVG asset from the
+// extension package, then dispatches to a context-appropriate rasterizer:
+// the shared DOM-backed pipeline for contexts that have HTMLImageElement
+// (Firefox MV2 background, popup), or the offscreen-document client for
+// Chromium MV3 service workers (which lack DOM).
 async function rasterizeTwemoji(key: string): Promise<Uint8Array | null> {
   try {
     const url = chrome.runtime.getURL(`twemoji/${key}.svg`);
@@ -581,24 +576,12 @@ async function rasterizeTwemoji(key: string): Promise<Uint8Array | null> {
       console.warn(`[pdf] Twemoji ${key}: fetch failed HTTP ${resp.status}`);
       return null;
     }
-    let svgText = await resp.text();
-    // Stamp width/height onto the root <svg> tag. If they're already
-    // present (later Twemoji revisions may add them), this replacement
-    // is idempotent — the regex matches any first <svg attributes.
-    svgText = svgText.replace(/<svg\b([^>]*)>/i, (_m, attrs: string) => {
-      const stripped = attrs
-        .replace(/\s+width="[^"]*"/i, '')
-        .replace(/\s+height="[^"]*"/i, '');
-      return `<svg${stripped} width="${EMOJI_RASTER_PX}" height="${EMOJI_RASTER_PX}">`;
-    });
-
-    // Firefox MV2 background has a DOM (window.Image, HTMLImageElement),
-    // and its SVG rendering through <img> is more reliable than
-    // createImageBitmap on svg blobs — which has a long tail of
-    // viewport-inference bugs. Prefer the DOM path when available.
+    const svgText = await resp.text();
+    // rasterizeSvgInDom and the offscreen client both apply the width/height
+    // injection internally; the SW just forwards raw SVG text.
     const png = (typeof Image !== 'undefined' && typeof document !== 'undefined')
-      ? await rasterizeViaImage(svgText)
-      : await rasterizeViaImageBitmap(svgText);
+      ? await rasterizeSvgInDom(svgText, EMOJI_RASTER_PX)
+      : await rasterizeViaOffscreen(svgText, EMOJI_RASTER_PX);
     if (!png) {
       console.warn(`[pdf] Twemoji ${key}: rasterize returned null`);
       return null;
@@ -608,61 +591,6 @@ async function rasterizeTwemoji(key: string): Promise<Uint8Array | null> {
     console.warn(`[pdf] Twemoji ${key}: rasterize threw`, err);
     return null;
   }
-}
-
-// DOM-backed rasterization path. Only valid in contexts with an HTML
-// document (Firefox MV2 background, or future popup contexts). Loads
-// the SVG into an Image via data URL, draws into an OffscreenCanvas,
-// and exports PNG bytes. Canvas is detached from DOM; only the Image
-// needs to live long enough to reach the 'load' event.
-async function rasterizeViaImage(svgText: string): Promise<Uint8Array | null> {
-  const dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgText)));
-  const img = new Image();
-  img.width = EMOJI_RASTER_PX;
-  img.height = EMOJI_RASTER_PX;
-  const loaded = new Promise<boolean>(resolve => {
-    img.onload = () => resolve(true);
-    img.onerror = () => resolve(false);
-  });
-  img.src = dataUrl;
-  const ok = await loaded;
-  if (!ok) return null;
-  const canvas = new OffscreenCanvas(EMOJI_RASTER_PX, EMOJI_RASTER_PX);
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-  try {
-    ctx.drawImage(img, 0, 0, EMOJI_RASTER_PX, EMOJI_RASTER_PX);
-  } catch {
-    return null;
-  }
-  const pngBlob = await canvas.convertToBlob({ type: 'image/png' });
-  return new Uint8Array(await pngBlob.arrayBuffer());
-}
-
-// Service-worker (Chrome MV3) rasterization path. createImageBitmap
-// is the only async image loader available in that context. Firefox
-// bug note: without resizeWidth/resizeHeight, createImageBitmap on an
-// SVG blob can return a 0×0 phantom that draws as transparent. The
-// resize options pre-allocate a fixed target so the decoder can't
-// silently skip sizing.
-async function rasterizeViaImageBitmap(svgText: string): Promise<Uint8Array | null> {
-  const svgBlob = new Blob([svgText], { type: 'image/svg+xml' });
-  const bitmap = await createImageBitmap(svgBlob, {
-    resizeWidth: EMOJI_RASTER_PX,
-    resizeHeight: EMOJI_RASTER_PX,
-    resizeQuality: 'high',
-  });
-  if (bitmap.width === 0 || bitmap.height === 0) {
-    bitmap.close?.();
-    return null;
-  }
-  const canvas = new OffscreenCanvas(EMOJI_RASTER_PX, EMOJI_RASTER_PX);
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-  ctx.drawImage(bitmap, 0, 0, EMOJI_RASTER_PX, EMOJI_RASTER_PX);
-  bitmap.close?.();
-  const pngBlob = await canvas.convertToBlob({ type: 'image/png' });
-  return new Uint8Array(await pngBlob.arrayBuffer());
 }
 
 // Populate the emoji image cache for every key actually used in this
