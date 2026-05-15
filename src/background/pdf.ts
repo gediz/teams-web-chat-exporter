@@ -51,9 +51,14 @@ import {
   type EmojiFontResult,
 } from './pdf-type3-emoji';
 
-// Resource name under which the Type 3 emoji font is registered in each
-// page's /Resources /Font dict. Used by the raw operators emitted in
-// drawMixed for emoji glyphs.
+// Resource names under which our fonts are registered in each page's
+// /Resources /Font dict, so the raw operators emitted in drawMixed for
+// mixed text+emoji lines can reference them by name. pdf-lib's drawText
+// also auto-registers fonts under names like /F1, /F2; both sets of
+// names coexist and point to the same underlying font refs.
+const TEXT_FONT_REGULAR_NAME = 'FT';
+const TEXT_FONT_BOLD_NAME = 'FB';
+const TEXT_FONT_CJK_NAME = 'FC';
 const EMOJI_FONT_RESOURCE_NAME = 'FE';
 
 // Match-anywhere regex for URL detection inside rendered text. Kept
@@ -347,13 +352,12 @@ export async function buildPdf(
     }
   }
 
-  // Add the Type 3 emoji font to every page's resource dict so the manual
-  // BT/ET emoji operators in content streams can resolve /FE. Runs after
-  // all content is rendered — PDF readers parse resources before content,
-  // so as long as the entry is in place at save time, it'll be found.
-  if (cache.emojiFont) {
-    registerEmojiFontOnPages(doc, cache.emojiFont);
-  }
+  // Add the per-export fonts to every page's /Resources /Font dict so the
+  // manual BT/ET operators in content streams can resolve /FT, /FB, /FC, /FE.
+  // Runs after all content is rendered — PDF readers parse resources before
+  // content, so as long as the entries are in place at save time, they'll
+  // be found.
+  registerFontsOnPages(doc, fonts, cache.emojiFont);
 
   return doc.save();
 }
@@ -676,11 +680,18 @@ async function prewarmType3EmojiFont(
   }
 }
 
-// Register the per-export Type 3 emoji font on every page. Manual emoji
-// operators in content streams reference /FE; this puts the entry in
-// each page's /Resources /Font dict so PDF readers can resolve it. Called
-// once at the end of buildPdf, after all pages are added and content laid out.
-function registerEmojiFontOnPages(doc: PDFDocument, emojiFont: EmojiFontResult): void {
+// Register text and emoji fonts on every page under stable resource
+// names. Manual operators in content streams (the single-BT/ET path in
+// drawMixed for mixed text+emoji lines) reference /FT, /FB, /FC, /FE;
+// pdf-lib's auto-assigned /F1, /F2 etc. coexist for drawText-only lines.
+// Called once at the end of buildPdf, after all pages are added: PDF
+// readers parse resources before content, so writing them at finalize
+// time is fine.
+function registerFontsOnPages(
+  doc: PDFDocument,
+  fonts: Fonts,
+  emojiFont: EmojiFontResult | null,
+): void {
   for (const page of doc.getPages()) {
     const resources = page.node.Resources();
     if (!resources) continue;
@@ -689,8 +700,22 @@ function registerEmojiFontOnPages(doc: PDFDocument, emojiFont: EmojiFontResult):
       fontMap = doc.context.obj({}) as PDFDict;
       resources.set(PDFName.of('Font'), fontMap);
     }
-    fontMap.set(PDFName.of(EMOJI_FONT_RESOURCE_NAME), emojiFont.ref);
+    fontMap.set(PDFName.of(TEXT_FONT_REGULAR_NAME), fonts.regular.ref);
+    fontMap.set(PDFName.of(TEXT_FONT_BOLD_NAME), fonts.bold.ref);
+    fontMap.set(PDFName.of(TEXT_FONT_CJK_NAME), fonts.cjk.ref);
+    if (emojiFont) {
+      fontMap.set(PDFName.of(EMOJI_FONT_RESOURCE_NAME), emojiFont.ref);
+    }
   }
+}
+
+// Map a text font to its stable resource name. Used by drawMixed's
+// single-BT/ET path to emit Tf operators against pdf.ts's known names
+// rather than pdf-lib's auto-assigned /F1, /F2 etc.
+function getTextFontResourceName(font: PDFFont, fonts: Fonts): string {
+  if (font === fonts.bold) return TEXT_FONT_BOLD_NAME;
+  if (font === fonts.cjk) return TEXT_FONT_CJK_NAME;
+  return TEXT_FONT_REGULAR_NAME;
 }
 
 // ----- text segmentation (text + emoji runs) -------------------------
@@ -941,11 +966,17 @@ function addLinkAnnotationsForLine(
   }
 }
 
-// Draw text+emoji at (x,y). Text runs go through drawText; emoji runs
-// emit a BT/ET block with Tf to the per-export Type 3 emoji font (/FE)
-// and Tj of the glyph code. The Type 3 glyph's CharProc shifts the
-// image down inside the font's coordinate space so it visually aligns
-// with lowercase letter bodies at the surrounding text baseline.
+// Draw text+emoji at (x,y).
+//
+// Two paths:
+//   * Text-only lines (no emoji runs): drawText for each run. pdf-lib
+//     handles BT/ET, font selection, encoding, color. Triple-click in
+//     PDF readers selects naturally.
+//   * Mixed lines (one or more emoji runs): a single BT/ET text run
+//     with Tf font switches between text and the Type 3 emoji font.
+//     One text run keeps the line as one selection unit, so triple-
+//     click selects the whole line including emoji instead of skipping
+//     over them as separate text runs.
 function drawMixed(
   page: PDFPage,
   text: string,
@@ -956,30 +987,69 @@ function drawMixed(
   ctx: TextCtx,
   color: Color,
 ) {
-  let cx = x;
-  for (const run of segmentText(text, weight, ctx.fonts, ctx.emojiFont, ctx.emojiManifest)) {
-    if (run.type === 'text') {
+  const runs = segmentText(text, weight, ctx.fonts, ctx.emojiFont, ctx.emojiManifest);
+  const hasEmoji = runs.some(r => r.type === 'emoji');
+
+  if (!hasEmoji) {
+    // Text-only fast path.
+    let cx = x;
+    for (const run of runs) {
+      if (run.type !== 'text') continue;
       try {
         page.drawText(run.text, { x: cx, y, size, font: run.font, color });
       } catch { /* skip */ }
       cx += runWidth(run, size);
-    } else {
-      // Type 3 emoji glyph: emit a tiny BT/ET text run that references
-      // /FE (registered on every page by registerEmojiFontOnPages).
-      // Selection and copy work because the Type 3 font carries a
-      // ToUnicode CMap mapping the glyph code back to codepoints.
+    }
+    return;
+  }
+
+  // Mixed line: build one BT/ET block with all runs sharing the same
+  // text-matrix origin. Tj operators auto-advance the text position
+  // within the block, so no Td is needed per run.
+  const ops: PDFOperator[] = [];
+  // Save state + set fill color, then restore on exit. Scoping the
+  // color change avoids leaking it into subsequent operators emitted
+  // by other drawText calls on the page.
+  ops.push(PDFOperator.of(PDFOperatorNames.PushGraphicsState));
+  ops.push(PDFOperator.of(PDFOperatorNames.NonStrokingColorRgb, [
+    PDFNumber.of(color.red),
+    PDFNumber.of(color.green),
+    PDFNumber.of(color.blue),
+  ]));
+  ops.push(PDFOperator.of(PDFOperatorNames.BeginText));
+  ops.push(PDFOperator.of(PDFOperatorNames.MoveText, [PDFNumber.of(x), PDFNumber.of(y)]));
+
+  for (const run of runs) {
+    if (run.type === 'text') {
+      const fontName = getTextFontResourceName(run.font, ctx.fonts);
+      ops.push(PDFOperator.of(PDFOperatorNames.SetFontAndSize, [
+        PDFName.of(fontName),
+        PDFNumber.of(size),
+      ]));
+      let encoded: PDFHexString;
       try {
-        page.pushOperators(
-          PDFOperator.of(PDFOperatorNames.BeginText),
-          PDFOperator.of(PDFOperatorNames.SetFontAndSize, [PDFName.of(EMOJI_FONT_RESOURCE_NAME), PDFNumber.of(size)]),
-          PDFOperator.of(PDFOperatorNames.MoveText, [PDFNumber.of(cx), PDFNumber.of(y)]),
-          PDFOperator.of(PDFOperatorNames.ShowText, [PDFHexString.of(glyphCodeToHex(run.glyphCode))]),
-          PDFOperator.of(PDFOperatorNames.EndText),
-        );
-      } catch { /* skip */ }
-      cx += size;
+        encoded = run.font.encodeText(run.text);
+      } catch {
+        continue;
+      }
+      ops.push(PDFOperator.of(PDFOperatorNames.ShowText, [encoded]));
+    } else {
+      ops.push(PDFOperator.of(PDFOperatorNames.SetFontAndSize, [
+        PDFName.of(EMOJI_FONT_RESOURCE_NAME),
+        PDFNumber.of(size),
+      ]));
+      ops.push(PDFOperator.of(PDFOperatorNames.ShowText, [
+        PDFHexString.of(glyphCodeToHex(run.glyphCode)),
+      ]));
     }
   }
+
+  ops.push(PDFOperator.of(PDFOperatorNames.EndText));
+  ops.push(PDFOperator.of(PDFOperatorNames.PopGraphicsState));
+
+  try {
+    page.pushOperators(...ops);
+  } catch { /* skip on error */ }
 }
 
 // ----- drawing primitives --------------------------------------------
