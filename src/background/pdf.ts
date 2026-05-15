@@ -24,12 +24,37 @@
 // - Page breaks: measured per block; if the current block won't fit we
 //   add a new page before rendering it.
 
-import { PDFDocument, PDFName, PDFString, PDFArray, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFName,
+  PDFString,
+  PDFArray,
+  PDFNumber,
+  PDFOperator,
+  PDFOperatorNames,
+  PDFHexString,
+  type PDFDict,
+  rgb,
+  type PDFFont,
+  type PDFImage,
+  type PDFPage,
+} from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import type { Attachment, ExportMessage, ExportMeta } from '../types/shared';
 import { subsetFont } from './font-subset';
 import { rasterizeSvgInDom } from '../utils/svg-rasterize';
 import { rasterizeViaOffscreen } from '../utils/offscreen-client';
+import {
+  buildType3EmojiFont,
+  glyphCodeToHex,
+  type EmojiEntry,
+  type EmojiFontResult,
+} from './pdf-type3-emoji';
+
+// Resource name under which the Type 3 emoji font is registered in each
+// page's /Resources /Font dict. Used by the raw operators emitted in
+// drawMixed for emoji glyphs.
+const EMOJI_FONT_RESOURCE_NAME = 'FE';
 
 // Match-anywhere regex for URL detection inside rendered text. Kept
 // deliberately conservative — URLs end at whitespace or any character
@@ -130,12 +155,12 @@ type Layout = {
 };
 
 // Bundle of everything text measurement + drawing needs: the three
-// fonts, the emoji manifest (what keys exist on disk), the pre-warmed
-// cache of embedded emoji PDFImage refs, and the computed layout.
+// fonts, the emoji manifest (what keys exist on disk), the Type 3
+// emoji font assembled per export, and the computed layout.
 type TextCtx = {
   fonts: Fonts;
   emojiManifest: Set<string>;
-  twemoji: Map<string, PDFImage | null>;
+  emojiFont: EmojiFontResult | null;
   layout: Layout;
 };
 
@@ -145,10 +170,10 @@ type TextCtx = {
 type AssetCache = {
   avatars: Map<string, PDFImage>;    // avatarId -> embedded image
   images: Map<string, PDFImage>;     // dataUrl -> embedded image
-  // Twemoji cache: key is the emoji filename stem (e.g. "1f600"), value
-  // is the embedded image or `null` when the key is known but could not
-  // be rasterized/embedded (skip without retrying).
-  twemoji: Map<string, PDFImage | null>;
+  // Type 3 emoji font assembled once per export. null when no emoji
+  // were used, or when all rasterizations failed. drawMixed falls back
+  // to font-subset rendering (typically tofu) when null.
+  emojiFont: EmojiFontResult | null;
   // Raw bytes for avatars we already failed to embed — retry is
   // pointless, so we remember failures and skip silently.
   failedAvatars: Set<string>;
@@ -275,17 +300,18 @@ export async function buildPdf(
   const cache: AssetCache = {
     avatars: new Map(),
     images: new Map(),
-    twemoji: new Map(),
+    emojiFont: null,
     failedAvatars: new Set(),
     failedImages: new Set(),
   };
   const avatars = meta.avatars || {};
 
-  // Fetch + rasterize the Twemoji images we know we'll need in
-  // parallel. Rendering then stays synchronous.
-  await prewarmTwemojiKeys(doc, cache, scan.emojiKeys);
+  // Rasterize every emoji used in this export and assemble them into
+  // one Type 3 font. Rendering pass then stays synchronous and references
+  // glyphs by index in the font's content stream operators.
+  await prewarmType3EmojiFont(doc, cache, scan.emojiKeys);
 
-  const ctx: TextCtx = { fonts, emojiManifest, twemoji: cache.twemoji, layout };
+  const ctx: TextCtx = { fonts, emojiManifest, emojiFont: cache.emojiFont, layout };
 
   const metaWithCount: ExportMeta = { ...meta, count: messages.length } as ExportMeta;
   renderHeader(cursor, metaWithCount, ctx);
@@ -319,6 +345,14 @@ export async function buildPdf(
         page.drawText(label, { x, y, size: fsize, font: fonts.regular, color: COLOR_META });
       } catch { /* ignore — extremely unlikely */ }
     }
+  }
+
+  // Add the Type 3 emoji font to every page's resource dict so the manual
+  // BT/ET emoji operators in content streams can resolve /FE. Runs after
+  // all content is rendered — PDF readers parse resources before content,
+  // so as long as the entry is in place at save time, it'll be found.
+  if (cache.emojiFont) {
+    registerEmojiFontOnPages(doc, cache.emojiFont);
   }
 
   return doc.save();
@@ -593,44 +627,89 @@ async function rasterizeTwemoji(key: string): Promise<Uint8Array | null> {
   }
 }
 
-// Populate the emoji image cache for every key actually used in this
-// export, in parallel. Failed/missing keys are cached as null so the
-// rendering pass skips them without retrying. Keys come from scanDocument.
-async function prewarmTwemojiKeys(
+// Rasterize every emoji key the document needs and assemble them into a
+// single Type 3 font with one glyph per emoji. Result is stored on the
+// AssetCache; null when there are no emoji keys, or when all rasterizations
+// fail. Rasterization runs in parallel; font construction is synchronous.
+async function prewarmType3EmojiFont(
   doc: PDFDocument,
   cache: AssetCache,
   keys: Set<string>,
 ): Promise<void> {
-  if (!keys.size) return;
-  await Promise.all(Array.from(keys).map(async key => {
-    if (cache.twemoji.has(key)) return;
-    const bytes = await rasterizeTwemoji(key);
-    if (!bytes) { cache.twemoji.set(key, null); return; }
-    try {
-      const img = await doc.embedPng(bytes);
-      cache.twemoji.set(key, img);
-    } catch {
-      cache.twemoji.set(key, null);
+  if (keys.size === 0) {
+    cache.emojiFont = null;
+    return;
+  }
+  const rasterized = await Promise.all(
+    Array.from(keys).map(async key => {
+      const bytes = await rasterizeTwemoji(key);
+      if (!bytes) return null;
+      try {
+        const image = await doc.embedPng(bytes);
+        return { key, image };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const entries: EmojiEntry[] = [];
+  for (const r of rasterized) {
+    if (!r) continue;
+    entries.push({
+      key: r.key,
+      codepoints: r.key.split('-').map(c => parseInt(c, 16)),
+      image: r.image,
+    });
+  }
+  if (entries.length === 0) {
+    cache.emojiFont = null;
+    return;
+  }
+  try {
+    cache.emojiFont = buildType3EmojiFont(doc, entries);
+  } catch (err) {
+    // buildType3EmojiFont throws on >256 entries (single-byte encoding
+    // limit). Falls back to font-subset rendering for emoji codepoints,
+    // which produces tofu for codepoints Noto Sans doesn't cover.
+    console.warn('[pdf] Type 3 emoji font build failed:', err);
+    cache.emojiFont = null;
+  }
+}
+
+// Register the per-export Type 3 emoji font on every page. Manual emoji
+// operators in content streams reference /FE; this puts the entry in
+// each page's /Resources /Font dict so PDF readers can resolve it. Called
+// once at the end of buildPdf, after all pages are added and content laid out.
+function registerEmojiFontOnPages(doc: PDFDocument, emojiFont: EmojiFontResult): void {
+  for (const page of doc.getPages()) {
+    const resources = page.node.Resources();
+    if (!resources) continue;
+    let fontMap = resources.lookup(PDFName.of('Font')) as PDFDict | undefined;
+    if (!fontMap) {
+      fontMap = doc.context.obj({}) as PDFDict;
+      resources.set(PDFName.of('Font'), fontMap);
     }
-  }));
+    fontMap.set(PDFName.of(EMOJI_FONT_RESOURCE_NAME), emojiFont.ref);
+  }
 }
 
 // ----- text segmentation (text + emoji runs) -------------------------
 
 type Run =
   | { type: 'text'; font: PDFFont; text: string }
-  | { type: 'emoji'; image: PDFImage };
+  | { type: 'emoji'; glyphCode: number };
 
-// Split a string into mixed runs of font-backed text and inline emoji
-// images. The emoji lookup uses only the pre-warmed cache — if a key
-// isn't in it, we fall back to rendering the raw codepoints through
-// the font stack (which will usually produce a box since Noto Sans
-// doesn't cover emoji). That's the acceptable long tail.
+// Split a string into mixed runs of font-backed text and Type 3 emoji
+// glyphs. Emoji lookup uses the per-export Type 3 font's glyph-code map.
+// When a key isn't in the font (rasterization failed, or no emoji at
+// all in this export), the codepoints fall through to font-subset
+// rendering — typically tofu in Noto Sans, which is the acceptable
+// long tail.
 function segmentText(
   text: string,
   weight: PreferredWeight,
   fonts: Fonts,
-  twemoji: Map<string, PDFImage | null>,
+  emojiFont: EmojiFontResult | null,
   manifest: Set<string>,
 ): Run[] {
   const out: Run[] = [];
@@ -645,14 +724,15 @@ function segmentText(
   while (i < text.length) {
     const seq = readEmojiSequence(text, i, manifest);
     if (seq) {
-      const img = twemoji.get(seq.key);
-      if (img) {
-        out.push({ type: 'emoji', image: img });
+      const glyphCode = emojiFont?.glyphCodeByKey.get(seq.key);
+      if (glyphCode !== undefined) {
+        out.push({ type: 'emoji', glyphCode });
         i += seq.len;
         continue;
       }
-      // Known key but rasterization failed, OR not prewarmed. Skip the
-      // whole sequence as raw text runs.
+      // Known emoji key but no Type 3 glyph (rasterization failed, or
+      // emojiFont is null). Render codepoints as raw text runs; Noto Sans
+      // subset will typically show tofu, but the codepoint is preserved.
       for (let k = 0; k < seq.len;) {
         // Preserve surrogate pairs.
         const cp = text.codePointAt(i + k);
@@ -791,7 +871,7 @@ function hardBreak(word: string, weight: PreferredWeight, ctx: TextCtx, size: nu
 // wrap calculations don't explode.
 function safeWidthOf(text: string, weight: PreferredWeight, ctx: TextCtx, size: number): number {
   let w = 0;
-  for (const run of segmentText(text, weight, ctx.fonts, ctx.twemoji, ctx.emojiManifest)) {
+  for (const run of segmentText(text, weight, ctx.fonts, ctx.emojiFont, ctx.emojiManifest)) {
     w += runWidth(run, size);
   }
   return w;
@@ -862,9 +942,10 @@ function addLinkAnnotationsForLine(
 }
 
 // Draw text+emoji at (x,y). Text runs go through drawText; emoji runs
-// draw an inline PDFImage scaled to `size`. The image's baseline is
-// set so the visual center aligns roughly with the x-height of the
-// surrounding text — a small downward nudge from the baseline.
+// emit a BT/ET block with Tf to the per-export Type 3 emoji font (/FE)
+// and Tj of the glyph code. The Type 3 glyph's CharProc shifts the
+// image down inside the font's coordinate space so it visually aligns
+// with lowercase letter bodies at the surrounding text baseline.
 function drawMixed(
   page: PDFPage,
   text: string,
@@ -876,18 +957,25 @@ function drawMixed(
   color: Color,
 ) {
   let cx = x;
-  for (const run of segmentText(text, weight, ctx.fonts, ctx.twemoji, ctx.emojiManifest)) {
+  for (const run of segmentText(text, weight, ctx.fonts, ctx.emojiFont, ctx.emojiManifest)) {
     if (run.type === 'text') {
       try {
         page.drawText(run.text, { x: cx, y, size, font: run.font, color });
       } catch { /* skip */ }
       cx += runWidth(run, size);
     } else {
-      // Emoji square — size x size, shifted down ~20% so it visually
-      // aligns with lowercase letter bodies instead of baseline.
-      const dy = -size * 0.2;
+      // Type 3 emoji glyph: emit a tiny BT/ET text run that references
+      // /FE (registered on every page by registerEmojiFontOnPages).
+      // Selection and copy work because the Type 3 font carries a
+      // ToUnicode CMap mapping the glyph code back to codepoints.
       try {
-        page.drawImage(run.image, { x: cx, y: y + dy, width: size, height: size });
+        page.pushOperators(
+          PDFOperator.of(PDFOperatorNames.BeginText),
+          PDFOperator.of(PDFOperatorNames.SetFontAndSize, [PDFName.of(EMOJI_FONT_RESOURCE_NAME), PDFNumber.of(size)]),
+          PDFOperator.of(PDFOperatorNames.MoveText, [PDFNumber.of(cx), PDFNumber.of(y)]),
+          PDFOperator.of(PDFOperatorNames.ShowText, [PDFHexString.of(glyphCodeToHex(run.glyphCode))]),
+          PDFOperator.of(PDFOperatorNames.EndText),
+        );
       } catch { /* skip */ }
       cx += size;
     }
