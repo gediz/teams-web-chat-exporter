@@ -2,13 +2,21 @@
 
 Browser extension for exporting Microsoft Teams web chat data.
 
+Free, open source, MIT-licensed. Runs entirely as the signed-in user, on the user's own machine. No server, no admin, no IT involvement.
+
 Supports Chrome, Edge, and Firefox. Works with commercial, GCC High, and MCAS-proxied Teams environments.
 
-![Teams Chat Exporter popup](screenshots/firefox/light.png)
+**Live site and interactive demo: [teamschatexporter.com](https://teamschatexporter.com)**
+
+![Teams Chat Exporter popup](screenshots/default-light.png)
+
+## Why this exists
+
+Microsoft Teams has no end-user export button. The platform routes users to admin tooling they do not control, and most third-party tools want enterprise pricing or a server-side install. This extension fills that gap: open a chat, click the extension icon, save a file. Works for leaving a job, handing work over, feeding chats to an LLM, or just keeping your own copy.
 
 ## What it exports
 
-- Formats: JSON, CSV, HTML, TXT, PDF (pick any one, or several together — multi-format runs are packaged as a single `bundle.zip`)
+- Formats: JSON, CSV, HTML, TXT, PDF (pick any one, or several together; multi-format runs are packaged as a single `bundle.zip`)
 - Sources: chat conversations and team channels
 - Multi-chat bundles: pick several chats in the popup picker, get one outer `TeamsExport_bundle_<stamp>.zip` with a per-chat folder inside (`messages.{json,csv,html,txt,pdf}` + `images/` where applicable, plus `FAILURES.txt` if any chat errored)
 - Date range filtering
@@ -25,7 +33,7 @@ Exports completed in the session are listed on the History page inside the popup
 
 ## How it works
 
-The extension fetches messages through the Teams Chat Service API using your existing session tokens. For single-chat exports, if the API fails, it falls back to scrolling the Teams web UI and reading messages from the DOM. For multi-chat bundles, any chat the API can't reach is recorded in `FAILURES.txt` inside the bundle and the run continues with the remaining chats — DOM fallback is intentionally disabled in bundle mode because it would scrape whichever chat is currently visible in your tab, not the target chat.
+The extension fetches messages through the Teams Chat Service API using your existing session tokens. For single-chat exports, if the API fails, it falls back to scrolling the Teams web UI and reading messages from the DOM. For multi-chat bundles, any chat the API can't reach is recorded in `FAILURES.txt` inside the bundle and the run continues with the remaining chats. DOM fallback is intentionally disabled in bundle mode because it would scrape whichever chat is currently visible in your tab, not the target chat.
 
 The result is built into your chosen format and downloaded locally. No data is sent to any third-party server.
 
@@ -52,5 +60,4 @@ Manual install: [docs/MANUAL_INSTALL.md](docs/MANUAL_INSTALL.md)
 - [docs/TODO.md](docs/TODO.md)
 
 > [!IMPORTANT]
-> You are responsible for following your organization’s and Microsoft’s policies when exporting conversations.
-
+> You are responsible for following your organization's and Microsoft's policies when exporting conversations.
