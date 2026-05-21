@@ -134,6 +134,14 @@ body {
   font-size: 16px;
   font-weight: 600;
   margin: 0;
+  flex: 1;
+}
+
+/* Right-edge tool icon in the settings header (currently the
+   Diagnostics entry). Mirrors the main popup's right-side
+   icon idiom; lives in the page chrome, not the body. */
+.settings-header-right {
+  margin-left: auto;
 }
 
 .settings-card {

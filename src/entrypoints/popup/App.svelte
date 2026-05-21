@@ -70,6 +70,7 @@
   import HeaderActions from "./components/HeaderActions.svelte";
   import SettingsPage from "./components/SettingsPage.svelte";
   import HistoryPage from "./components/HistoryPage.svelte";
+  import DiagnosticsPage from "./components/DiagnosticsPage.svelte";
   import OnboardingOverlay from "./components/OnboardingOverlay.svelte";
   import ReviewPrompt from "./components/ReviewPrompt.svelte";
   import ConversationPicker from "./components/ConversationPicker.svelte";
@@ -111,15 +112,29 @@
     { value: "tr", code: "TR", native: "Türkçe", label: "Turkish (Türkçe)" },
   ];
 
-  // Page routing — popup has three views: main, settings, history.
+  // Page routing — popup views: main, settings, history, diagnostics.
   // Only one can be visible at a time. The active view is persisted
   // under LAST_PAGE_STORAGE_KEY so reopening the popup resumes where
   // the user left off (fire-and-forget — page state is a UX nicety, a
   // dropped write just falls back to 'main' next time).
   let showSettings = false;
   let showHistory = false;
-  $: currentPage = showSettings ? 'settings' : showHistory ? 'history' : 'main';
-  $: void persistCurrentPage(currentPage as PopupPage);
+  let showDiagnostics = false;
+  // Gate persistence until the page-restore in onMount has had a
+  // chance to run. Without this gate, the reactive write below fires
+  // on initial render with currentPage='main' and overwrites the
+  // persisted value before the restore code can read it, defeating
+  // the "resume where you left off" behaviour for anything other
+  // than 'main'.
+  let pageRestored = false;
+  $: currentPage = showDiagnostics
+    ? 'diagnostics'
+    : showSettings
+      ? 'settings'
+      : showHistory
+        ? 'history'
+        : 'main';
+  $: if (pageRestored) void persistCurrentPage(currentPage as PopupPage);
 
   async function persistCurrentPage(page: PopupPage) {
     try {
@@ -1508,8 +1523,13 @@
         if (alive) {
           if (last === 'settings') showSettings = true;
           else if (last === 'history') showHistory = true;
+          else if (last === 'diagnostics') showDiagnostics = true;
         }
       } catch { /* fall through to 'main' default */ }
+      // Open the persistence gate now that any restored page state
+      // is applied. From here on, any user navigation reactively
+      // writes the active page to storage.
+      if (alive) pageRestored = true;
 
       // Review-prompt gate: pull the one-shot flag and first-install
       // timestamp. Both reads are best-effort; any failure leaves the
@@ -1534,7 +1554,7 @@
       // DON'T show it when Settings or History routes are active on open
       // (those routes imply returning users), and we skip it while an
       // export is already running to avoid interrupting the task.
-      if (!options.onboardingDismissed && !showSettings && !showHistory) {
+      if (!options.onboardingDismissed && !showSettings && !showHistory && !showDiagnostics) {
         showOnboarding = true;
       }
       const persistedError = await loadPersistedError();
@@ -1715,6 +1735,14 @@
         on:pdfIncludeAvatarsChange={(e) => updateOption("pdfIncludeAvatars", e.detail)}
         on:imageFetchFallbackChange={(e) => updateOption("imageFetchFallback", e.detail)}
         on:replayTour={replayTour}
+        on:openDiagnostics={() => { showSettings = false; showDiagnostics = true; }}
+      />
+    </div>
+  {:else if showDiagnostics}
+    <div class="popup-content">
+      <DiagnosticsPage
+        lang={options.lang || "en"}
+        on:back={() => { showDiagnostics = false; showSettings = true; }}
       />
     </div>
   {:else if showHistory}

@@ -84,6 +84,10 @@ export type Options = {
   // independent of the actual permission state so re-enabling the
   // feature after a permission revocation re-prompts cleanly.
   imageFetchFallback: boolean;
+  // Opt-in: persist the diagnostic log buffer to chrome.storage.local
+  // so logs survive service-worker eviction. Off by default; users who
+  // want richer support data enable it via the Diagnostics page.
+  diagLogPersist: boolean;
 };
 
 // Storage shape kept compatible with the pre-multi-format release: older
@@ -104,7 +108,7 @@ const HISTORY_VIEWED_KEY = 'teamsExporterHistoryViewedAt';
 // next open so the user doesn't lose context mid-task (e.g. reading
 // settings, switching tabs to verify something, coming back).
 export const LAST_PAGE_STORAGE_KEY = 'teamsExporterLastPage';
-export type PopupPage = 'main' | 'settings' | 'history';
+export type PopupPage = 'main' | 'settings' | 'history' | 'diagnostics';
 
 // Mirror of the background's `activeExports` map, keyed by tabId, kept
 // in chrome.storage.local so the popup can paint the correct export-
@@ -182,6 +186,7 @@ export const DEFAULT_OPTIONS: Options = {
   pdfIncludeAvatars: true,
   onboardingDismissed: false,
   imageFetchFallback: false,
+  diagLogPersist: false,
 };
 
 const VALID_FORMATS: readonly OptionFormat[] = ['json', 'csv', 'html', 'txt', 'pdf'];
@@ -250,6 +255,9 @@ const normalizeOptions = (raw: LegacyOptions, defaults: Options = DEFAULT_OPTION
   }
   if (typeof merged.imageFetchFallback !== 'boolean') {
     merged.imageFetchFallback = defaults.imageFetchFallback;
+  }
+  if (typeof merged.diagLogPersist !== 'boolean') {
+    merged.diagLogPersist = defaults.diagLogPersist;
   }
   return merged;
 };

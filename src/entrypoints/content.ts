@@ -14,6 +14,8 @@ import { extractAvatarId } from '../utils/avatars';
 import { TEAMS_MATCH_PATTERNS } from '../utils/teams-urls';
 import { apiScrape, discover, ensureSkypeTokenCookies, extractConversationId, fetchSharePointFile, getGraphToken, getIc3Token, getLastApiScrapeFailure, getSkypeToken, listConversationsFromIdb, listConversationsFromIdbQuick } from '../content/api-client';
 import { convertApiMessages } from '../content/api-converter';
+import { runStandaloneProbes } from '../content/probes';
+import type { ProbeResult } from '../utils/diagnostics';
 import type { AggregatedItem, ExportMessage, OrderContext, ReplyContext, ScrapeOptions } from '../types/shared';
 
 // Typed globals for Firefox builds
@@ -42,6 +44,190 @@ export default defineContentScript({
 
         // Browser API compatibility for Firefox
         const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
+
+        // Diagnostic log tail.
+        //
+        // Content captures forward to BG (which owns the master buffer)
+        // as small batched arrays. Each console wrap call enqueues a
+        // line; a 100 ms debounced timer ships the accumulated batch.
+        // Fire-and-forget so the hot path doesn't await IPC.
+        //
+        // No in-memory retention here. The previous design kept a
+        // local ring buffer too; now the source of truth is BG, which
+        // means the popup gets a consistent merged view from a single
+        // place. The cost is one runtime.sendMessage per batch (a
+        // handful per export).
+        //
+        // Guarded so a second module load (HMR, re-injection) doesn't
+        // double-wrap and emit duplicates.
+        const DIAG_PREFIX_RE = /^\[[A-Za-z][A-Za-z0-9 _\-:]{0,40}\]/;
+        const DIAG_FORWARD_DEBOUNCE_MS = 100;
+        const pendingDiagEntries: { ts: number; level: string; line: string }[] = [];
+        let diagForwardTimer: ReturnType<typeof setTimeout> | null = null;
+        // Counters so a silent forwarding failure (BG unreachable, SW
+        // evicted, port dropped) is visible in the diagnostic report
+        // instead of silently disappearing. The popup pulls these via
+        // GET_DIAGNOSTICS_CONTENT and the JSON report carries them in
+        // the logs section.
+        let diagLostBatches = 0;
+        let diagLostEntries = 0;
+        let diagLastForwardError: string | null = null;
+        function scheduleDiagForward() {
+            if (diagForwardTimer) return;
+            diagForwardTimer = setTimeout(() => {
+                diagForwardTimer = null;
+                if (pendingDiagEntries.length === 0) return;
+                const batch = pendingDiagEntries.splice(0);
+                const recordLoss = (err: unknown) => {
+                    diagLostBatches++;
+                    diagLostEntries += batch.length;
+                    diagLastForwardError = err instanceof Error
+                        ? err.message
+                        : (typeof err === 'string' ? err : 'forwarding failed');
+                };
+                try {
+                    const p = runtime.sendMessage({ type: 'DIAG_LOG_FORWARD', entries: batch });
+                    if (p && typeof p.then === 'function') {
+                        (p as Promise<unknown>).catch(recordLoss);
+                    }
+                } catch (err) { recordLoss(err); }
+            }, DIAG_FORWARD_DEBOUNCE_MS);
+        }
+        function diagForwardingStats() {
+            return { lostBatches: diagLostBatches, lostEntries: diagLostEntries, lastError: diagLastForwardError };
+        }
+        if (!(console as unknown as { __tceDiagWrapped?: boolean }).__tceDiagWrapped) {
+            (console as unknown as { __tceDiagWrapped: boolean }).__tceDiagWrapped = true;
+            const origLog = console.log.bind(console);
+            const origWarn = console.warn.bind(console);
+            const origError = console.error.bind(console);
+            const origInfo = console.info ? console.info.bind(console) : origLog;
+            const origDebug = console.debug ? console.debug.bind(console) : origLog;
+            const formatArg = (a: unknown): string => {
+                if (typeof a === 'string') return a;
+                try { return JSON.stringify(a); } catch { return String(a); }
+            };
+            const capture = (level: string, args: unknown[]) => {
+                try {
+                    if (level !== 'error') {
+                        const first = args[0];
+                        if (typeof first !== 'string' || !DIAG_PREFIX_RE.test(first)) return;
+                    }
+                    const line = args.map(formatArg).join(' ');
+                    pendingDiagEntries.push({ ts: Date.now(), level, line });
+                    scheduleDiagForward();
+                } catch { /* never break logging */ }
+            };
+            console.log = (...args: unknown[]) => { capture('log', args); origLog(...args); };
+            console.warn = (...args: unknown[]) => { capture('warn', args); origWarn(...args); };
+            console.error = (...args: unknown[]) => { capture('error', args); origError(...args); };
+            console.info = (...args: unknown[]) => { capture('info', args); origInfo(...args); };
+            console.debug = (...args: unknown[]) => { capture('debug', args); origDebug(...args); };
+        }
+
+        // IDB shape probe used by the diagnostics page. Counts rows per
+        // store without enumerating records, so no chat data is read.
+        // Names embed tenant + user UUID; redaction is applied at the
+        // popup's report-build step, not here.
+        type DbOpenResult =
+            | { status: 'opened'; db: IDBDatabase }
+            | { status: 'blocked' }
+            | { status: 'error'; reason: string };
+        // Hard ceiling on a single DB open. An indexedDB.open that fires
+        // none of success/error/blocked is a known browser-bug shape we
+        // do not want hanging the entire diagnostics response. 5 s is
+        // generous: a healthy open completes in milliseconds, a busy
+        // one resolves via onblocked.
+        const PROBE_OPEN_TIMEOUT_MS = 5000;
+        async function openProbeDb(name: string): Promise<DbOpenResult> {
+            return new Promise(resolve => {
+                let settled = false;
+                const settle = (r: DbOpenResult) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    resolve(r);
+                };
+                const timer = setTimeout(() => {
+                    settle({ status: 'error', reason: `open timed out after ${PROBE_OPEN_TIMEOUT_MS}ms` });
+                }, PROBE_OPEN_TIMEOUT_MS);
+                try {
+                    const req = indexedDB.open(name);
+                    req.onsuccess = () => {
+                        const db = req.result;
+                        // If we already resolved (blocked or timeout path),
+                        // close the late-arriving handle so we don't pin
+                        // the DB open.
+                        if (settled) { try { db.close(); } catch { /* noop */ } return; }
+                        // Cooperate with Teams: if it requests an upgrade
+                        // while we're holding the handle, release it.
+                        db.onversionchange = () => { try { db.close(); } catch { /* noop */ } };
+                        settle({ status: 'opened', db });
+                    };
+                    req.onerror = () => settle({ status: 'error', reason: req.error?.message || 'open failed' });
+                    req.onblocked = () => settle({ status: 'blocked' });
+                } catch (e) {
+                    settle({ status: 'error', reason: e instanceof Error ? e.message : String(e) });
+                }
+            });
+        }
+        async function probeIdbShape(): Promise<
+            | {
+                available: true;
+                databases: {
+                    name: string;
+                    version: number;
+                    status: 'opened' | 'blocked' | 'error';
+                    reason?: string;
+                    stores: { name: string; count: number; error?: string }[];
+                }[];
+              }
+            | { available: false; reason: string }
+        > {
+            try {
+                if (typeof indexedDB === 'undefined' || typeof indexedDB.databases !== 'function') {
+                    return { available: false, reason: 'indexedDB.databases unsupported' };
+                }
+                const all = await indexedDB.databases();
+                const teamsDbs = all.filter(d => typeof d.name === 'string' && d.name.startsWith('Teams:'));
+                const out: {
+                    name: string;
+                    version: number;
+                    status: 'opened' | 'blocked' | 'error';
+                    reason?: string;
+                    stores: { name: string; count: number; error?: string }[];
+                }[] = [];
+                for (const meta of teamsDbs) {
+                    const name = meta.name as string;
+                    const version = typeof meta.version === 'number' ? meta.version : 0;
+                    const opened = await openProbeDb(name);
+                    if (opened.status !== 'opened') {
+                        out.push({ name, version, status: opened.status, reason: 'reason' in opened ? opened.reason : undefined, stores: [] });
+                        continue;
+                    }
+                    const db = opened.db;
+                    const stores: { name: string; count: number; error?: string }[] = [];
+                    for (const sn of Array.from(db.objectStoreNames)) {
+                        const r = await new Promise<{ count: number; error?: string }>(resolve => {
+                            try {
+                                const tx = db.transaction(sn, 'readonly');
+                                const req = tx.objectStore(sn).count();
+                                req.onsuccess = () => resolve({ count: req.result || 0 });
+                                req.onerror = () => resolve({ count: 0, error: req.error?.message || 'count failed' });
+                            } catch (e) {
+                                resolve({ count: 0, error: e instanceof Error ? e.message : String(e) });
+                            }
+                        });
+                        stores.push({ name: sn, count: r.count, ...(r.error ? { error: r.error } : {}) });
+                    }
+                    try { db.close(); } catch { /* noop */ }
+                    out.push({ name, version, status: 'opened', stores });
+                }
+                return { available: true, databases: out };
+            } catch (e) {
+                return { available: false, reason: e instanceof Error ? e.message : String(e) };
+            }
+        }
 
         let hudEnabled = true;
         let currentRunStartedAt: number | null = null;
@@ -592,21 +778,28 @@ export default defineContentScript({
         // then every subsequent fetch reuses it. The helper itself
         // also guards via a window-scoped flag in case anyone else
         // re-injects it.
-        let urlpHelperPromise: Promise<void> | null = null;
-        function ensureUrlpHelperLoaded(): Promise<void> {
+        // Outcome of one helper load attempt. Image-fetch call sites
+        // historically did not care which case occurred (they retry on
+        // a per-call timeout anyway), but the diagnostics probe needs
+        // to know real success from a silent timeout — otherwise it
+        // reports PASS for a dead helper. Plain Promise<void> hid the
+        // distinction.
+        type UrlpHelperLoadStatus = 'ready' | 'script-error' | 'timeout';
+        let urlpHelperPromise: Promise<UrlpHelperLoadStatus> | null = null;
+        function ensureUrlpHelperLoaded(): Promise<UrlpHelperLoadStatus> {
             if (urlpHelperPromise) return urlpHelperPromise;
-            urlpHelperPromise = new Promise<void>((resolve) => {
+            urlpHelperPromise = new Promise<UrlpHelperLoadStatus>((resolve) => {
                 let resolved = false;
-                const finish = () => {
+                const finish = (status: UrlpHelperLoadStatus) => {
                     if (resolved) return;
                     resolved = true;
                     window.removeEventListener('message', onReady);
-                    resolve();
+                    resolve(status);
                 };
                 function onReady(e: MessageEvent) {
                     if (e.source !== window) return;
                     const d = e.data as { type?: string } | null;
-                    if (d?.type === URLP_READY) finish();
+                    if (d?.type === URLP_READY) finish('ready');
                 }
                 window.addEventListener('message', onReady);
                 const script = document.createElement('script');
@@ -614,13 +807,16 @@ export default defineContentScript({
                 script.onload = () => { script.remove(); };
                 script.onerror = () => {
                     console.warn('[Teams Exporter] urlp helper script failed to load — urlp fetches will fail.');
-                    finish();
+                    finish('script-error');
                 };
                 (document.head || document.documentElement).appendChild(script);
                 // Safety timeout: if the helper never signals ready
-                // (CSP block, navigation, etc.), resolve anyway and let
-                // call sites time out individually.
-                setTimeout(finish, 5000);
+                // (CSP block, navigation, etc.), settle the promise so
+                // call sites can fall back to per-fetch timeouts. The
+                // 'timeout' status keeps the cause visible to callers
+                // (the diagnostics probe distinguishes it from a real
+                // ready event).
+                setTimeout(() => finish('timeout'), 5000);
             });
             return urlpHelperPromise;
         }
@@ -3020,6 +3216,73 @@ export default defineContentScript({
             return clone;
         }
 
+        // Helper-dependent diagnostic probes. These live inside main()
+        // because they close over the page-world urlp helper RPC
+        // (constants and helper-loaded promise are all main-scope).
+        // The standalone probes live in src/content/probes.ts.
+        async function probePageWorldHelper(): Promise<ProbeResult> {
+            const t0 = performance.now();
+            // ensureUrlpHelperLoaded itself has a 5 s internal safety
+            // timeout. We do NOT add a second race here because that
+            // would create a deceptive "loaded vs timeout" ambiguity
+            // (which timer wins is scheduler-dependent). Instead we
+            // rely on the helper to report its own outcome.
+            const status = await ensureUrlpHelperLoaded();
+            const ms = Math.round(performance.now() - t0);
+            if (status === 'ready') {
+                return { name: 'page_world_helper', status: 'pass', ms };
+            }
+            if (status === 'script-error') {
+                return { name: 'page_world_helper', status: 'fail', detail: 'script load error', ms };
+            }
+            return { name: 'page_world_helper', status: 'fail', detail: 'timeout: helper never signalled ready', ms };
+        }
+
+        async function probeCanaryImageFetch(): Promise<ProbeResult> {
+            const t0 = performance.now();
+            // Deliberately invalid AMS object id. The helper will issue a
+            // real fetch via page cookies; we want to know the RPC path
+            // works end to end. 4xx is a healthy "round-tripped, server
+            // rejected as expected". 5xx means AMS itself is misbehaving
+            // and is a real diagnostic signal — report it as fail.
+            const url = 'https://us-api.asm.skype.com/v1/objects/probe-canary/views/imgo';
+            const resp = await fetchUrlpDirect(url);
+            const ms = Math.round(performance.now() - t0);
+            if (resp.ok) {
+                return { name: 'canary_image_fetch', status: 'pass', detail: 'returned bytes', ms };
+            }
+            if (typeof resp.status === 'number') {
+                const is5xx = resp.status >= 500 && resp.status < 600;
+                return {
+                    name: 'canary_image_fetch',
+                    status: is5xx ? 'fail' : 'pass',
+                    detail: is5xx ? `HTTP ${resp.status} (server error)` : `HTTP ${resp.status}`,
+                    ms,
+                };
+            }
+            return { name: 'canary_image_fetch', status: 'fail', detail: resp.error || 'unknown failure', ms };
+        }
+
+        async function runAllContentProbes(): Promise<{ results: ProbeResult[]; totalMs: number }> {
+            const t0 = performance.now();
+            // Standalone probes (DOM, auth tokens, host reachability) and
+            // the helper probes run in parallel: the slowest network call
+            // sets the floor instead of stacking.
+            const standalonePromise = runStandaloneProbes();
+            const helperPromise = probePageWorldHelper();
+            const standalone = await standalonePromise;
+            const helper = await helperPromise;
+            // Canary depends on the helper being loaded. We chain it after
+            // the helper probe rather than racing in parallel; otherwise a
+            // failed helper would also fail the canary with a generic
+            // timeout, blurring which RPC stage actually broke.
+            const canary = helper.status === 'pass'
+                ? await probeCanaryImageFetch()
+                : ({ name: 'canary_image_fetch', status: 'skipped' as const, detail: 'helper not loaded', ms: 0 });
+            const results: ProbeResult[] = [...standalone, helper, canary];
+            return { results, totalMs: Math.round(performance.now() - t0) };
+        }
+
         if (!isTop) return;
         // Bridge --------------------------------------------------------
         runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -3027,6 +3290,27 @@ export default defineContentScript({
                 try {
                     if (msg.type === 'PING') { sendResponse({ ok: true }); return; }
                     if (msg.type === 'CHECK_CHAT_CONTEXT') { sendResponse(checkChatContext(msg.target)); return; }
+                    if (msg.type === 'GET_DIAGNOSTICS_CONTENT') {
+                        try {
+                            const idbShape = await probeIdbShape();
+                            sendResponse({ idbShape, forwardingStats: diagForwardingStats() });
+                        } catch (e) {
+                            sendResponse({
+                                idbShape: { available: false, reason: e instanceof Error ? e.message : String(e) },
+                                forwardingStats: diagForwardingStats(),
+                            });
+                        }
+                        return;
+                    }
+                    if (msg.type === 'RUN_PROBES_CONTENT') {
+                        try {
+                            const { results, totalMs } = await runAllContentProbes();
+                            sendResponse({ ok: true, results, totalMs });
+                        } catch (e) {
+                            sendResponse({ ok: false, reason: e instanceof Error ? e.message : String(e) });
+                        }
+                        return;
+                    }
                     if (msg.type === 'GET_CONV_ID') {
                         // Delegates to the same extractor the scraper uses
                         // (IndexedDB → URL → DOM). Used by the popup on

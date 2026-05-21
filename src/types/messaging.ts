@@ -120,6 +120,90 @@ export type ListConversationsResponse =
 export type ListConversationsQuickRequest = { type: 'LIST_CONVERSATIONS_QUICK'; tabId?: number | null };
 export type ListConversationsQuickResponse = ListConversationsResponse;
 
+// Diagnostics, Layer 1 (passive snapshot). Popup pulls the background's
+// log tail. Content script returns its log tail plus an IDB shape probe
+// (database and store names, row counts only).
+// Combined log buffer entry. Lives in BG, populated by:
+//   - BG's own console wrap (src: 'bg')
+//   - Content scripts forwarding their captures (src: 'content')
+// The popup pulls the merged buffer and the report renderer splits
+// back into LOGS_BACKGROUND / LOGS_CONTENT by src.
+export type DiagLogEntry = { src: 'bg' | 'content'; ts: number; level: string; line: string };
+
+export type GetDiagnosticsBgRequest = { type: 'GET_DIAGNOSTICS_BG' };
+export type GetDiagnosticsBgResponse = {
+  entries: DiagLogEntry[];
+  // Bytes currently on disk. Null when persistence is on but the
+  // browser does not implement getBytesInUse (older Firefox WebExt
+  // polyfill). The UI renders 'unknown size' for null instead of a
+  // misleading '0 B'.
+  bytesUsed: number | null;
+  persistEnabled: boolean;
+  // Captures the most recent persistence write failure (quota
+  // exceeded, profile corrupt, etc.). Surfaced so a user with the
+  // toggle ON but bytesUsed === 0 sees a clear hint, instead of
+  // wondering why nothing is being saved.
+  lastFlushError: { ts: number; reason: string } | null;
+};
+
+// Content script forwards its captures to BG as small batched arrays.
+// Fire-and-forget; BG wakes on receive and appends.
+export type DiagLogForwardRequest = {
+  type: 'DIAG_LOG_FORWARD';
+  entries: { ts: number; level: string; line: string }[];
+};
+
+// Wipes both the in-memory log buffer and the persisted storage key.
+// Fired from the Diagnostics page's "Clear logs" button.
+export type ClearDiagnosticsLogsRequest = { type: 'CLEAR_DIAGNOSTICS_LOGS' };
+export type ClearDiagnosticsLogsResponse = { ok: boolean };
+
+// Toggles whether BG persists the combined log buffer to
+// chrome.storage.local. Off by default (zero disk footprint for the
+// 99.9% of users who never engage with diagnostics).
+export type SetDiagLogPersistRequest = { type: 'SET_DIAG_LOG_PERSIST'; enabled: boolean };
+export type SetDiagLogPersistResponse = { ok: boolean };
+
+export type DiagnosticsProbeResult = {
+  name: string;
+  status: 'pass' | 'fail' | 'skipped';
+  detail?: string;
+  ms: number;
+};
+export type RunProbesBgRequest = { type: 'RUN_PROBES_BG' };
+export type RunProbesBgResponse =
+  | { ok: true; results: DiagnosticsProbeResult[]; totalMs: number }
+  | { ok: false; reason: string };
+export type RunProbesContentRequest = { type: 'RUN_PROBES_CONTENT' };
+export type RunProbesContentResponse =
+  | { ok: true; results: DiagnosticsProbeResult[]; totalMs: number }
+  | { ok: false; reason: string };
+
+export type GetDiagnosticsContentRequest = { type: 'GET_DIAGNOSTICS_CONTENT' };
+export type DiagnosticsIdbStore = { name: string; count: number; error?: string };
+export type DiagnosticsIdbDatabase = {
+  name: string;
+  version: number;
+  status: 'opened' | 'blocked' | 'error';
+  reason?: string;
+  stores: DiagnosticsIdbStore[];
+};
+// Content no longer owns log entries (BG holds the merged buffer
+// populated via DIAG_LOG_FORWARD). This message now returns only the
+// IDB shape probe and per-content forwarding stats so a silent
+// forwarding failure surfaces in the report.
+export type DiagnosticsForwardingStats = {
+  lostBatches: number;
+  lostEntries: number;
+  lastError: string | null;
+};
+export type GetDiagnosticsContentResponse = {
+  idbShape:
+    | { available: true; databases: DiagnosticsIdbDatabase[] }
+    | { available: false; reason: string };
+  forwardingStats: DiagnosticsForwardingStats;
+};
+
 export type ScrapeProgressMessage = {
   type: 'SCRAPE_PROGRESS';
   payload: {
@@ -143,7 +227,11 @@ export type RuntimeRequest =
   | StopExportRequest
   | BuildAndDownloadRequest
   | ListConversationsRequest
-  | ListConversationsQuickRequest;
+  | ListConversationsQuickRequest
+  | GetDiagnosticsBgRequest
+  | RunProbesBgRequest
+  | ClearDiagnosticsLogsRequest
+  | SetDiagLogPersistRequest;
 
 export type BackgroundIncomingMessage =
   | PingSWRequest
@@ -158,7 +246,12 @@ export type BackgroundIncomingMessage =
   | FetchBlobDirectRequest
   | FallbackStatusRequest
   | ListConversationsRequest
-  | ListConversationsQuickRequest;
+  | ListConversationsQuickRequest
+  | GetDiagnosticsBgRequest
+  | RunProbesBgRequest
+  | DiagLogForwardRequest
+  | ClearDiagnosticsLogsRequest
+  | SetDiagLogPersistRequest;
 
 export type RuntimeResponse<T extends RuntimeRequest> =
   T extends PingSWRequest ? PingSWResponse :
@@ -168,4 +261,8 @@ export type RuntimeResponse<T extends RuntimeRequest> =
   T extends StopExportRequest ? StopExportResponse :
   T extends ListConversationsRequest ? ListConversationsResponse :
   T extends ListConversationsQuickRequest ? ListConversationsQuickResponse :
+  T extends GetDiagnosticsBgRequest ? GetDiagnosticsBgResponse :
+  T extends RunProbesBgRequest ? RunProbesBgResponse :
+  T extends ClearDiagnosticsLogsRequest ? ClearDiagnosticsLogsResponse :
+  T extends SetDiagLogPersistRequest ? SetDiagLogPersistResponse :
   unknown;

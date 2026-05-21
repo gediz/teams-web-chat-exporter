@@ -32,6 +32,171 @@ declare const browser: typeof chrome | undefined;
 
 // ===== service-worker.js (WXT version) =====
 export default defineBackground(() => {
+
+// Diagnostic log tail.
+//
+// BG owns the master log buffer. It contains:
+//   - BG's own console captures (src: 'bg'), wrapped here at module load
+//   - lines forwarded from content scripts (src: 'content'), received
+//     via DIAG_LOG_FORWARD messages
+//
+// Persistence is opt-in (Options.diagLogPersist, default false). When
+// off, the buffer lives in memory only and is lost on SW eviction.
+// When on, BG flushes a debounced copy of the buffer to
+// chrome.storage.local under DIAG_LOG_STORAGE_KEY. On SW startup the
+// stored entries are restored (prepended to whatever lines the wrap
+// has captured during boot).
+//
+// Trim is byte-based: the buffer cannot exceed DIAG_LOG_BYTE_CAP when
+// serialized. Oldest entries are dropped first. This keeps the disk
+// footprint bounded while letting the buffer hold thousands of typical
+// log lines.
+type DiagLogEntry = { src: 'bg' | 'content'; ts: number; level: string; line: string };
+const DIAG_LOG_BYTE_CAP = 8 * 1024 * 1024;
+const DIAG_LOG_STORAGE_KEY = 'teamsExporterDiagLog';
+const DIAG_FLUSH_DEBOUNCE_MS = 500;
+const DIAG_PREFIX_RE = /^\[[A-Za-z][A-Za-z0-9 _\-:]{0,40}\]/;
+const diagLogBuffer: DiagLogEntry[] = [];
+let diagLogPersistEnabled = false;
+let diagLogFlushTimer: ReturnType<typeof setTimeout> | null = null;
+// Tracks the most recent in-flight storage write so toggle-off can
+// await it before removing the storage key. Without this, an in-flight
+// set() can land AFTER remove() and silently resurrect the key.
+let diagInflightFlush: Promise<void> | null = null;
+// Most recent storage write failure (null if none, or if the last
+// write succeeded). The popup surfaces this so a user with
+// persistence on but zero bytes on disk sees a clear "writes are
+// failing" hint instead of an ambiguous 0.
+let diagLastFlushError: { ts: number; reason: string } | null = null;
+// Running byte count of `diagLogBuffer`'s serialized form. Maintained
+// incrementally to avoid an O(n) JSON.stringify per push (which would
+// stack up to hundreds of ms on a near-cap buffer during a verbose
+// export). The estimate is intentionally conservative (over-counts a
+// little) so the cap stays a safe floor for actual on-disk size.
+let diagBufferBytes = 0;
+function estimateEntryBytes(e: DiagLogEntry): number {
+    // JSON overhead per entry: 4 keys (`src`,`ts`,`level`,`line`),
+    // each with quotes + colon + comma, plus the bracketed wrapper.
+    // ~60 bytes is a generous round number that covers the structure.
+    return 60 + (e.line?.length || 0) + (e.level?.length || 0);
+}
+function trimDiagBuffer() {
+    // Drop oldest entries until under cap. Small floor (50) keeps the
+    // buffer from dropping to zero on a pathological single mega-entry.
+    while (diagLogBuffer.length > 50 && diagBufferBytes > DIAG_LOG_BYTE_CAP) {
+        const removed = diagLogBuffer.shift();
+        if (removed) diagBufferBytes -= estimateEntryBytes(removed);
+    }
+}
+function pushDiagEntry(entry: DiagLogEntry) {
+    diagLogBuffer.push(entry);
+    diagBufferBytes += estimateEntryBytes(entry);
+    diagBufferDirty = true;
+    trimDiagBuffer();
+    if (diagLogPersistEnabled) scheduleDiagFlush();
+}
+function recomputeBufferBytes() {
+    diagBufferBytes = diagLogBuffer.reduce((sum, e) => sum + estimateEntryBytes(e), 0);
+}
+// True between a push and the next successful flush. Lets the
+// post-flush finalizer decide whether to re-arm a flush (catches
+// pushes that arrived while the previous write was in flight).
+let diagBufferDirty = false;
+function scheduleDiagFlush() {
+    // Single-writer guard: drop the call if another flush is already
+    // scheduled OR mid-write. The in-flight finalizer below catches up
+    // by re-arming when it sees dirty=true at finish.
+    if (diagLogFlushTimer || diagInflightFlush) return;
+    diagLogFlushTimer = setTimeout(() => {
+        diagLogFlushTimer = null;
+        if (!diagLogPersistEnabled) return;
+        // Snapshot dirty=false now; any pushes that arrive during the
+        // write below will flip it back to true and the finally clause
+        // re-arms scheduleDiagFlush.
+        diagBufferDirty = false;
+        diagInflightFlush = (async () => {
+            try {
+                await chrome.storage.local.set({ [DIAG_LOG_STORAGE_KEY]: diagLogBuffer.slice() });
+                diagLastFlushError = null;
+            } catch (e: any) {
+                const msg = e?.message || String(e);
+                diagLastFlushError = { ts: Date.now(), reason: msg };
+                // Quota recovery: drop oldest half so the next flush
+                // attempt fits. Without this, a stuck-quota state
+                // captures lastFlushError once and then keeps failing
+                // identically forever. Halving is conservative.
+                if (/quota/i.test(msg)) {
+                    const half = Math.floor(diagLogBuffer.length / 2);
+                    if (half > 0) {
+                        diagLogBuffer.splice(0, half);
+                        recomputeBufferBytes();
+                    }
+                }
+                // Ensure the retry happens regardless of whether new
+                // pushes came in during the in-flight write.
+                diagBufferDirty = true;
+            } finally {
+                diagInflightFlush = null;
+                if (diagLogPersistEnabled && diagBufferDirty) {
+                    scheduleDiagFlush();
+                }
+            }
+        })();
+    }, DIAG_FLUSH_DEBOUNCE_MS);
+}
+async function restoreDiagBuffer() {
+    try {
+        const r = await chrome.storage.local.get([DIAG_LOG_STORAGE_KEY, 'teamsExporterOptions']);
+        const opts = r['teamsExporterOptions'];
+        diagLogPersistEnabled = !!opts?.diagLogPersist;
+        if (!diagLogPersistEnabled) return;
+        const stored = r[DIAG_LOG_STORAGE_KEY];
+        if (!Array.isArray(stored) || stored.length === 0) return;
+        // Prepend restored entries: they are older than anything the
+        // boot-time console wrap might have already captured.
+        const inMem = diagLogBuffer.splice(0);
+        diagLogBuffer.push(...(stored as DiagLogEntry[]), ...inMem);
+        recomputeBufferBytes();
+        trimDiagBuffer();
+    } catch { /* fall through; restore is best-effort */ }
+}
+// Idempotent guard: a second module load (HMR, recovery) skips the
+// re-wrap so we don't double-capture.
+if (!(console as unknown as { __tceDiagWrapped?: boolean }).__tceDiagWrapped) {
+    (console as unknown as { __tceDiagWrapped: boolean }).__tceDiagWrapped = true;
+    const origLog = console.log.bind(console);
+    const origWarn = console.warn.bind(console);
+    const origError = console.error.bind(console);
+    const origInfo = console.info ? console.info.bind(console) : origLog;
+    const origDebug = console.debug ? console.debug.bind(console) : origLog;
+    const formatArg = (a: unknown): string => {
+        if (typeof a === 'string') return a;
+        try { return JSON.stringify(a); } catch { return String(a); }
+    };
+    const capture = (level: string, args: unknown[]) => {
+        try {
+            // Cheap gate before formatting: skip the JSON.stringify
+            // pass entirely on lines that clearly aren't ours. Errors
+            // bypass the prefix filter so real exceptions still land
+            // in the buffer even without a `[tag]` prefix.
+            if (level !== 'error') {
+                const first = args[0];
+                if (typeof first !== 'string' || !DIAG_PREFIX_RE.test(first)) return;
+            }
+            const line = args.map(formatArg).join(' ');
+            pushDiagEntry({ src: 'bg', ts: Date.now(), level, line });
+        } catch { /* never break logging */ }
+    };
+    console.log = (...args: unknown[]) => { capture('log', args); origLog(...args); };
+    console.warn = (...args: unknown[]) => { capture('warn', args); origWarn(...args); };
+    console.error = (...args: unknown[]) => { capture('error', args); origError(...args); };
+    console.info = (...args: unknown[]) => { capture('info', args); origInfo(...args); };
+    console.debug = (...args: unknown[]) => { capture('debug', args); origDebug(...args); };
+}
+// Kick off restore. Async; lines captured during this window will be
+// preserved (restore prepends, not overwrites).
+void restoreDiagBuffer();
+
 // Browser API compatibility for Firefox
 const runtime = typeof browser !== 'undefined' ? browser.runtime : chrome.runtime;
 const tabs = typeof browser !== 'undefined' ? browser.tabs : chrome.tabs;
@@ -1285,6 +1450,154 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
     if (msg.type === 'PING_SW') {
         sendResponse({ ok: true, now: Date.now() });
         return;
+    }
+
+    if (msg.type === 'GET_DIAGNOSTICS_BG') {
+        // Copy the buffer so a later mutation doesn't affect what the
+        // popup receives via structured clone. Include the persistence
+        // state and on-disk byte usage so the popup can render the
+        // storage info row without an extra round-trip.
+        (async () => {
+            // Default to null so a getBytesInUse failure (Firefox's
+            // older polyfill rejects with "Not supported" instead of
+            // returning a number) shows up as "unknown size" in the
+            // UI rather than misleading "0 B".
+            let bytesUsed: number | null = null;
+            if (diagLogPersistEnabled) {
+                try {
+                    bytesUsed = await chrome.storage.local.getBytesInUse(DIAG_LOG_STORAGE_KEY);
+                } catch { /* leave bytesUsed null; UI renders 'unknown size' */ }
+            } else {
+                bytesUsed = 0;
+            }
+            sendResponse({
+                entries: diagLogBuffer.slice(),
+                bytesUsed,
+                persistEnabled: diagLogPersistEnabled,
+                lastFlushError: diagLastFlushError,
+            });
+        })();
+        return true;
+    }
+
+    if (msg.type === 'DIAG_LOG_FORWARD') {
+        // Content scripts batch their captures into small arrays and
+        // forward them here. Append each to the master buffer with
+        // src: 'content'. Fire-and-forget from the content side, so
+        // we acknowledge but don't need to ship a payload back.
+        if (Array.isArray(msg.entries)) {
+            for (const e of msg.entries) {
+                if (typeof e?.line !== 'string' || typeof e?.ts !== 'number' || typeof e?.level !== 'string') continue;
+                pushDiagEntry({ src: 'content', ts: e.ts, level: e.level, line: e.line });
+            }
+        }
+        sendResponse({ ok: true });
+        return;
+    }
+
+    if (msg.type === 'CLEAR_DIAGNOSTICS_LOGS') {
+        // Wipe in-memory AND on-disk. Cancels any pending flush, then
+        // waits for any in-flight flush to finish before remove so the
+        // post-await set() can't land after remove and resurrect the
+        // just-cleared key. We also temporarily flip persistence off
+        // for the duration of the clear: otherwise any push during
+        // the `await remove` window would schedule a new flush that
+        // fires after remove and writes a partial buffer back.
+        const wasEnabled = diagLogPersistEnabled;
+        diagLogPersistEnabled = false;
+        diagLogBuffer.length = 0;
+        diagBufferBytes = 0;
+        diagBufferDirty = false;
+        if (diagLogFlushTimer) { clearTimeout(diagLogFlushTimer); diagLogFlushTimer = null; }
+        diagLastFlushError = null;
+        (async () => {
+            if (diagInflightFlush) { try { await diagInflightFlush; } catch { /* noop */ } }
+            try { await chrome.storage.local.remove(DIAG_LOG_STORAGE_KEY); }
+            catch { /* best-effort */ }
+            diagLogPersistEnabled = wasEnabled;
+            sendResponse({ ok: true });
+        })();
+        return true;
+    }
+
+    if (msg.type === 'SET_DIAG_LOG_PERSIST') {
+        // Caller (popup) has already saved the option. We update the
+        // BG runtime flag here so the change takes effect without
+        // waiting for an SW restart. Turning off also wipes the
+        // existing on-disk buffer (no point keeping stale data).
+        diagLogPersistEnabled = !!msg.enabled;
+        (async () => {
+            if (diagLogPersistEnabled) {
+                // Snapshot what we have so a refresh on the diagnostics
+                // page right after toggling shows the right size.
+                try {
+                    await chrome.storage.local.set({ [DIAG_LOG_STORAGE_KEY]: diagLogBuffer.slice() });
+                    diagLastFlushError = null;
+                } catch (e: any) {
+                    diagLastFlushError = { ts: Date.now(), reason: e?.message || String(e) };
+                }
+            } else {
+                if (diagLogFlushTimer) { clearTimeout(diagLogFlushTimer); diagLogFlushTimer = null; }
+                // Wait out any in-flight write before remove, otherwise
+                // its post-await set() can resurrect the key. Same
+                // ordering as CLEAR_DIAGNOSTICS_LOGS above.
+                if (diagInflightFlush) { try { await diagInflightFlush; } catch { /* noop */ } }
+                try { await chrome.storage.local.remove(DIAG_LOG_STORAGE_KEY); }
+                catch { /* best-effort */ }
+                diagLastFlushError = null;
+            }
+            sendResponse({ ok: true });
+        })();
+        return true;
+    }
+
+    if (msg.type === 'RUN_PROBES_BG') {
+        // BG-side probes are cheap and don't need to be parallel.
+        // service_worker_alive is implicit: if we got the message,
+        // the SW is alive enough to answer.
+        const t0 = Date.now();
+        (async () => {
+            const results: { name: string; status: 'pass' | 'fail' | 'skipped'; detail?: string; ms: number }[] = [
+                { name: 'service_worker_alive', status: 'pass', ms: 0 },
+            ];
+            // <all_urls> grant state. Promise-based on both Chrome MV3
+            // and Firefox WebExt; explicit null on error so the popup
+            // doesn't conflate failure with "not granted".
+            const t1 = Date.now();
+            try {
+                const granted = await (typeof browser !== 'undefined' ? browser.permissions : chrome.permissions)
+                    .contains({ origins: ['<all_urls>'] });
+                // Strict boolean check. A truthy non-true value (e.g.
+                // an unusual WebExt polyfill return) should not be
+                // reported as a clean PASS. Only annotate the type when
+                // it's unexpected — a plain `false` is just "not
+                // granted" without noise.
+                const isGranted = granted === true;
+                let detail: string;
+                if (isGranted) {
+                    detail = 'granted';
+                } else if (typeof granted === 'boolean') {
+                    detail = 'not granted';
+                } else {
+                    detail = `not granted (returned ${typeof granted})`;
+                }
+                results.push({
+                    name: 'all_urls_granted',
+                    status: isGranted ? 'pass' : 'fail',
+                    detail,
+                    ms: Date.now() - t1,
+                });
+            } catch (e: any) {
+                results.push({
+                    name: 'all_urls_granted',
+                    status: 'fail',
+                    detail: e?.message || String(e),
+                    ms: Date.now() - t1,
+                });
+            }
+            sendResponse({ ok: true, results, totalMs: Date.now() - t0 });
+        })();
+        return true;
     }
 
     if (msg.type === 'BUILD_AND_DOWNLOAD') {

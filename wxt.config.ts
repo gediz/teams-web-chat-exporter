@@ -81,10 +81,12 @@ export default defineConfig({
       // can rasterize SVG emoji via HTMLImageElement. Chromium MV3 SW
       // lacks DOM and createImageBitmap on SVG blobs is broken there;
       // the offscreen document is Google's official workaround. Silent
-      // permission (no install prompt). Firefox MV2 ignores it; its
-      // background page already has DOM access and does the rasterization
-      // directly.
-      'offscreen',
+      // permission (no install prompt). Gated to MV3 because Firefox
+      // MV2 emits a manifest warning when the permission is present
+      // (it does not know about it); Firefox's background page already
+      // has DOM access and does the rasterization directly without
+      // needing this permission.
+      ...(manifestVersion === 3 ? ['offscreen' as const] : []),
     ],
     host_permissions: [...TEAMS_MATCH_PATTERNS, ...API_FETCH_PATTERNS],
     // page-helpers/urlp-fetcher.js runs in the Teams page's MAIN world

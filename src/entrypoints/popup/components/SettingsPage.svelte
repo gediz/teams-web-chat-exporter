@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { ArrowLeft, Sun, Moon, Globe, FolderOpen, CircleUserRound, Printer, Info, ExternalLink, Bug, Star, GraduationCap, Image } from 'lucide-svelte';
+  import { ArrowLeft, Sun, Moon, Globe, FolderOpen, CircleUserRound, Printer, Info, ExternalLink, Bug, Star, GraduationCap, Image, Stethoscope } from 'lucide-svelte';
   import { t } from '../../../i18n/i18n';
   import { getReviewStoreUrl } from '../../../utils/store-urls';
 
@@ -63,6 +63,7 @@
     pdfIncludeAvatarsChange: boolean;
     imageFetchFallbackChange: boolean;
     replayTour: void;
+    openDiagnostics: void;
   }>();
 
   function onAfterExportChange(e: Event) {
@@ -153,10 +154,22 @@
 
 <div class="settings-page">
   <div class="settings-header">
-    <button class="icon-btn" title="Back" on:click={() => dispatch('back')}>
+    <button class="icon-btn" title={t('common.back', {}, lang)} on:click={() => dispatch('back')}>
       <ArrowLeft size={18} />
     </button>
     <h1>{t('settings.title', {}, lang)}</h1>
+    <!-- Stethoscope at the right edge mirrors the main popup's
+         right-side icon idiom (history + gear). Diagnostics is a
+         tool, not a setting, so it sits in the chrome of the page
+         rather than as a card or a link in the body. -->
+    <button
+      class="icon-btn settings-header-right"
+      title={t('settings.diagnostics.link', {}, lang)}
+      aria-label={t('settings.diagnostics.link', {}, lang)}
+      on:click={() => dispatch('openDiagnostics')}
+    >
+      <Stethoscope size={18} />
+    </button>
   </div>
 
   <!-- Theme Card -->
