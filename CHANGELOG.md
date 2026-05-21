@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.13] — 2026-05-21
+
+GitHub-only release. Not pushed to the Chrome Web Store, Microsoft Edge Add-ons, or Firefox AMO. Existing installs stay on 1.4.12. Users who hit a problem and are asked to share diagnostics can install the unpacked build from this release; everyone else sees no change.
+
+The headline addition is a Diagnostics page that produces a privacy-redacted JSON report users can attach to a bug report or share directly with the maintainer. Persistence is off by default; the feature is dormant until the user opens it.
+
+### Added
+
+- **Diagnostics page.** A stethoscope icon on the Settings page header opens a new Diagnostics page. The page builds a JSON report covering the extension version, browser, OS, Teams host, locale, declared and optional permissions, options snapshot, Teams data on disk (database names and store row counts; no record content), recent exports summary, and a console-log tail from the background service worker and content scripts. Save writes the JSON to disk; Copy puts the same JSON on the clipboard; Preview shows it inline.
+- **Active probes.** Opt-in checklist that verifies Teams origin recognition, chat surface detection, IndexedDB access, Skype and IC3 token extraction, `asyncgw.teams.microsoft.com` and `asm.skype.com` reachability, page-world helper load, and a canary image fetch via the helper. Each probe reports pass / fail / skipped with status code or error string and elapsed milliseconds.
+- **Log persistence (off by default).** When the user enables the toggle on the Diagnostics page, log lines from the SW and content scripts are flushed to `chrome.storage.local`. 8 MB byte cap; oldest entries dropped when full; `QuotaExceededError` triggers self-recovery (drops oldest half). Single-writer guard prevents concurrent flushes. Clear logs button wipes both in-memory and on-disk state. Default off means no disk footprint for users who never engage with the feature.
+
+### Privacy and redaction
+
+- Per-report random salt. Identifier-shaped substrings in the report are replaced with opaque tokens of the form `<kind a1b2c3d4>`. The salt lives only in memory during report build and is discarded afterwards. Two reports never share placeholders.
+- Redacted shapes: UUIDs, Skype MRIs (`8:orgid:`, `8:live:`, `8:teamsvisitor:`, `gid:`, `28:`), email addresses, JWTs, Teams thread IDs (with and without the `@thread.v2` / `@unq.gbl.spaces` suffix, including truncated forms), AMS object identifiers (region + server + hex), SharePoint tenant subdomains, SharePoint `/personal/` user slugs (the `email_domain_tld` form that survives a naive email regex), and `asyncgw` / `asm.skype` regional hostnames. Verified by exhaustive scan: zero un-redacted identifiers across 1700+ string fields in a real export's diagnostic.
+- "Include raw IDs" toggle (default off) for users who are sharing privately with the maintainer and want the original values.
+
+### Fixed
+
+- **Firefox MV2 manifest warning on load.** The `offscreen` permission was unconditionally declared, but it is MV3-only; Firefox MV2 emitted a permission warning on every load. Now gated to MV3 builds.
+- **Popup page restoration was unreliable.** A reactive write to `LAST_PAGE_STORAGE_KEY` fired on initial render before the async restore could read the previously-saved page, overwriting `settings` / `history` / `diagnostics` with `main` and defeating the "resume where you left off" behaviour. Gated behind a hydrated flag so the persist write only runs after the restore has applied.
+
+### i18n
+
+- All 24 UI locale files updated with the new Diagnostics page strings and the probe-result labels. Languages with no translation for a new key fall back to English via the existing fallback chain.
+
 ## [1.4.12] — 2026-05-15
 
 Released to Microsoft Edge Add-ons. PDF emoji rendering on Chromium MV3 is fixed (color emoji instead of tofu boxes), and emoji in exported PDFs are now real selectable text: Ctrl+F finds them, drag-select copies the codepoints, screen readers announce them.
