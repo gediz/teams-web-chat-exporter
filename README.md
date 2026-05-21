@@ -51,6 +51,10 @@ Manual install: [docs/MANUAL_INSTALL.md](docs/MANUAL_INSTALL.md)
 4. Click export.
 5. Wait for the export to finish. The download starts automatically.
 
+## Filing a bug report
+
+If something is broken, the fastest path is to share a diagnostic report alongside your issue. See [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md) for the steps.
+
 ## Development docs
 
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)

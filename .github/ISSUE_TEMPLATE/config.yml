@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: How to share diagnostic logs
+    url: https://github.com/gediz/teams-web-chat-exporter/blob/main/docs/DIAGNOSTICS.md
+    about: If you're filing a bug, this is the fastest way to give me what I need to debug it.
   - name: Documentation
     url: https://github.com/gediz/teams-web-chat-exporter/tree/main/docs
     about: Architecture, development, and manual install guides.

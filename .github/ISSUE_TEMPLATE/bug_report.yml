@@ -97,11 +97,21 @@ body:
       required: false
 
   - type: textarea
+    id: diagnostic
+    attributes:
+      label: Diagnostic report (recommended)
+      description: |
+        The fastest way to give me what I need to debug this. Follow [docs/DIAGNOSTICS.md](https://github.com/gediz/teams-web-chat-exporter/blob/main/docs/DIAGNOSTICS.md) to capture a `.json` report (IDs are tokenized before save), then drop the file into the "Anything else?" field below or attach it after submitting.
+      placeholder: Drop a teams-exporter-diagnostic-*.json file into the "Anything else?" field below.
+    validations:
+      required: false
+
+  - type: textarea
     id: logs
     attributes:
       label: Console logs (optional)
       description: |
-        Open DevTools on the Teams tab AND the extension background page (chrome://extensions → "service worker" / about:debugging#/runtime/this-firefox), reproduce, and paste anything prefixed with `[API]`, `[Teams Exporter]`, or `[pdf]`. Redact any message text you don't want shared.
+        If the diagnostic report isn't enough, you can also paste raw console output. Open DevTools on the Teams tab AND the extension background page (chrome://extensions → "service worker" / about:debugging#/runtime/this-firefox), reproduce, and paste anything prefixed with `[API]`, `[Teams Exporter]`, or `[pdf]`. Redact any message text you don't want shared.
       render: text
     validations:
       required: false
