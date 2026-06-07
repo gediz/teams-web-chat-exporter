@@ -1,4 +1,5 @@
 import type { ExportMessage, ExportMeta, Reaction } from '../types/shared';
+import { mintBlobUrlViaOffscreen, revokeBlobUrlViaOffscreen } from '../utils/offscreen-client';
 
 /**
  * Removes avatar data entirely from messages.
@@ -898,6 +899,24 @@ function canCreateBlobUrls(): boolean {
   }
 }
 
+/** True when chrome.offscreen exists (Chromium MV3 only). */
+function hasOffscreen(): boolean {
+  try {
+    return typeof chrome !== 'undefined' && !!chrome.offscreen;
+  } catch {
+    return false;
+  }
+}
+
+// Above this payload size, an MV3 service worker mints the download URL via
+// the offscreen document (a real blob: URL) instead of a base64 data: URL.
+// A data: URL is a single string bounded by V8's ~512 MB limit, so large
+// exports throw "Invalid string length" when base64-encoded (issue #27).
+// Below the threshold the cheap inline data: URL is kept (no offscreen
+// round-trip). 50 MB is well under the ~384 MB failure point and also
+// sidesteps the memory cost of holding a large base64 string.
+const OFFSCREEN_MINT_THRESHOLD = 50 * 1024 * 1024;
+
 /** Create a downloadable URL from text (string or chunked string[]). Uses Blob URL when available. */
 export function textToDownloadUrl(text: string | string[], mime: string): string {
   const parts = Array.isArray(text) ? text : [text];
@@ -930,7 +949,16 @@ export async function blobToDownloadUrl(blob: Blob, mime: string): Promise<strin
   if (canCreateBlobUrls()) {
     try {
       return URL.createObjectURL(blob);
-    } catch { /* fall through to data: URL */ }
+    } catch { /* fall through */ }
+  }
+  // MV3 service worker (no createObjectURL). For large payloads a base64
+  // data: URL would exceed V8's max string length and throw "Invalid
+  // string length" (issue #27), so mint a real blob: URL in the offscreen
+  // document. On any offscreen failure we fall through to the data: URL,
+  // which is no worse than the previous behavior.
+  if (hasOffscreen() && blob.size >= OFFSCREEN_MINT_THRESHOLD) {
+    const url = await mintBlobUrlViaOffscreen(blob);
+    if (url) return url;
   }
   const buf = await blob.arrayBuffer();
   return binaryToDownloadUrl(new Uint8Array(buf), mime);
@@ -956,7 +984,12 @@ export function binaryToDownloadUrl(data: Uint8Array, mime: string): string {
 
 /** Revoke a URL if it's a Blob URL (no-op for data URLs). */
 export function revokeDownloadUrl(url: string) {
-  if (url.startsWith('blob:') && canCreateBlobUrls()) {
-    URL.revokeObjectURL(url);
+  if (!url.startsWith('blob:')) return;
+  if (canCreateBlobUrls()) {
+    try { URL.revokeObjectURL(url); } catch { /* noop */ }
+    return;
   }
+  // SW path: the blob: URL was minted in the offscreen document, so it
+  // must be revoked there. Fire-and-forget.
+  void revokeBlobUrlViaOffscreen(url);
 }

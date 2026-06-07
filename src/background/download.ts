@@ -1,7 +1,9 @@
-import { binaryToDownloadUrl, blobToDownloadUrl, removeAvatars, revokeDownloadUrl, summarizeAttachments, textToDownloadUrl, toCSV, toHTML } from './builders';
-// binaryToDownloadUrl is still used for the PDF single-format path; the
-// zip paths bypass it because `new Blob([uint8array])` doubles peak
-// memory for large bundles (see zip.ts comments + take3 OOM trace).
+import { blobToDownloadUrl, removeAvatars, revokeDownloadUrl, summarizeAttachments, toCSV, toHTML } from './builders';
+// Every download URL is minted via blobToDownloadUrl: it returns a blob:
+// URL where one is available, and on an MV3 service worker (no
+// createObjectURL) it routes large payloads through the offscreen document
+// instead of a base64 data: URL, which would throw "Invalid string length"
+// past ~384 MB (issue #27).
 import { buildPdf } from './pdf';
 import { formatRangeLabel, sanitizeBase } from '../utils/messages';
 import { buildZipAsync } from './zip';
@@ -331,7 +333,7 @@ export async function buildAndDownload(
       onStatus?.({ phase: 'build', filename, messages: messages.length, messagesBuilt: done, messagesTotal: total });
     }, toPdfOptions(options));
     onStatus?.({ phase: 'build', filename, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
-    const url = binaryToDownloadUrl(bytes, 'application/pdf');
+    const url = await blobToDownloadUrl(new Blob([bytes as BlobPart], { type: 'application/pdf' }), 'application/pdf');
     try {
       console.log(`[pdf-single] downloads.download calling: filename=${filename} bytes=${bytes.byteLength}`);
       const id = await downloads.download({ url, filename, saveAs });
@@ -367,7 +369,10 @@ export async function buildAndDownload(
   const built = buildExportInternal({ messages, meta, format, embedAvatars, downloadImages }, mode);
   onStatus?.({ phase: 'build', filename: built.filename, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
 
-  const url = textToDownloadUrl(built.content, built.mime);
+  const url = await blobToDownloadUrl(
+    new Blob(Array.isArray(built.content) ? built.content : [built.content], { type: built.mime }),
+    built.mime,
+  );
   try {
     console.log(`[text-single] downloads.download calling: filename=${built.filename} format=${format}`);
     const id = await downloads.download({ url, filename: built.filename, saveAs });
@@ -379,10 +384,13 @@ export async function buildAndDownload(
     const safe = `${sanitizeBase('teams-chat')}-${Date.now()}.${format === 'html' ? 'html' : format === 'csv' ? 'csv' : format === 'txt' ? 'txt' : 'json'}`;
     revokeDownloadUrl(url);
     try {
-      const url2 = textToDownloadUrl(built.content, built.mime);
+      const url2 = await blobToDownloadUrl(
+        new Blob(Array.isArray(built.content) ? built.content : [built.content], { type: built.mime }),
+        built.mime,
+      );
       const id2 = await downloads.download({ url: url2, filename: safe, saveAs });
       console.log(`[text-single] downloads.download retry resolved: id=${id2}`);
-      setTimeout(() => URL.revokeObjectURL(url2), 60_000);
+      setTimeout(() => revokeDownloadUrl(url2), 60_000);
       return { ok: true, filename: safe, id: id2 };
     } catch (e2: any) {
       console.log(`[text-single] downloads.download retry rejected: ${e2?.message || String(e2)}`);

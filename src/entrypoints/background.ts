@@ -13,6 +13,7 @@ import {
   type BundleFailure,
 } from '../background/download';
 import { revokeDownloadUrl, textToDownloadUrl } from '../background/builders';
+import { clearTransferBlobs } from '../utils/blob-transfer';
 import { ACTIVE_EXPORTS_STORAGE_KEY, FIRST_INSTALL_STORAGE_KEY, appendHistoryEntry } from '../utils/options';
 import type { BackgroundIncomingMessage } from '../types/messaging';
 import type {
@@ -281,9 +282,21 @@ function waitForDownloadComplete(id: number, timeoutMs = 10_000): Promise<boolea
     });
 }
 
+// Drop any orphaned download-transfer Blob left by a worker that died
+// mid-handoff. MV3 only (the offscreen blob-URL path is the only producer);
+// guarded on chrome.offscreen so Firefox MV2 never opens the IDB store.
+function cleanupTransferBlobs() {
+    try {
+        if (typeof chrome !== 'undefined' && chrome.offscreen) {
+            void clearTransferBlobs().catch(() => { /* best-effort */ });
+        }
+    } catch { /* noop */ }
+}
+
 runtime.onInstalled.addListener((details) => {
     log("onInstalled", details?.reason);
     resetBadge();
+    cleanupTransferBlobs();
     // Stamp the first-install timestamp if not already present — regardless
     // of reason. We deliberately do NOT restrict to reason='install':
     // users who had the extension before this feature shipped see reason=
@@ -302,6 +315,7 @@ runtime.onInstalled.addListener((details) => {
 runtime.onStartup?.addListener(() => {
     log("onStartup");
     resetBadge();
+    cleanupTransferBlobs();
 });
 
 tabs.onUpdated.addListener((tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab?: chrome.tabs.Tab) => {
