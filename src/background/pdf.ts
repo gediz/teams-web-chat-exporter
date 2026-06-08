@@ -16,7 +16,9 @@
 // - Each message block: bold author + small timestamp header, then the
 //   text body word-wrapped to the content width.
 // - Reply context rendered as a short quote above the body.
-// - Reactions rendered as a compact "👍 3 · ❤️ 1" line under the body.
+// - Reactions rendered under the body as "👍 3  Name, Name & N" (reactor
+//   names follow the HTML chip rule), or a compact "👍 3  ❤️ 1" line when
+//   no reactor names were resolved.
 //   Emoji render in color via a per-export Type 3 font whose glyphs
 //   are PNG-rasterized Twemoji SVGs. ToUnicode CMap maps glyph codes
 //   back to the source codepoints (including multi-CP ZWJ sequences),
@@ -43,7 +45,7 @@ import {
   type PDFPage,
 } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
-import type { Attachment, ExportMessage, ExportMeta } from '../types/shared';
+import type { Attachment, ExportMessage, ExportMeta, Reaction, ReactorInfo } from '../types/shared';
 import { subsetFont } from './font-subset';
 import { rasterizeSvgInDom } from '../utils/svg-rasterize';
 import { rasterizeViaOffscreen } from '../utils/offscreen-client';
@@ -1327,6 +1329,20 @@ function renderHeader(cursor: Cursor, meta: ExportMeta, ctx: TextCtx) {
   cursor.y -= ctx.layout.blockGap;
 }
 
+// Inline reactor names for one reaction, matching the HTML chip rule
+// (renderReactorChip in builders.ts): 1 reactor -> the name, 2-3 -> a comma
+// list, 4+ -> "First & N". A self reactor shows as "You". Returns '' when no
+// reactors were resolved (self-chat / unresolved counts), so the caller keeps
+// the bare "emoji count".
+function reactorNames(r: Reaction): string {
+  const list = r.reactors;
+  if (!list || !list.length) return '';
+  const nameOf = (x: ReactorInfo) => (x.self ? 'You' : x.name);
+  if (list.length === 1) return nameOf(list[0]);
+  if (list.length <= 3) return list.map(nameOf).join(', ');
+  return `${nameOf(list[0])} & ${list.length - 1}`;
+}
+
 async function renderMessage(
   cursor: Cursor,
   m: ExportMessage,
@@ -1419,8 +1435,16 @@ async function renderMessage(
   }
 
   if (Array.isArray(m.reactions) && m.reactions.length) {
-    const parts = m.reactions.map(r => `${r.emoji} ${r.count}`).join('  ');
-    drawLines(cursor, wrapText(parts, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.textWidth), 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta);
+    // "emoji count  Name, Name & N" per reaction. When any reaction has
+    // resolved reactor names, lay them out one per line for readability;
+    // otherwise keep the compact single-line "emoji count  emoji count".
+    const anyNames = m.reactions.some(r => reactorNames(r));
+    const parts = m.reactions.map(r => {
+      const names = reactorNames(r);
+      return names ? `${r.emoji} ${r.count}  ${names}` : `${r.emoji} ${r.count}`;
+    });
+    const text = parts.join(anyNames ? '\n' : '  ');
+    drawLines(cursor, wrapText(text, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.textWidth), 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta);
   }
 
   // Attachments. If a dataUrl is present and embeds as PNG/JPEG we draw

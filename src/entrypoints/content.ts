@@ -1592,9 +1592,19 @@ export default defineContentScript({
                         if (dataUrl) {
                             att.dataUrl = dataUrl;
                             succeeded++;
-                        } else if (/\/urlp\/v1\/url\/image\//i.test(url)) {
-                            // Thumbnail proxy failed (CORS/opaque) — clear href to avoid broken img
-                            att.href = undefined;
+                        } else {
+                            // Fetch failed. If the source is an auth-protected
+                            // Teams/AMS endpoint, a saved export can never load
+                            // it (no cookies/bearer from file://), so drop the
+                            // href to avoid a broken image — the card text still
+                            // renders. For previews/videos/gifs the href is the
+                            // thumbnail (not a clickable link), so this is safe.
+                            // Public URLs (e.g. a giphy gif) are kept since they
+                            // still load when online.
+                            const authProtected = /\/v1\/objects\/[^/]+\/views\//i.test(url)
+                                || /\/urlp\//i.test(url)
+                                || /(asyncgw\.teams\.microsoft\.com|\.asm\.skype\.com)/i.test(url);
+                            if (authProtected) att.href = undefined;
                         }
                         done++;
                         onProgress?.(done, tasks.length);

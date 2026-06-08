@@ -878,6 +878,15 @@ function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
       '',
     );
   }
+  // Flatten a quote/forward body to one line, truncated with an ellipsis so
+  // it is clear the text was shortened (the TXT format keeps quotes brief).
+  const clip = (s: string, max: number) => {
+    const flat = s.replace(/\n/g, ' ');
+    // Slice by code point so an emoji / surrogate pair at the cut boundary
+    // isn't split into a broken half before the ellipsis.
+    const cps = Array.from(flat);
+    return cps.length > max ? cps.slice(0, max).join('') + '…' : flat;
+  };
   for (const m of messages) {
     const ts = m.timestamp || '';
     const author = m.author || '[unknown]';
@@ -889,20 +898,24 @@ function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
       const summary = summarizeAttachments(m);
       if (summary) text = summary;
     }
+    // Indent continuation lines of a multi-line body so they aren't mistaken
+    // for new "[timestamp] author:" message lines (e.g. pasted logs). Single
+    // -line bodies are unchanged.
+    const body = text.includes('\n') ? text.replace(/\n/g, '\n    ') : text;
     const urgencyTag = m.importance === 'urgent' ? ' [!URGENT]' : m.importance === 'high' ? ' [!IMPORTANT]' : '';
     const subjectLine = m.subject ? `[Subject: ${m.subject}] ` : '';
-    let line = `[${ts}] ${author}${urgencyTag}: ${subjectLine}${text}`;
+    let line = `[${ts}] ${author}${urgencyTag}: ${subjectLine}${body}`;
 
     // Include forward/reply context
     if (m.forwarded?.originalAuthor) {
       const fwdFrom = `[forwarded from ${m.forwarded.originalAuthor}]`;
-      const fwdText = m.forwarded.originalText ? m.forwarded.originalText.replace(/\n/g, ' ').slice(0, 300) : '';
+      const fwdText = m.forwarded.originalText ? clip(m.forwarded.originalText, 300) : '';
       line = text
-        ? `[${ts}] ${author}${urgencyTag}: ${subjectLine}${text}\n  ${fwdFrom}: ${fwdText}`
+        ? `[${ts}] ${author}${urgencyTag}: ${subjectLine}${body}\n  ${fwdFrom}: ${fwdText}`
         : `[${ts}] ${author}${urgencyTag} ${fwdFrom}: ${subjectLine}${fwdText}`;
     }
     if (m.replyTo?.text) {
-      const quotedText = m.replyTo.text.replace(/\n/g, ' ').slice(0, 200);
+      const quotedText = clip(m.replyTo.text, 200);
       const attribution = m.replyTo.author ? `${m.replyTo.author}: ` : '';
       line += `\n  > ${attribution}${quotedText}`;
     }

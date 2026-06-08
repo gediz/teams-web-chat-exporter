@@ -69,6 +69,15 @@ function htmlToText(html: string): string {
   // Remove script/style
   temp.querySelectorAll('script, style').forEach(el => el.remove());
 
+  // Prefix "@" on @mention spans so a mention reads "@Name" and is
+  // distinguishable from the same name occurring as ordinary text. The
+  // DOM-scrape path (normalizeMentions in text.ts) already does this; this
+  // covers the API path so all formats agree.
+  temp.querySelectorAll('[itemtype*="Mention" i]').forEach(el => {
+    const name = (el.textContent || '').trim();
+    if (name && !name.startsWith('@')) el.textContent = `@${name}`;
+  });
+
   // Replace emoji/GIF <img> tags with their alt/title text
   // Skip generic placeholder alt text on AMS images (e.g. "image", "resim", "Medya")
   const GENERIC_IMG_ALT = new Set(['image', 'resim', 'medya', 'media', 'shared image', 'image preview', 'undefined', '图像', '影像']);
@@ -944,6 +953,20 @@ function convertOneMessage(
       || [msg.fromGivenNameInToken, msg.fromFamilyNameInToken].filter(Boolean).join(' ')
       || '';
 
+  // Some Text messages arrive with none of the name fields populated, which
+  // would leave the author blank in every export format. Resolve the sender
+  // from `from` via the MRI map (then a bare UUID prefix) as a last resort.
+  // Forwarded messages keep their own resolution below.
+  if (!author && !isSystem && !isForwarded && msg.from) {
+    author = mriMap.get(msg.from) || mriMap.get(extractMri(msg.from)) || '';
+    if (!author) {
+      const uuid = msg.from.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
+      // Leave blank if the UUID isn't in the MRI map; the builders render an
+      // empty author as "[unknown]", which is clearer than a raw hex fragment.
+      if (uuid) author = mriMap.get(`8:orgid:${uuid[1]}`) || mriMap.get(`gid:${uuid[1]}`) || '';
+    }
+  }
+
   // Content + reply extraction
   const rawContent = msg.content || '';
   let text = '';
@@ -1086,6 +1109,15 @@ function convertOneMessage(
     return true;
   });
   const attachments = [...fileAttachments, ...inlineImages, ...gifs, ...videoAtts, ...linkPreviews, ...dedupedCards];
+
+  // A Teams InlineImage with no usable src yields no extractable text and no
+  // attachment, which would leave the message blank in every format. Surface
+  // a placeholder so the message isn't silently empty. Skip replies (they
+  // render the quote, and the InlineImage marker may belong to the quoted
+  // message inside the still-present blockquote of rawContent, not the body).
+  if (!isSystem && !replyTo && !text.trim() && attachments.length === 0 && /InlineImage/i.test(rawContent)) {
+    text = '[inline image]';
+  }
 
   // Edited
   const edited = Boolean(properties.edittime);

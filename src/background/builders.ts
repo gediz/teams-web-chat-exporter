@@ -552,7 +552,10 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
         // Auth-protected image that wasn't downloaded into this export.
         // Show a quiet placeholder so users see "there was an image here"
         // without the visual noise of a broken-icon `<img>` tag.
-        if (looksLikeImage && isAuthProtected) {
+        // An auth-protected image, or one whose unfetchable remote href was
+        // cleared during scraping, renders as a quiet placeholder rather than
+        // a broken-icon <img>.
+        if (looksLikeImage && (isAuthProtected || !att.href)) {
           return `<div class="att att-missing">🖼️ ${label} <span class="att-meta-hint">(not included)</span></div>`;
         }
         const link = href ? `<a href="${href}" target="_blank" rel="noopener">${label}</a>` : label;
