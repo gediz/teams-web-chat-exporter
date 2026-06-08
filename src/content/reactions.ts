@@ -1,26 +1,10 @@
 import type { Reaction } from '../types/shared';
+import { resolveReactionEmoji, reactionFallbackLabel } from './reaction-emoji';
 
 export function extractReactions(item: Element): Reaction[] {
   const pills = Array.from(item.querySelectorAll<HTMLButtonElement>('[data-tid="diverse-reaction-pill-button"]'));
   const out: Reaction[] = [];
 
-  const REACTION_EMOJI: Record<string, string> = {
-    ok: '👌',
-    like: '👍',
-    thumbsup: '👍',
-    thumbs_up: '👍',
-    heart: '❤️',
-    laugh: '😂',
-    haha: '😂',
-    surprised: '😮',
-    wow: '😮',
-    sad: '😢',
-    angry: '😡',
-    crossmark: '❌',
-    skull: '💀',
-    check: '✔️',
-    checkmark: '✔️',
-  };
   const normalizeKey = (val: string) =>
     val.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
   const parseEmojiFromItemId = (itemId: string) => {
@@ -93,13 +77,15 @@ export function extractReactions(item: Element): Reaction[] {
       if (fromItemId) {
         emoji = fromItemId;
       } else if (itemId) {
-        const mapped = REACTION_EMOJI[normalizeKey(itemId)];
-        emoji = mapped || `:${itemId}:`;
+        emoji = resolveReactionEmoji(itemId)
+          || resolveReactionEmoji(normalizeKey(itemId))
+          || reactionFallbackLabel(itemId);
       }
     }
     if (!emoji) {
       const key = keyFromLabelledBy(labelledBy) || keyFromLabelText(labelText);
-      if (key && REACTION_EMOJI[key]) emoji = REACTION_EMOJI[key];
+      const mapped = key ? resolveReactionEmoji(key) : null;
+      if (mapped) emoji = mapped;
     }
 
     const count = parseInt((labelText.match(/\d+/) || ['1'])[0], 10) || 1;

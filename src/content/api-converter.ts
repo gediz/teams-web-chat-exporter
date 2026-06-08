@@ -8,6 +8,7 @@
 import type { ExportMessage, ForwardContext, Reaction, ReactorInfo, Attachment, ReplyContext, ScrapeOptions, RecordingDetails } from '../types/shared';
 import type { TeamsApiMessage } from './api-client';
 import { cleanAltText } from './text';
+import { resolveReactionEmoji, reactionFallbackLabel } from './reaction-emoji';
 
 // Parse an HTML fragment into a detached, inert <body> for safe traversal.
 // DOMParser produces an inert document, so script tags do not execute,
@@ -18,61 +19,8 @@ function parseHtmlFragment(html: string): HTMLElement {
   return new DOMParser().parseFromString(html, 'text/html').body;
 }
 
-// ── Reaction Emoji Map ─────────────────────────────────────────────────
-
-const REACTION_EMOJI: Record<string, string> = {
-  ok: '👌',
-  like: '👍',
-  thumbsup: '👍',
-  thumbs_up: '👍',
-  heart: '❤️',
-  laugh: '😂',
-  haha: '😂',
-  surprised: '😮',
-  wow: '😮',
-  sad: '😢',
-  angry: '😡',
-  crossmark: '❌',
-  no: '🚫',
-  skull: '💀',
-  check: '✔️',
-  checkmark: '✔️',
-  clap: '👏',
-  fire: '🔥',
-  '100': '💯',
-  eyes: '👀',
-  pray: '🙏',
-  praying: '🙏',
-  muscle: '💪',
-  tada: '🎉',
-  party: '🎉',
-  rocket: '🚀',
-  wave: '👋',
-  thinking: '🤔',
-  cry: '😢',
-  fistbump: '🤜🤛',
-  worry: '😟',
-  shaking: '🫨',
-  thewave1: '👋',
-  happy_person_raising_one_hand: '🙋',
-};
-
-/**
- * Resolve Teams emoji codes that use Unicode codepoint naming.
- * e.g. "2716_heavymultiplicationx" → ✖ (U+2716)
- *      "2753_blackquestionmarkornament" → ❓ (U+2753)
- */
-function resolveEmojiCode(key: string): string {
-  // Try to extract leading Unicode codepoint (hex digits before underscore)
-  const match = key.match(/^([0-9a-f]{4,5})(?:_|$)/i);
-  if (match) {
-    try {
-      return String.fromCodePoint(parseInt(match[1], 16));
-    } catch { /* invalid codepoint */ }
-  }
-  // Fallback: show the key as-is
-  return `:${key}:`;
-}
+// Reaction shortcode → emoji resolution lives in ./reaction-emoji so the
+// API converter and the DOM scraper share one map and tone handling.
 
 // ── Utility ─────────────────────────────────────────────────────────────
 
@@ -147,6 +95,19 @@ function htmlToText(html: string): string {
       }
     }
     video.replaceWith(document.createTextNode(`[${label}]`));
+  });
+
+  // Replace <a href="http(s)..."> with the full URL target. Teams sometimes
+  // renders a shortened/ellipsized form of a long URL as the anchor text;
+  // keeping only that visible text yields a broken, partial link. Emitting
+  // the real href preserves the complete, correct URL in every export
+  // format (and lets the PDF builder make it clickable). Non-http anchors
+  // (mailto:, in-app deeplinks, relative) keep their visible text.
+  temp.querySelectorAll('a[href]').forEach(a => {
+    const href = (a.getAttribute('href') || '').trim();
+    if (/^https?:\/\//i.test(href)) {
+      a.replaceWith(document.createTextNode(href));
+    }
   });
 
   // Convert <br> to newlines
@@ -492,8 +453,8 @@ function convertReactions(properties: Record<string, unknown>): RawReaction[] {
   if (!Array.isArray(emotions)) return [];
 
   return emotions.map(e => {
-    const key = (e.key || '').toLowerCase();
-    const emoji = REACTION_EMOJI[key] || resolveEmojiCode(e.key || '');
+    const rawKey = e.key || '';
+    const emoji = resolveReactionEmoji(rawKey) || reactionFallbackLabel(rawKey);
     const users = e.users || [];
     return {
       emoji,

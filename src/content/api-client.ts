@@ -327,7 +327,12 @@ export async function resolveUserNames(
     }));
   }
   if (errors.length > 0 && result.size === 0) {
-    console.warn(`[API] Graph user resolution failed for all ${uuidToMris.size} users — first errors: ${errors.join('; ')}`);
+    // Logged at info, not warn: a 404 here just means the user is
+    // federated/guest and not in this tenant's directory (expected), and
+    // names fall back to other sources. Keeping it off the warn/error
+    // channel stops it surfacing in the extension's chrome://extensions
+    // Errors panel, while still logging to the page console for debugging.
+    console.info(`[API] Graph name resolution: ${uuidToMris.size} user(s) unresolved (often federated/guest 404s, expected) — ${errors.join('; ')}`);
   }
 
   return result;

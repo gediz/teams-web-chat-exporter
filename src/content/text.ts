@@ -85,6 +85,12 @@ export function extractTextWithEmojis(root: Element | null): string {
         if (code) buf += `\n\`\`\`\n${code}\n\`\`\`\n`;
         return;
       }
+      if (tag === 'A') {
+        // Emit the real http(s) target so a Teams-shortened anchor label
+        // doesn't reduce the link to a broken, partial URL.
+        const href = (el.getAttribute('href') || '').trim();
+        if (/^https?:\/\//i.test(href)) { buf += href; return; }
+      }
       const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/;
       const start = buf.length;
       for (const c of el.childNodes) walkCollect(c);
@@ -129,6 +135,12 @@ export function extractTextWithEmojis(root: Element | null): string {
         out += '\n';
       }
       return;
+    }
+    if (tag === 'A') {
+      // Emit the real http(s) target so a Teams-shortened anchor label
+      // doesn't reduce the link to a broken, partial URL.
+      const href = (el.getAttribute('href') || '').trim();
+      if (/^https?:\/\//i.test(href)) { out += href; return; }
     }
     const blockish = /^(DIV|P|LI|BLOCKQUOTE)$/;
     const start = out.length;

@@ -62,6 +62,7 @@ import {
 const TEXT_FONT_REGULAR_NAME = 'FT';
 const TEXT_FONT_BOLD_NAME = 'FB';
 const TEXT_FONT_CJK_NAME = 'FC';
+const TEXT_FONT_KR_NAME = 'FK';
 const EMOJI_FONT_RESOURCE_NAME = 'FE';
 
 // Match-anywhere regex for URL detection inside rendered text. Kept
@@ -104,25 +105,35 @@ const RATIO_BLOCK_GAP = 1.0; // 10 at body 10
 const RATIO_AVATAR = 1.6;
 const AVATAR_PAD = 6;        // constant — not size-dependent
 
-// Noto family — chosen for international coverage. Noto Sans covers
-// Latin + Cyrillic + Greek + Hebrew + Arabic basic; Noto Sans SC adds
-// Chinese / Japanese / Korean ideographs (10 MB, the heaviest font in
-// the bundle). Emoji are handled separately via a per-export Type 3
-// font assembled from Twemoji rasters, so we don't bundle Noto Emoji.
+// Noto family, chosen for international coverage. Noto Sans covers
+// Latin, Cyrillic, Greek, Hebrew, and basic Arabic. Noto Sans SC covers
+// Han ideographs plus Hiragana and Katakana (10 MB, the heaviest font in
+// the bundle). Noto Sans SC does NOT contain Korean Hangul, so Hangul is
+// served by a separate Noto Sans KR (issue #28). Emoji are handled
+// separately via a per-export Type 3 font assembled from Twemoji rasters,
+// so we don't bundle Noto Emoji.
+// Fonts ship as TTF and are subset at runtime by HarfBuzz. WOFF2 would be
+// smaller, but the only viable service-worker decoder (wawoff2) relies on
+// dynamic code evaluation, which the MV3 extension CSP forbids; see git
+// history for that attempt.
 const FONT_REGULAR_PATH = 'fonts/NotoSans-Regular.ttf';
 const FONT_BOLD_PATH = 'fonts/NotoSans-Bold.ttf';
 const FONT_CJK_PATH = 'fonts/NotoSansSC-Regular.ttf';
+const FONT_KR_PATH = 'fonts/NotoSansKR-Regular.ttf';
 
-// Twemoji vendored SVG set (public/twemoji/<key>.svg). The index
-// enumerates the ~4000 available emoji keys so we can tell "this is
-// an emoji I can render" from "this is a regular character" without
-// doing a 404 per unknown codepoint. Loaded once per export via
-// loadTwemojiManifest. Named index.json (not manifest.json) so the
-// Chrome Web Store package validator does not flag the build as
-// having multiple manifests — its check rejects any file literally
-// named manifest.json anywhere in the tree, even though only the one
-// at the package root is the real extension manifest.
+// Twemoji vendored set. index.json enumerates the ~3,700 available emoji
+// keys so we can tell "this is an emoji I can render" from a regular
+// character in O(1) without fetching anything. The SVG bodies live in a
+// single pack.json (see scripts/vendor-twemoji.mjs and TWEMOJI_PACK_PATH
+// below), fetched lazily only when an export actually has emoji. Named
+// index.json / pack.json, not manifest.json, so the Chrome Web Store
+// package validator does not flag the build for multiple manifests (its
+// check rejects any file literally named manifest.json anywhere in the
+// tree, even though only the one at the package root is the real manifest).
 const TWEMOJI_MANIFEST_PATH = 'twemoji/index.json';
+// SVG bodies for all emoji, packed into one file (see scripts/vendor-twemoji.mjs).
+// Fetched lazily on first rasterization so emoji-free exports never load it.
+const TWEMOJI_PACK_PATH = 'twemoji/pack.json';
 
 // Each unique emoji sequence becomes one glyph in a per-export Type 3
 // font. EMOJI_RASTER_PX is the PNG render size used as the glyph image
@@ -135,6 +146,7 @@ type Fonts = {
   regular: PDFFont;
   bold: PDFFont;
   cjk: PDFFont;
+  kr: PDFFont;
 };
 
 // Layout derived from user-picked PDF options (page size, body font
@@ -380,10 +392,11 @@ async function fetchFont(path: string): Promise<ArrayBuffer> {
 const PAGE_NUMBER_CODEPOINTS = '0123456789/ ';
 
 async function loadFonts(doc: PDFDocument, codepoints: Set<number>): Promise<Fonts> {
-  const [regularBytes, boldBytes, cjkBytes] = await Promise.all([
+  const [regularBytes, boldBytes, cjkBytes, krBytes] = await Promise.all([
     fetchFont(FONT_REGULAR_PATH),
     fetchFont(FONT_BOLD_PATH),
     fetchFont(FONT_CJK_PATH),
+    fetchFont(FONT_KR_PATH),
   ]);
 
   // Subset each font to exactly the codepoints the document uses via
@@ -395,12 +408,13 @@ async function loadFonts(doc: PDFDocument, codepoints: Set<number>): Promise<Fon
   //
   // If subsetting fails for any reason (corrupt input, WASM error, an
   // empty codepoint set), we fall back to embedding the original full
-  // font. That costs ~10 MB extra in the PDF but keeps every glyph
+  // font. That costs more bytes in the PDF but keeps every glyph
   // available — fail-safe, not fail-broken.
   const regular = await embedSubsetOrFull(doc, regularBytes, codepoints);
   const bold = await embedSubsetOrFull(doc, boldBytes, codepoints);
   const cjk = await embedSubsetOrFull(doc, cjkBytes, codepoints);
-  return { regular, bold, cjk };
+  const kr = await embedSubsetOrFull(doc, krBytes, codepoints);
+  return { regular, bold, cjk, kr };
 }
 
 async function embedSubsetOrFull(
@@ -419,20 +433,51 @@ async function embedSubsetOrFull(
 
 // Per-character font selection for NON-emoji characters. Emoji are
 // handled separately via Twemoji SVG (see segmentText). Order:
-//   1. Primary (Noto Sans Regular/Bold) — Latin, Cyrillic, Greek, Hebrew,
-//      Arabic basic, Western-European extras
-//   2. CJK (Noto Sans SC) — Chinese/Japanese/Korean ideographs + Hangul
+//   1. Korean (Noto Sans KR): Hangul syllables + all Jamo blocks. Must be
+//      checked before CJK because Noto Sans SC has no Hangul (issue #28).
+//   2. CJK (Noto Sans SC): Han ideographs + Hiragana + Katakana.
+//   3. Primary (Noto Sans Regular/Bold): Latin, Cyrillic, Greek, Hebrew,
+//      basic Arabic, Western-European extras.
 type PreferredWeight = 'regular' | 'bold';
 function pickFontForChar(ch: string, weight: PreferredWeight, fonts: Fonts): PDFFont {
   const cp = ch.codePointAt(0) ?? 0;
 
-  // CJK Unified Ideographs + extensions + Hiragana / Katakana / Hangul.
+  // Korean Hangul: conjoining Jamo (1100-11FF), Compatibility Jamo
+  // (3130-318F), Jamo Extended-A (A960-A97F), syllables (AC00-D7A3), and
+  // Jamo Extended-B (D7B0-D7FF). NotoSansSC contains none of these, so
+  // they must route to NotoSansKR or they render as tofu (issue #28).
+  // U+FFA0 (halfwidth Hangul filler) is the one codepoint in the
+  // fullwidth-forms block below that SC lacks but KR has, so it is routed
+  // here before the CJK branch claims the rest of that block.
   if (
+    (cp >= 0x1100 && cp <= 0x11FF) ||
+    (cp >= 0x3130 && cp <= 0x318F) ||
+    (cp >= 0xA960 && cp <= 0xA97F) ||
+    (cp >= 0xAC00 && cp <= 0xD7A3) ||
+    (cp >= 0xD7B0 && cp <= 0xD7FF) ||
+    cp === 0xFFA0
+  ) {
+    return fonts.kr;
+  }
+
+  // CJK Unified Ideographs + extensions + Hiragana / Katakana, plus the
+  // CJK punctuation / fullwidth blocks. The punctuation ranges
+  // (3000-303F lenticular/angle brackets, ideographic comma/full stop;
+  // FF00-FFEF fullwidth comma/question/exclamation and halfwidth kana;
+  // FE10-1F vertical forms; FE30-4F compatibility forms; FE50-6F small
+  // forms) are absent from Latin Noto Sans, so without this they fell
+  // through to Latin and rendered as tofu. NotoSansSC covers every
+  // assigned codepoint in these blocks (the lone exception, U+FFA0, is
+  // handled by the Korean branch above).
+  if (
+    (cp >= 0x3000 && cp <= 0x303F) ||
     (cp >= 0x3040 && cp <= 0x30FF) ||
     (cp >= 0x3400 && cp <= 0x4DBF) ||
     (cp >= 0x4E00 && cp <= 0x9FFF) ||
-    (cp >= 0xAC00 && cp <= 0xD7AF) ||
-    (cp >= 0x1100 && cp <= 0x11FF) ||
+    (cp >= 0xFE10 && cp <= 0xFE1F) ||
+    (cp >= 0xFE30 && cp <= 0xFE4F) ||
+    (cp >= 0xFE50 && cp <= 0xFE6F) ||
+    (cp >= 0xFF00 && cp <= 0xFFEF) ||
     (cp >= 0x20000 && cp <= 0x2FFFF)
   ) {
     return fonts.cjk;
@@ -609,15 +654,36 @@ function scanDocument(
 // the shared DOM-backed pipeline for contexts that have HTMLImageElement
 // (Firefox MV2 background, popup), or the offscreen-document client for
 // Chromium MV3 service workers (which lack DOM).
+// The SVG bodies live in one packed map (twemoji/pack.json: { key: svg }).
+// Loaded lazily on first rasterization and cached for the SW lifetime, so a
+// PDF export with no emoji never fetches the ~8 MB pack. Single-flight so
+// parallel rasterizations don't each fetch it.
+let _twemojiPack: Record<string, string> | null = null;
+let _twemojiPackLoading: Promise<Record<string, string>> | null = null;
+async function loadTwemojiPack(): Promise<Record<string, string>> {
+  if (_twemojiPack) return _twemojiPack;
+  if (!_twemojiPackLoading) {
+    _twemojiPackLoading = (async () => {
+      try {
+        const resp = await fetch(chrome.runtime.getURL(TWEMOJI_PACK_PATH));
+        if (!resp.ok) return {};
+        return (await resp.json()) as Record<string, string>;
+      } catch {
+        return {};
+      }
+    })().then(p => { _twemojiPack = p; return p; });
+  }
+  return _twemojiPackLoading;
+}
+
 async function rasterizeTwemoji(key: string): Promise<Uint8Array | null> {
   try {
-    const url = chrome.runtime.getURL(`twemoji/${key}.svg`);
-    const resp = await fetch(url);
-    if (!resp.ok) {
-      console.warn(`[pdf] Twemoji ${key}: fetch failed HTTP ${resp.status}`);
+    const pack = await loadTwemojiPack();
+    const svgText = pack[key];
+    if (!svgText) {
+      console.warn(`[pdf] Twemoji ${key}: not in pack`);
       return null;
     }
-    const svgText = await resp.text();
     // rasterizeSvgInDom and the offscreen client both apply the width/height
     // injection internally; the SW just forwards raw SVG text.
     const png = (typeof Image !== 'undefined' && typeof document !== 'undefined')
@@ -685,7 +751,7 @@ async function prewarmType3EmojiFont(
 
 // Register text and emoji fonts on every page under stable resource
 // names. Manual operators in content streams (the single-BT/ET path in
-// drawMixed for mixed text+emoji lines) reference /FT, /FB, /FC, /FE;
+// drawMixed for mixed text+emoji lines) reference /FT, /FB, /FC, /FK, /FE;
 // pdf-lib's auto-assigned /F1, /F2 etc. coexist for drawText-only lines.
 // Called once at the end of buildPdf, after all pages are added: PDF
 // readers parse resources before content, so writing them at finalize
@@ -706,6 +772,7 @@ function registerFontsOnPages(
     fontMap.set(PDFName.of(TEXT_FONT_REGULAR_NAME), fonts.regular.ref);
     fontMap.set(PDFName.of(TEXT_FONT_BOLD_NAME), fonts.bold.ref);
     fontMap.set(PDFName.of(TEXT_FONT_CJK_NAME), fonts.cjk.ref);
+    fontMap.set(PDFName.of(TEXT_FONT_KR_NAME), fonts.kr.ref);
     if (emojiFont) {
       fontMap.set(PDFName.of(EMOJI_FONT_RESOURCE_NAME), emojiFont.ref);
     }
@@ -718,6 +785,7 @@ function registerFontsOnPages(
 function getTextFontResourceName(font: PDFFont, fonts: Fonts): string {
   if (font === fonts.bold) return TEXT_FONT_BOLD_NAME;
   if (font === fonts.cjk) return TEXT_FONT_CJK_NAME;
+  if (font === fonts.kr) return TEXT_FONT_KR_NAME;
   return TEXT_FONT_REGULAR_NAME;
 }
 
@@ -905,6 +973,29 @@ function safeWidthOf(text: string, weight: PreferredWeight, ctx: TextCtx, size: 
   return w;
 }
 
+// Encode a URL into the body of a PDF literal string for a /URI action.
+// Two distinct problems, both of which corrupt the PDF if unhandled:
+//   1. pdf-lib's PDFString.of writes each JS character as a single low
+//      byte, so any non-ASCII character is truncated. A Chinese folder
+//      name in a SharePoint URL is the common case: 天 (U+5929) truncates
+//      to byte 0x29, i.e. ")", which closes the literal early and makes the
+//      rest of the annotation parse as garbage. Percent-encode everything
+//      outside printable ASCII so the value is pure, valid-URI ASCII (this
+//      also makes those links actually resolve when clicked).
+//   2. Inside a PDF literal, "\", "(" and ")" are special. Escape them so a
+//      genuine ASCII paren in a URL (e.g. SharePoint "/Doc_(v2)") does not
+//      break the literal either.
+function encodeUriForPdf(url: string): string {
+  let out = '';
+  for (const ch of url) {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp <= 0x20 || cp > 0x7E) out += encodeURIComponent(ch);
+    else if (ch === '\\' || ch === '(' || ch === ')') out += '\\' + ch;
+    else out += ch;
+  }
+  return out;
+}
+
 // Attach a clickable link annotation to the given rectangle on a
 // page. pdf-lib doesn't expose a high-level helper for this, so we
 // build the annotation dict directly against the document's low-level
@@ -921,7 +1012,7 @@ function addLinkAnnotation(
   const actionDict = ctx.obj({
     Type: 'Action',
     S: 'URI',
-    URI: PDFString.of(url),
+    URI: PDFString.of(encodeUriForPdf(url)),
   });
   const annotDict = ctx.obj({
     Type: 'Annot',
@@ -940,33 +1031,50 @@ function addLinkAnnotation(
   }
 }
 
-// Scan a rendered text line for URLs and register link annotations
-// for each one. Uses String.matchAll under the hood so we can iterate
-// without mutating regex state. Skips URL substrings that don't begin
-// with http(s):// (e.g. the tail half of a URL that got wrapped to a
-// second line — annotating partial URLs would misdirect the click).
-function addLinkAnnotationsForLine(
-  page: PDFPage,
-  line: string,
-  x: number,
-  y: number,
-  size: number,
-  weight: PreferredWeight,
-  ctx: TextCtx,
-) {
-  for (const m of line.matchAll(URL_RE)) {
-    const raw = m[0];
-    const url = trimTrailingPunct(raw);
-    if (!url) continue;
-    const prefix = line.slice(0, m.index ?? 0);
-    const prefixW = safeWidthOf(prefix, weight, ctx, size);
-    const urlW = safeWidthOf(url, weight, ctx, size);
-    const x1 = x + prefixW;
-    const x2 = x1 + urlW;
-    // 1pt of space below baseline catches descenders; top goes to y+size
-    // so the hit area roughly matches the glyph cap height.
-    addLinkAnnotation(page, x1, y - 1, x2, y + size, url);
+// A clickable URL fragment on one wrapped line: [start,end) are character
+// offsets within that line's text; url is the FULL target, identical for
+// every fragment of a URL that wrapped across lines or pages.
+interface LinkSpan {
+  start: number;
+  end: number;
+  url: string;
+}
+
+// Map the URLs in a paragraph's source text onto the wrapped lines that
+// render it, so one hyperlink that word-wraps across several lines (or
+// flows across a page break) gets a separate annotation rect per visible
+// fragment, all pointing at the full URL. URLs are detected on the source
+// text, where surrounding whitespace still bounds them correctly, then
+// located in the concatenation of the wrapped lines. hardBreak splits a
+// long URL with no inserted separators, so its characters stay contiguous
+// in that concatenation; soft (whitespace) breaks only drop whitespace,
+// which a URL never contains, so they can't merge two links.
+function computeLinkSpans(sourceText: string, lines: string[]): LinkSpan[][] {
+  const spans: LinkSpan[][] = lines.map(() => []);
+  if (!sourceText || !/https?:\/\//i.test(sourceText)) return spans;
+  const urls: string[] = [];
+  for (const m of sourceText.matchAll(URL_RE)) {
+    const url = trimTrailingPunct(m[0]);
+    if (url) urls.push(url);
   }
+  if (!urls.length) return spans;
+  const concat = lines.join('');
+  const lineStart: number[] = [];
+  let acc = 0;
+  for (const l of lines) { lineStart.push(acc); acc += l.length; }
+  let from = 0;
+  for (const url of urls) {
+    const at = concat.indexOf(url, from);
+    if (at < 0) continue;
+    from = at + url.length;
+    const us = at, ue = at + url.length;
+    for (let i = 0; i < lines.length; i++) {
+      const ls = lineStart[i], le = ls + lines[i].length;
+      const os = Math.max(us, ls), oe = Math.min(ue, le);
+      if (os < oe) spans[i].push({ start: os - ls, end: oe - ls, url });
+    }
+  }
+  return spans;
 }
 
 // Draw text+emoji at (x,y).
@@ -1079,18 +1187,54 @@ function drawLines(
   color: Color,
   leading: number,
   indent = 0,
-  opts?: { links?: boolean },
+  opts?: { linkSpans?: LinkSpan[][]; lineLink?: string },
 ) {
-  const linkify = opts?.links === true;
-  for (const line of lines) {
+  const { linkSpans, lineLink } = opts ?? {};
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     ensureSpace(cursor, leading);
     cursor.y -= leading;
     const lineX = ctx.layout.textColX + indent;
     drawMixed(cursor.page, line, lineX, cursor.y, size, weight, ctx, color);
-    if (linkify && line.includes('http')) {
-      addLinkAnnotationsForLine(cursor.page, line, lineX, cursor.y, size, weight, ctx);
+    // Per-URL fragments (message body, quotes). Annotated on the current
+    // page after ensureSpace may have advanced it, so a link that crosses
+    // a page break stays clickable on every page it spans. 1pt below the
+    // baseline catches descenders; the top is y+size for cap height.
+    const fragments = linkSpans?.[i];
+    if (fragments) {
+      for (const span of fragments) {
+        const x1 = lineX + safeWidthOf(line.slice(0, span.start), weight, ctx, size);
+        const x2 = x1 + safeWidthOf(line.slice(span.start, span.end), weight, ctx, size);
+        addLinkAnnotation(cursor.page, x1, cursor.y - 1, x2, cursor.y + size, span.url);
+      }
+    }
+    // Whole-line link (attachment fallback): the entire label is clickable,
+    // every wrapped line, across page breaks.
+    if (lineLink && line) {
+      const w = safeWidthOf(line, weight, ctx, size);
+      addLinkAnnotation(cursor.page, lineX, cursor.y - 1, lineX + w, cursor.y + size, lineLink);
     }
   }
+}
+
+// Wrap `text` and draw it with per-URL link annotations that survive line
+// wrapping and page breaks. Used for message bodies and reply/forward
+// quotes, where a long URL would otherwise lose clickability past the
+// first line.
+function drawLinkedText(
+  cursor: Cursor,
+  text: string,
+  weight: PreferredWeight,
+  ctx: TextCtx,
+  size: number,
+  color: Color,
+  leading: number,
+  maxWidth: number,
+  indent = 0,
+) {
+  const lines = wrapText(text, weight, ctx, size, maxWidth);
+  const spans = computeLinkSpans(text, lines);
+  drawLines(cursor, lines, weight, ctx, size, color, leading, indent, { linkSpans: spans });
 }
 
 function drawRule(cursor: Cursor) {
@@ -1250,7 +1394,7 @@ async function renderMessage(
     const who = m.replyTo.author ? `${m.replyTo.author}: ` : '';
     const truncated = m.replyTo.text.length > 200 ? m.replyTo.text.slice(0, 200) + '…' : m.replyTo.text;
     const quote = `> ${who}${truncated}`;
-    drawLines(cursor, wrapText(quote, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.textWidth - 12), 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta, 12, { links: true });
+    drawLinkedText(cursor, quote, 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta, ctx.layout.textWidth - 12, 12);
   }
 
   if (m.forwarded?.originalAuthor) {
@@ -1259,7 +1403,7 @@ async function renderMessage(
     drawLines(cursor, wrapText(fwd, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.textWidth), 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta);
     if (m.forwarded.originalText) {
       const truncated = m.forwarded.originalText.length > 300 ? m.forwarded.originalText.slice(0, 300) + '…' : m.forwarded.originalText;
-      drawLines(cursor, wrapText(truncated, 'regular', ctx, ctx.layout.sizeBody, ctx.layout.textWidth - 12), 'regular', ctx, ctx.layout.sizeBody, COLOR_BODY, ctx.layout.leadBody, 12, { links: true });
+      drawLinkedText(cursor, truncated, 'regular', ctx, ctx.layout.sizeBody, COLOR_BODY, ctx.layout.leadBody, ctx.layout.textWidth - 12, 12);
     }
   }
 
@@ -1271,7 +1415,7 @@ async function renderMessage(
   const text = (m.text || '').replace(/\r\n/g, '\n');
   if (text) {
     cursor.y -= 2;
-    drawLines(cursor, wrapText(text, 'regular', ctx, ctx.layout.sizeBody, ctx.layout.textWidth), 'regular', ctx, ctx.layout.sizeBody, COLOR_BODY, ctx.layout.leadBody, 0, { links: true });
+    drawLinkedText(cursor, text, 'regular', ctx, ctx.layout.sizeBody, COLOR_BODY, ctx.layout.leadBody, ctx.layout.textWidth, 0);
   }
 
   if (Array.isArray(m.reactions) && m.reactions.length) {
@@ -1293,22 +1437,14 @@ async function renderMessage(
       const attLine = `[attachment] ${label}`;
       const wrapped = wrapText(attLine, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.textWidth);
       const isHttp = !!(att.href && /^https?:\/\//i.test(att.href));
-      drawLines(cursor, wrapped, 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta);
-      // Attach a link annotation over the single-line case. Multi-line
-      // attachment labels would need per-line baseline tracking through
-      // page breaks, and attachments rarely wrap, so the common case
-      // is enough. The URL is on cursor.page at cursor.y.
-      if (isHttp && att.href && wrapped.length === 1) {
-        const w = safeWidthOf(wrapped[0], 'regular', ctx, ctx.layout.sizeMeta);
-        addLinkAnnotation(
-          cursor.page,
-          ctx.layout.textColX,
-          cursor.y - 1,
-          ctx.layout.textColX + w,
-          cursor.y + ctx.layout.sizeMeta,
-          att.href,
-        );
-      }
+      // When the attachment has an http(s) target, every wrapped line of
+      // the label is made clickable. drawLines applies the link per line
+      // on the current page, so a label that wraps or crosses a page break
+      // stays fully clickable; otherwise it is plain text.
+      drawLines(
+        cursor, wrapped, 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta, 0,
+        isHttp && att.href ? { lineLink: att.href } : undefined,
+      );
     }
   }
 
