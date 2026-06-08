@@ -102,8 +102,13 @@ export async function subsetFont(fontBytes: Uint8Array, codepoints: Iterable<num
   const fontPtr = hb.malloc(fontBytes.byteLength);
   heap.set(fontBytes, fontPtr);
 
-  // HB_MEMORY_MODE_WRITABLE = 2. The blob takes ownership of the buffer;
-  // hb_blob_destroy will free it later.
+  // HB_MEMORY_MODE_WRITABLE = 2: HarfBuzz may write into the buffer in
+  // place. The destroy callback is 0 (null), so HarfBuzz does NOT free
+  // fontPtr; we own it and must hb.free it ourselves once the face (which
+  // references this buffer) is destroyed. Missing that free leaked the whole
+  // font (10 MB for the CJK face) on every call, exhausting the fixed WASM
+  // heap after a few PDFs; subsetting then failed and the caller fell back
+  // to embedding the full font, which is what bloated large exports.
   const blob = hb.hb_blob_create(fontPtr, fontBytes.byteLength, 2, 0, 0);
   const face = hb.hb_face_create(blob, 0);
   hb.hb_blob_destroy(blob);
@@ -149,6 +154,7 @@ export async function subsetFont(fontBytes: Uint8Array, codepoints: Iterable<num
 
   if (subsetFace === 0) {
     hb.hb_face_destroy(face);
+    hb.free(fontPtr);
     return null;
   }
 
@@ -158,6 +164,7 @@ export async function subsetFont(fontBytes: Uint8Array, codepoints: Iterable<num
     hb.hb_blob_destroy(resultBlob);
     hb.hb_face_destroy(subsetFace);
     hb.hb_face_destroy(face);
+    hb.free(fontPtr);
     return null;
   }
   // Note: `memory.buffer` view can be invalidated across WASM calls that
@@ -171,5 +178,6 @@ export async function subsetFont(fontBytes: Uint8Array, codepoints: Iterable<num
   hb.hb_blob_destroy(resultBlob);
   hb.hb_face_destroy(subsetFace);
   hb.hb_face_destroy(face);
+  hb.free(fontPtr);
   return out;
 }
