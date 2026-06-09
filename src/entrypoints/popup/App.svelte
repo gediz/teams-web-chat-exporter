@@ -241,6 +241,16 @@
   // single-chat paths (export button label, scraper conversationId).
   let selectedConversationIds: string[] = [];
   $: selectedConversationId = selectedConversationIds[0] ?? null;
+  // Id of the chat currently open in Teams (the active-chat hint), captured
+  // when we resolve the default selection. Used only to label the export
+  // button: a single selection that equals this is the "current chat"; a
+  // single selection that differs is a "selected chat". Null when unknown
+  // (e.g. not on a Teams tab) — then the button keeps its historical label.
+  let activeChatId: string | null = null;
+  $: singleSelectionIsOther =
+    selectedConversationIds.length === 1 &&
+    activeChatId != null &&
+    selectedConversationId !== activeChatId;
   let pickerState: 'idle' | 'loading' | 'ok' | 'error' = 'idle';
   // True when the popup opened on a tab that isn't Teams web — we never
   // attempt to load conversations in that case, so without this flag the
@@ -401,6 +411,9 @@
       if (typeof tab !== 'number') return;
       const hint = await fetchActiveHint(tab);
       if (!hint) return;
+      // Remember the open chat so the export button can tell a "current
+      // chat" selection apart from a different single chat the user picks.
+      activeChatId = hint;
       const hit = list.find(c => c.id === hint);
       if (!hit) return;
       // Re-check selection length — a refresh phase could resolve between
@@ -1808,6 +1821,7 @@
       <ExportButton
         disabled={selectedConversationIds.length === 0}
         selectionCount={selectedConversationIds.length}
+        selectionIsOther={singleSelectionIsOther}
         {busy}
         {statusKnown}
         summary={exportSummary}

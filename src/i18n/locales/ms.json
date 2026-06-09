@@ -59,6 +59,7 @@
   "target.chat": "Sembang",
   "target.team": "Saluran pasukan",
   "actions.export.chat": "Eksport sembang semasa",
+  "actions.export.selected": "Eksport sembang dipilih",
   "actions.export.team": "Eksport saluran pasukan semasa",
   "errors.teamNotOpen": "Buka saluran pasukan sebelum mengeksport.",
   "format.willSave": "Akan disimpan:",

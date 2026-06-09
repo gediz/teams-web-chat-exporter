@@ -51,6 +51,7 @@
   "status.elapsed": "Elapsed",
   "actions.export": "Export current chat",
   "actions.export.chat": "Export current chat",
+  "actions.export.selected": "Export selected chat",
   "actions.export.team": "Export current team channel",
   "actions.exportBundle": "Export {n} chats",
   "actions.busy.exporting": "Exporting…",

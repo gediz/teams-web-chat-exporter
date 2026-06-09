@@ -59,6 +59,7 @@
   "target.chat": "채팅",
   "target.team": "팀 채널",
   "actions.export.chat": "현재 채팅 내보내기",
+  "actions.export.selected": "선택한 채팅 내보내기",
   "actions.export.team": "현재 팀 채널 내보내기",
   "errors.teamNotOpen": "내보내기 전에 팀 채널을 여세요.",
   "format.willSave": "저장 대상:",

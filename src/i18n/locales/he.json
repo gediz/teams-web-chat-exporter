@@ -59,6 +59,7 @@
   "target.chat": "צ׳אט",
   "target.team": "ערוץ צוות",
   "actions.export.chat": "ייצוא הצ׳אט הנוכחי",
+  "actions.export.selected": "ייצוא הצ׳אט הנבחר",
   "actions.export.team": "ייצוא ערוץ הצוות הנוכחי",
   "errors.teamNotOpen": "פתח ערוץ צוות לפני הייצוא.",
   "format.willSave": "יישמר:",

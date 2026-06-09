@@ -59,6 +59,7 @@
   "target.chat": "चैट",
   "target.team": "टीम चैनल",
   "actions.export.chat": "वर्तमान चैट निर्यात करें",
+  "actions.export.selected": "चयनित चैट निर्यात करें",
   "actions.export.team": "वर्तमान टीम चैनल निर्यात करें",
   "errors.teamNotOpen": "निर्यात करने से पहले एक टीम चैनल खोलें।",
   "format.willSave": "सेव होगा:",

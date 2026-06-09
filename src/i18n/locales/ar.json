@@ -59,6 +59,7 @@
   "target.chat": "الدردشة",
   "target.team": "قناة الفريق",
   "actions.export.chat": "تصدير الدردشة الحالية",
+  "actions.export.selected": "تصدير الدردشة المحددة",
   "actions.export.team": "تصدير قناة الفريق الحالية",
   "errors.teamNotOpen": "افتح قناة فريق قبل التصدير.",
   "format.willSave": "سيتم الحفظ:",

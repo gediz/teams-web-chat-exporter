@@ -59,6 +59,7 @@
   "target.chat": "Söhbət",
   "target.team": "Komanda kanalı",
   "actions.export.chat": "Cari söhbəti ixrac et",
+  "actions.export.selected": "Seçilmiş söhbəti ixrac et",
   "actions.export.team": "Cari komanda kanalını ixrac et",
   "errors.teamNotOpen": "İxrac etməzdən əvvəl komanda kanalını açın.",
   "format.willSave": "Yadda saxlanacaq:",

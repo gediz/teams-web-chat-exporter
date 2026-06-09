@@ -59,6 +59,7 @@
   "target.chat": "Konverzace",
   "target.team": "Týmový kanál",
   "actions.export.chat": "Exportovat aktuální chat",
+  "actions.export.selected": "Exportovat vybraný chat",
   "actions.export.team": "Exportovat aktuální týmový kanál",
   "errors.teamNotOpen": "Před exportem otevřete týmový kanál.",
   "format.willSave": "Bude uloženo:",

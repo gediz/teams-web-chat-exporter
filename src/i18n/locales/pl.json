@@ -59,6 +59,7 @@
   "target.chat": "Czat",
   "target.team": "Kanał zespołu",
   "actions.export.chat": "Eksportuj bieżący czat",
+  "actions.export.selected": "Eksportuj wybrany czat",
   "actions.export.team": "Eksportuj bieżący kanał zespołu",
   "errors.teamNotOpen": "Przed eksportem otwórz kanał zespołu.",
   "format.willSave": "Zostanie zapisane:",

@@ -59,6 +59,7 @@
   "target.chat": "Csevegés",
   "target.team": "Csapatcsatorna",
   "actions.export.chat": "Jelenlegi csevegés exportálása",
+  "actions.export.selected": "Kijelölt csevegés exportálása",
   "actions.export.team": "Jelenlegi csapatcsatorna exportálása",
   "errors.teamNotOpen": "Exportálás előtt nyisson meg egy csapatcsatornát.",
   "format.willSave": "Mentésre kerül:",

@@ -59,6 +59,7 @@
   "target.chat": "Чат",
   "target.team": "Канал на екип",
   "actions.export.chat": "Експортиране на текущия чат",
+  "actions.export.selected": "Експортиране на избрания чат",
   "actions.export.team": "Експортиране на текущия канал на екип",
   "errors.teamNotOpen": "Отворете канал на екип преди експортиране.",
   "format.willSave": "Ще бъде запазено:",

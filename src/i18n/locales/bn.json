@@ -59,6 +59,7 @@
   "target.chat": "চ্যাট",
   "target.team": "টিম চ্যানেল",
   "actions.export.chat": "বর্তমান চ্যাট রপ্তানি করুন",
+  "actions.export.selected": "নির্বাচিত চ্যাট রপ্তানি করুন",
   "actions.export.team": "বর্তমান টিম চ্যানেল রপ্তানি করুন",
   "errors.teamNotOpen": "রপ্তানি করার আগে একটি টিম চ্যানেল খুলুন।",
   "format.willSave": "সংরক্ষিত হবে:",

@@ -111,6 +111,7 @@
   "target.chat": "Sohbet",
   "target.team": "Ekip kanalı",
   "actions.export.chat": "Mevcut sohbeti dışa aktar",
+  "actions.export.selected": "Seçili sohbeti dışa aktar",
   "actions.export.team": "Mevcut ekip kanalını dışa aktar",
   "actions.exportBundle": "{n} sohbeti dışa aktar",
   "errors.teamNotOpen": "Dışa aktarmadan önce bir ekip kanalı açın.",

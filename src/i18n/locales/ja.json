@@ -59,6 +59,7 @@
   "target.chat": "チャット",
   "target.team": "チーム チャネル",
   "actions.export.chat": "現在のチャットをエクスポート",
+  "actions.export.selected": "選択したチャットをエクスポート",
   "actions.export.team": "現在のチーム チャネルをエクスポート",
   "errors.teamNotOpen": "エクスポート前にチーム チャネルを開いてください。",
   "format.willSave": "保存されるもの：",

@@ -59,6 +59,7 @@
   "target.chat": "แชท",
   "target.team": "ช่องของทีม",
   "actions.export.chat": "ส่งออกแชทปัจจุบัน",
+  "actions.export.selected": "ส่งออกแชทที่เลือก",
   "actions.export.team": "ส่งออกช่องของทีมปัจจุบัน",
   "errors.teamNotOpen": "เปิดช่องของทีมก่อนส่งออก",
   "format.willSave": "จะบันทึก:",

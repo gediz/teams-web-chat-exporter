@@ -30,6 +30,10 @@
   // before the user clicks. The bundle output goes to one zip with
   // a per-chat folder structure (see SW handleStartBundleExportMessage).
   export let selectionCount = 0;
+  // True when exactly one chat is selected and it is NOT the chat currently
+  // open in Teams. Switches the single-chat label from "Export current chat"
+  // to "Export selected chat" so the button matches what will be exported.
+  export let selectionIsOther = false;
 
   // Phase + progress (passed from App.svelte while busy).
   export let phaseLabel = '';            // e.g. "Fetching messages · 0:12"
@@ -56,7 +60,9 @@
 
   $: idleLabel = selectionCount >= 2
     ? (t('actions.exportBundle', { n: selectionCount }, lang) || `Export ${selectionCount} chats`)
-    : t('actions.export', {}, lang);
+    : selectionIsOther
+      ? (t('actions.export.selected', {}, lang) || 'Export selected chat')
+      : t('actions.export', {}, lang);
   $: stopLabel = t('actions.stop', {}, lang) || 'Stop export';
   $: checkingLabel = t('status.checking', {}, lang) || 'Checking status…';
 

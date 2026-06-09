@@ -59,6 +59,7 @@
   "target.chat": "Conversazione",
   "target.team": "Canale del team",
   "actions.export.chat": "Esporta chat corrente",
+  "actions.export.selected": "Esporta chat selezionata",
   "actions.export.team": "Esporta canale del team corrente",
   "errors.teamNotOpen": "Apri un canale del team prima di esportare.",
   "format.willSave": "Verrà salvato:",

@@ -59,6 +59,7 @@
   "target.chat": "聊天",
   "target.team": "團隊頻道",
   "actions.export.chat": "匯出目前聊天",
+  "actions.export.selected": "匯出所選聊天",
   "actions.export.team": "匯出目前團隊頻道",
   "errors.teamNotOpen": "匯出前請先開啟團隊頻道。",
   "format.willSave": "將儲存：",
