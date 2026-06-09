@@ -664,11 +664,18 @@ export default defineContentScript({
         // ── Inline Image Fetching (API mode) ──────────────────────
         const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
         const MAX_CONCURRENT_FETCHES = 6;
-        // When Teams' urlp proxy starts returning HTTP 429 we drop
-        // concurrency for the rest of the export to give the rate
-        // limit a chance to clear. 4 is empirical: low enough to
-        // unblock most retries, high enough not to halve throughput.
-        const MAX_CONCURRENT_FETCHES_THROTTLED = 4;
+        // When Teams' urlp proxy starts returning HTTP 429 we drop concurrency
+        // for the rest of the export to let the rate limit clear. On a large
+        // multi-chat export where every image goes through the cookie path
+        // (Firefox, where the Bearer AMS-direct fetch is 401'd by the edge), 4
+        // was not gentle enough and the tail of images was dropped to sustained
+        // 429s. 2 keeps pressure low so the per-image retries below can recover
+        // them. Only engages after the first 429, so normal exports are
+        // unaffected (they stay at MAX_CONCURRENT_FETCHES).
+        const MAX_CONCURRENT_FETCHES_THROTTLED = 2;
+        // Per-image retry budget for HTTP 429. Previously a single retry, which
+        // dropped images under sustained rate-limiting at bundle scale.
+        const MAX_429_RETRIES = 4;
 
         // Verbose image-fetch debugging. Two ways to enable:
         //   1. Build-time:  WXT_DEBUG_IMAGE_FETCH=1 pnpm build
@@ -1065,17 +1072,19 @@ export default defineContentScript({
                         }
                     }
                 }
-                // 429 retry: a single per-image retry with a small jittered
-                // delay. Teams' urlp proxy rate-limits per session and
-                // returns 429 when too many requests land too quickly. A
-                // brief pause is usually enough to clear it. Sets
-                // sawRateLimit so the batched loop in fetchInlineImages
-                // drops concurrency for the remaining batches in this
-                // export. Honours abort so a Stop click during the wait
-                // bails immediately.
-                if (resp?.status === 429) {
+                // 429 retry: Teams' urlp proxy rate-limits per session and
+                // returns 429 under sustained load (notably a large multi-chat
+                // export where every image goes through the cookie path).
+                // Retry up to MAX_429_RETRIES times with escalating backoff +
+                // jitter so images aren't dropped to a transient or sustained
+                // rate limit; a single retry used to lose the tail. Each 429
+                // flags sawRateLimit so the batched loop in fetchInlineImages
+                // also drops concurrency for the rest of the export. Honours
+                // abort so a Stop click during a wait bails immediately.
+                for (let r429 = 0; resp?.status === 429 && r429 < MAX_429_RETRIES; r429++) {
                     sawRateLimit = true;
-                    const delay = 1500 + Math.floor(Math.random() * 600);
+                    const backoff = Math.min(1500 * 2 ** r429, 8_000);
+                    const delay = backoff + Math.floor(Math.random() * 600);
                     await new Promise(r => setTimeout(r, delay));
                     if (currentAbortController?.signal.aborted) return null;
                     if (useCookies) {
