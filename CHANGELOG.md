@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.14] - 2026-06-09
+
+PDF font subsetting now runs in packaged builds. The service worker content security policy did not allow WebAssembly, so the HarfBuzz subsetter never started and every PDF embedded the full Noto fonts, about 9.5 MB of font data per file. With subsetting working a PDF keeps only the glyphs it uses, which drops the fonts to roughly 70 KB. A 1300-page chat went from 39 MB to 29 MB, the difference being fonts.
+
+Korean text now renders in PDF instead of empty boxes, and very large exports download reliably on Chrome.
+
+### Fixed
+
+- **PDF font subsetting works in packaged builds.** The extension-pages CSP now grants `wasm-unsafe-eval` so `hb-subset.wasm` can compile in the service worker. A memory leak that would have exhausted the WASM heap after a few documents is fixed too (the font buffer is freed on every path).
+- **Korean (Hangul) showed as tofu in PDF.** Korean routes to the bundled Noto Sans KR face; Chinese and other CJK ranges were corrected in the same change. (#28)
+- **Large exports failed to download on Chrome.** MV3 service workers cannot create object URLs for large blobs, so multi-chat bundles and big single chats produced no file. The download URL is now minted in an offscreen document. (#27)
+- **PDF links and reactions.** Links export as complete URLs with clickable annotations across wraps and page breaks. Reaction shortcodes resolve to emoji instead of leaking `:name:` text.
+- **A failed retry leaked a blob URL.** When a single-file download failed and its retry also failed, the retry's blob URL is now revoked instead of leaking.
+
+### Added
+
+- **Reactor names in PDF**, following the HTML chip rule: one name, a short list, or "First and N others", with your own reaction as "You".
+- **@mentions** render as `@name` in text and PDF.
+- **Image placeholders.** An inline-image-only message reads `[inline image]`; an image that cannot be fetched shows a labeled placeholder card in HTML instead of a broken image.
+- **Export button** reads "Export selected chat" when the single selected chat is not the one open in Teams.
+
+### i18n
+
+- New `actions.export.selected` string, translated across all 24 locales.
+
 ## [1.4.13] — 2026-05-21
 
 GitHub-only release. Not pushed to the Chrome Web Store, Microsoft Edge Add-ons, or Firefox AMO. Existing installs stay on 1.4.12. Users who hit a problem and are asked to share diagnostics can install the unpacked build from this release; everyone else sees no change.
