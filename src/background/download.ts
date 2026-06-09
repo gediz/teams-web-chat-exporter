@@ -383,17 +383,23 @@ export async function buildAndDownload(
     console.log(`[text-single] downloads.download rejected: ${e?.message || String(e)} — retrying with sanitized filename`);
     const safe = `${sanitizeBase('teams-chat')}-${Date.now()}.${format === 'html' ? 'html' : format === 'csv' ? 'csv' : format === 'txt' ? 'txt' : 'json'}`;
     revokeDownloadUrl(url);
+    // Hoisted so the catch can release the retry URL too. For >50MB exports
+    // this blob: URL is minted in the offscreen document, which has no
+    // automatic cleanup; if the retry download also fails we must revoke it
+    // explicitly or the export blob stays resident until the doc unloads.
+    let url2: string | undefined;
     try {
-      const url2 = await blobToDownloadUrl(
+      url2 = await blobToDownloadUrl(
         new Blob(Array.isArray(built.content) ? built.content : [built.content], { type: built.mime }),
         built.mime,
       );
       const id2 = await downloads.download({ url: url2, filename: safe, saveAs });
       console.log(`[text-single] downloads.download retry resolved: id=${id2}`);
-      setTimeout(() => revokeDownloadUrl(url2), 60_000);
+      setTimeout(() => revokeDownloadUrl(url2!), 60_000);
       return { ok: true, filename: safe, id: id2 };
     } catch (e2: any) {
       console.log(`[text-single] downloads.download retry rejected: ${e2?.message || String(e2)}`);
+      if (url2) revokeDownloadUrl(url2);
       throw new Error(e2?.message || String(e2));
     }
   }
