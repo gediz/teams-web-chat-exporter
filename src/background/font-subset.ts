@@ -82,10 +82,20 @@ function loadHarfbuzz(): Promise<HbExports> {
       if (!resp.ok) throw new Error(`hb-subset.wasm fetch failed: HTTP ${resp.status}`);
       const bytes = await resp.arrayBuffer();
       const { instance } = await WebAssembly.instantiate(bytes);
+      // Confirms the WASM compiled in this context. If the extension-pages
+      // CSP lacks 'wasm-unsafe-eval', the instantiate above throws here
+      // ("Wasm code generation disallowed by embedder") and the catch below
+      // logs it — the root cause of full-font PDFs in pre-1.4.14 releases.
+      console.log(`[hb-subset] HarfBuzz WASM loaded (${bytes.byteLength} bytes)`);
       return instance.exports as unknown as HbExports;
     })();
-    // Don't cache a failed load — next call should retry.
-    _loading.catch(() => { _loading = null; });
+    // Don't cache a failed load — next call should retry. Logged via
+    // console.log (not warn/error) so a CSP/load regression shows up in the
+    // diagnostics export without tripping the extension's error badge.
+    _loading.catch((e) => {
+      console.log('[hb-subset] HarfBuzz WASM load FAILED (PDF fonts will not subset):', (e as Error)?.message || e);
+      _loading = null;
+    });
   }
   return _loading;
 }

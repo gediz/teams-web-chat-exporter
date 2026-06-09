@@ -37,6 +37,18 @@ export default defineConfig({
     description: '__MSG_extDescription__',
     default_locale: 'en',
     homepage_url: 'https://github.com/gediz/teams-web-chat-exporter',
+    // The runtime HarfBuzz font subsetter (src/background/font-subset.ts)
+    // instantiates hb-subset.wasm inside the service worker / background
+    // page. Chrome MV3 blocks WebAssembly compilation unless the
+    // extension-pages CSP grants 'wasm-unsafe-eval'; without it,
+    // WebAssembly.instantiate throws and PDF font subsetting silently
+    // falls back to embedding the full ~17 MB of Noto fonts (every face,
+    // unsubsetted). WXT only injects this directive in dev (serve) mode via
+    // addDevModeCsp, so production builds must declare it explicitly. MV3
+    // takes the object form (extension_pages); MV2/Firefox takes a string.
+    content_security_policy: manifestVersion === 3
+      ? { extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';" }
+      : "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';",
     browser_specific_settings: {
       gecko: {
         id: 'n.gedizaydindogmus@gmail.com',

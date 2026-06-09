@@ -412,10 +412,10 @@ async function loadFonts(doc: PDFDocument, codepoints: Set<number>): Promise<Fon
   // empty codepoint set), we fall back to embedding the original full
   // font. That costs more bytes in the PDF but keeps every glyph
   // available — fail-safe, not fail-broken.
-  const regular = await embedSubsetOrFull(doc, regularBytes, codepoints);
-  const bold = await embedSubsetOrFull(doc, boldBytes, codepoints);
-  const cjk = await embedSubsetOrFull(doc, cjkBytes, codepoints);
-  const kr = await embedSubsetOrFull(doc, krBytes, codepoints);
+  const regular = await embedSubsetOrFull(doc, regularBytes, codepoints, 'regular');
+  const bold = await embedSubsetOrFull(doc, boldBytes, codepoints, 'bold');
+  const cjk = await embedSubsetOrFull(doc, cjkBytes, codepoints, 'cjk');
+  const kr = await embedSubsetOrFull(doc, krBytes, codepoints, 'kr');
   return { regular, bold, cjk, kr };
 }
 
@@ -423,13 +423,27 @@ async function embedSubsetOrFull(
   doc: PDFDocument,
   fontBytes: ArrayBuffer,
   codepoints: Set<number>,
+  label = 'font',
 ): Promise<PDFFont> {
   try {
     const subset = await subsetFont(new Uint8Array(fontBytes), codepoints);
     if (subset && subset.byteLength > 0) {
+      // Per-face full->subset sizes land in the diagnostics console log so a
+      // real export proves subsetting ran end-to-end. Emitted via console.log
+      // (not warn/error) so they never surface in the extension's error badge;
+      // the diagnostics buffer captures them by the [hb-subset] prefix
+      // regardless of level.
+      console.log(`[hb-subset] ${label}: ${fontBytes.byteLength} -> ${subset.byteLength} bytes (subset OK)`);
       return await doc.embedFont(subset, { subset: false });
     }
-  } catch { /* fall through */ }
+    console.log(`[hb-subset] ${label}: subset returned empty; embedding FULL font (${fontBytes.byteLength} bytes)`);
+  } catch (e) {
+    // A silent catch here is exactly what hid the MV3-CSP failure (WASM
+    // blocked -> full-font fallback) across many releases. Surface it as a
+    // log line (not an error) so it lands in diagnostics without tripping the
+    // extension's error badge.
+    console.log(`[hb-subset] ${label}: subset FAILED, embedding FULL font (${fontBytes.byteLength} bytes):`, (e as Error)?.message || e);
+  }
   return doc.embedFont(fontBytes, { subset: false });
 }
 
