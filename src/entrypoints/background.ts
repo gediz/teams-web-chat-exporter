@@ -937,7 +937,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
 
             try {
                 broadcastStatus({ tabId, phase: 'build', messages: totalMessages, ...bundleCtx });
-                const files = await buildOneChatForBundle({
+                const { files, formatFailures } = await buildOneChatForBundle({
                     messages: scrapeRes.messages || [],
                     meta: scrapeRes.meta || {},
                     formats,
@@ -961,7 +961,17 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                         });
                     },
                 });
-                entries.push({ folderName, files });
+                // Per-format resilience: keep the chat (with the formats that
+                // built) when only some formats failed; drop it only if every
+                // format failed. Each failed format is still listed in
+                // FAILURES.txt so the gap is visible.
+                const hasContent = files.some(f => f.relativePath.startsWith('messages.'));
+                if (hasContent) {
+                    entries.push({ folderName, files });
+                }
+                for (const ff of formatFailures) {
+                    failures.push({ folderName, conversationId: conv.id, reason: ff.error });
+                }
                 // Record partial signal for bundle-level reporting. The
                 // chat's individual files inside its folder already carry
                 // their own banners + -PARTIAL filename suffix from the

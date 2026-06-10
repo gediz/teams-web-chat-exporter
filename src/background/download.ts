@@ -649,9 +649,12 @@ export type BuildOneChatBundleOptions = {
   onPdfProgress?: (done: number, total: number) => void;
 } & PdfKnobs;
 
+export type PerChatFormatFailure = { format: SingleFormat; error: string };
+export type OneChatBundleResult = { files: PerChatFile[]; formatFailures: PerChatFormatFailure[] };
+
 export async function buildOneChatForBundle(
   options: BuildOneChatBundleOptions,
-): Promise<PerChatFile[]> {
+): Promise<OneChatBundleResult> {
   const { messages, meta, formats, embedAvatars, downloadImages, avatarMode, onPdfProgress } = options;
   if (!formats.length) throw new Error('buildOneChatForBundle: formats is empty');
 
@@ -661,6 +664,9 @@ export async function buildOneChatForBundle(
 
   const htmlImageMode: ImageMode = downloadImages ? 'files' : 'none';
   const out: PerChatFile[] = [];
+  // Per-format failures are collected, not thrown, so one bad format (e.g. an
+  // unbuildable PDF) doesn't drop the whole chat from the bundle.
+  const formatFailures: PerChatFormatFailure[] = [];
   const imagePaths = new Set<string>();
   const encoder = new TextEncoder();
 
@@ -723,17 +729,18 @@ export async function buildOneChatForBundle(
         out.push({ relativePath: img.filename, data: bytes });
       }
     } catch (e: unknown) {
-      // Re-throw with format context so the bundle handler's failure
-      // entry says WHICH format died, not just the bare message. The
-      // bundle handler still pushes to FAILURES.txt and continues to
-      // the next chat — same user-facing behavior, more diagnosable
-      // log + failures line.
+      // Per-format resilience: record this format's failure and keep building
+      // the rest, so the chat still gets a folder with whatever formats
+      // succeed. The bundle handler lists the failed format in FAILURES.txt.
+      // (Previously this re-threw and dropped the ENTIRE chat — all formats —
+      // when a single format, almost always the PDF, failed.)
       const inner = e instanceof Error ? e.message : String(e);
-      throw new Error(`build:${format} — ${inner}`);
+      console.log(`[bundle] build:${format} failed for "${titleForLog}": ${inner}`);
+      formatFailures.push({ format, error: `build:${format} — ${inner}` });
     }
   }
 
-  return out;
+  return { files: out, formatFailures };
 }
 
 // Sanitise + dedupe a chat title for use as a folder name inside a
@@ -816,7 +823,11 @@ export async function buildAndDownloadBundlesZip(
 
   if (failures.length) {
     const lines = failures.map(f => `${f.folderName}\t${f.conversationId}\t${f.reason}`);
-    const header = '# Chats that failed to export. Columns: folder\tconversationId\treason';
+    // A reason of "build:<format> — ..." is a per-format failure: that chat's
+    // folder still exists with the formats that did build. Reasons without a
+    // "build:" prefix (e.g. scrape failures) mean the whole chat is absent.
+    const header = '# Export failures. Columns: folder\tconversationId\treason\n'
+      + '# "build:<format> — ..." = only that format is missing; the chat folder has the rest.';
     const body = `${header}\n${lines.join('\n')}\n`;
     outerFiles.push({ path: 'FAILURES.txt', data: new TextEncoder().encode(body) });
   }
