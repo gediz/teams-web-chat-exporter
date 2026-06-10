@@ -139,8 +139,11 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
   const escapeHtml = (str = '') =>
     str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   const urlRe = /https?:\/\/[^\s<>"']+/g;
+  // `escaped` is already HTML-escaped, so the matched URL `u` already carries
+  // entity-encoded ampersands (a `&` query separator is `&amp;` here). Do NOT
+  // re-escape it, or `&amp;` becomes `&amp;amp;` and the href/link text break.
   const autolinkEscaped = (escaped: string) =>
-    escaped.replace(urlRe, u => `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">${escapeHtml(u)}</a>`);
+    escaped.replace(urlRe, u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
   const formatInline = (segment: string) => {
     const parts = segment.split('`');
     let html = '';
