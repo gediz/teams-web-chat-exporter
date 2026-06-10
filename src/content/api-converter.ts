@@ -235,9 +235,12 @@ function parseSystemContent(content: string, messageType: string, mriMap: Map<st
   // raw, so decode the XML entities here or the plain-text exports show a
   // literal "&amp;" and the HTML export re-escapes it to "&amp;amp;". Decode
   // &amp; LAST so a double-escaped "&amp;lt;" resolves to "&lt;", not "<".
+  // A numeric ref past the Unicode max would make String.fromCodePoint throw,
+  // so out-of-range refs are left as their literal text rather than crashing.
+  const fromCp = (n: number, literal: string) => (n <= 0x10ffff ? String.fromCodePoint(n) : literal);
   const decodeXmlEntities = (s: string): string =>
-    s.replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-      .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+    s.replace(/&#x([0-9a-fA-F]+);/g, (m, h) => fromCp(parseInt(h, 16), m))
+      .replace(/&#(\d+);/g, (m, d) => fromCp(parseInt(d, 10), m))
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"')
