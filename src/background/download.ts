@@ -7,7 +7,7 @@ import { blobToDownloadUrl, removeAvatars, revokeDownloadUrl, summarizeAttachmen
 import { buildPdfResilient } from './pdf';
 import { formatRangeLabel, sanitizeBase } from '../utils/messages';
 import { buildZipAsync } from './zip';
-import type { Attachment, ExportMessage, ExportMeta } from '../types/shared';
+import type { Attachment, ExportMessage, ExportMeta, TableData } from '../types/shared';
 
 type DownloadsApi = Pick<typeof chrome.downloads, 'download'>;
 
@@ -306,7 +306,22 @@ function buildExportInternal(options: BuildExportOptions, imageMode: ImageMode):
     filename = `${base}.json`;
     mime = 'application/json';
     finalMessages = stripMessageDataUrls(processedMessages);
-    const payload = { meta: { ...enrichedMeta, count: messages.length }, messages: finalMessages };
+    // Surface parsed tables as a clean, additive `tables: TableData[]` field and
+    // drop the internal `bodyBlocks` render aid. `text` and contentHtml are left
+    // untouched. API messages derive `tables` from bodyBlocks; legacy DOM-scrape
+    // messages have their flat `tables` normalized to the same shape so the JSON
+    // schema is uniform. Non-table messages pass through unchanged.
+    const jsonMessages: unknown[] = finalMessages.map(m => {
+      const hasBlocks = Array.isArray(m.bodyBlocks) && m.bodyBlocks.length > 0;
+      const hasLegacy = Array.isArray(m.tables) && m.tables.length > 0;
+      if (!hasBlocks && !hasLegacy) return m;
+      const { bodyBlocks, ...rest } = m;
+      const tables: TableData[] = hasBlocks
+        ? m.bodyBlocks!.flatMap(b => (b.type === 'table' ? [b.table] : []))
+        : (m.tables as string[][][]).map(legacyToTableData);
+      return tables.length ? { ...rest, tables } : rest;
+    });
+    const payload = { meta: { ...enrichedMeta, count: messages.length }, messages: jsonMessages };
     content = JSON.stringify(payload, null, 2);
   }
 
@@ -864,6 +879,109 @@ export async function buildAndDownloadBundlesZip(
   }
 }
 
+// Normalize a legacy DOM-scrape table (flat string[][], no spans) into the
+// same TableData shape the API path produces, so the JSON `tables` field is
+// one uniform schema regardless of capture mode.
+function legacyToTableData(rows: string[][]): TableData {
+  const columns = rows.reduce((m, r) => Math.max(m, r.length), 0);
+  return {
+    columns,
+    headerRowCount: 0,
+    rows: rows.map(r => {
+      const out = r.slice();
+      for (let c = 0; c < columns; c++) if (out[c] === undefined) out[c] = '';
+      return out;
+    }),
+    merges: [],
+  };
+}
+
+// Render a parsed table as a monospace grid with TRUE merges: a spanned cell's
+// value is printed once and the internal border is omitted, so it reads as one
+// larger cell. This is the reStructuredText / Pandoc grid-table convention, the
+// only plain-text form that expresses merged cells. Cell text is flattened to a
+// single line (newlines -> spaces) to keep the box art aligned.
+function renderTxtTable(t: TableData): string {
+  const W = t.columns;
+  if (!W || !t.rows.length) return '';
+
+  const covered = new Set<string>(); // positions a span sits on top of (not the anchor)
+  for (const mg of t.merges) {
+    for (let dr = 0; dr < mg.rowspan; dr++) {
+      for (let dc = 0; dc < mg.colspan; dc++) {
+        if (dr || dc) covered.add(`${mg.row + dr},${mg.col + dc}`);
+      }
+    }
+  }
+  // Value shown at a position: blank when covered, so a span prints only once.
+  const shown = (r: number, c: number) =>
+    covered.has(`${r},${c}`) ? '' : (t.rows[r]?.[c] ?? '').replace(/\s*\n\s*/g, ' ').trim();
+
+  const colW = new Array(W).fill(1);
+  for (let r = 0; r < t.rows.length; r++) {
+    for (let c = 0; c < W; c++) colW[c] = Math.max(colW[c], shown(r, c).length);
+  }
+  const boxW = (c: number) => colW[c] + 2; // one space of padding each side
+
+  // Is there a horizontal border below row r in column c? No when a rowspan
+  // (or row+colspan) merge straddles the r / r+1 boundary in that column.
+  const borderBelow = (r: number, c: number) => {
+    if (r >= t.rows.length - 1) return true; // bottom edge
+    for (const mg of t.merges) {
+      const inCols = mg.col <= c && c < mg.col + mg.colspan;
+      const straddles = mg.row <= r && mg.row + mg.rowspan - 1 >= r + 1;
+      if (inCols && straddles) return false;
+    }
+    return true;
+  };
+  // Is there a vertical border to the right of column c in row r? No when a
+  // colspan merge straddles the c / c+1 boundary in that row, so a colspan
+  // cell reads as one wide cell instead of split boxes.
+  const borderRight = (r: number, c: number) => {
+    if (c >= W - 1) return true; // outer right edge
+    for (const mg of t.merges) {
+      const inRows = mg.row <= r && r < mg.row + mg.rowspan;
+      const straddles = mg.col <= c && mg.col + mg.colspan - 1 >= c + 1;
+      if (inRows && straddles) return false;
+    }
+    return true;
+  };
+
+  // Is a vertical wall present at column c's right edge across the separator
+  // below row rb? Absent only inside a cell that spans both rows and columns.
+  const wallRight = (rb: number, c: number) =>
+    borderRight(rb, c) || (rb + 1 < t.rows.length ? borderRight(rb + 1, c) : true);
+
+  // A horizontal rule. `rb` is the row whose bottom this rule draws (null = a
+  // full rule, used for the top and bottom edges).
+  const rule = (rb: number | null) => {
+    const dashAt = (c: number) => (rb === null ? true : borderBelow(rb, c));
+    let s = dashAt(0) ? '+' : '|';
+    for (let c = 0; c < W; c++) {
+      const dash = dashAt(c);
+      s += (dash ? '-' : ' ').repeat(boxW(c));
+      const dashRight = c + 1 < W ? dashAt(c + 1) : false;
+      // '+' where a horizontal rule meets the boundary; else a continuing wall
+      // '|', or a blank inside a cell merged across both rows and columns.
+      if (dash || dashRight) s += '+';
+      else if (rb === null || c >= W - 1 || wallRight(rb, c)) s += '|';
+      else s += ' ';
+    }
+    return s;
+  };
+
+  const out: string[] = [rule(null)];
+  for (let r = 0; r < t.rows.length; r++) {
+    let line = '|';
+    for (let c = 0; c < W; c++) {
+      line += ` ${shown(r, c).padEnd(colW[c])} ` + (c >= W - 1 || borderRight(r, c) ? '|' : ' ');
+    }
+    out.push(line);
+    out.push(r < t.rows.length - 1 ? rule(r) : rule(null));
+  }
+  return out.join('\n');
+}
+
 function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
   const lines: string[] = [];
   // Partial-export warning: prepend a clearly visible banner so a
@@ -897,6 +1015,16 @@ function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
     const ts = m.timestamp || '';
     const author = m.author || '[unknown]';
     let text = (m.text || '').replace(/\r\n/g, '\n').replace(/\n{2,}/g, '\n\n');
+    // API mode: rebuild the body from ordered text/table blocks so pasted
+    // tables render as aligned grids in their original positions instead of
+    // the flat "cell | cell" form left in `text`.
+    if (m.bodyBlocks?.length) {
+      text = m.bodyBlocks
+        .map(b => (b.type === 'table' ? `\n${renderTxtTable(b.table)}\n` : b.text))
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    }
     // When the body is empty but the message carried attachments
     // (image paste, file drop, link preview), surface a short
     // attachment summary so the row isn't silently blank.

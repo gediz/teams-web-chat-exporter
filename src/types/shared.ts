@@ -57,6 +57,31 @@ export type RecordingDetails = {
   attendees?: string[];         // attendees (from paired meeting-ended event)
 };
 
+// A merged-cell region inside a table. Field names match Handsontable's
+// `mergeCells` format (https://handsontable.com/docs/javascript-data-grid/merge-cells/):
+// `row`/`col` are the anchor (top-left) cell, `rowspan`/`colspan` the extents.
+export type MergeRegion = { row: number; col: number; rowspan: number; colspan: number };
+
+// A parsed table. `rows` is a dense grid where a spanned cell's value is
+// REPEATED into every position it covers (so each row is self-contained, the
+// pandas read_html / tidy-data convention); `merges` records each span once on
+// its anchor (the Excel / Google Sheets / Handsontable convention) so the merge
+// is losslessly recoverable. `headerRowCount` is the number of leading header
+// rows (from <thead> or a leading all-<th> row).
+export type TableData = {
+  columns: number;
+  headerRowCount: number;
+  rows: string[][];
+  merges: MergeRegion[];
+};
+
+// One block of a message body, kept in original order so text and tables
+// interleave faithfully (a message with several tables and text between them
+// stays readable). Built by src/content/table-model.ts in API mode.
+export type BodyBlock =
+  | { type: 'text'; text: string }
+  | { type: 'table'; table: TableData };
+
 export type ExportMessage = {
   id?: string;
   threadId?: string | null;
@@ -79,7 +104,12 @@ export type ExportMessage = {
   avatarUrl?: string;
   reactions?: Reaction[];
   attachments?: Attachment[];
-  tables?: string[][][];
+  tables?: string[][][];          // legacy DOM-scrape tables (flat cell text, no spans)
+  // Ordered text/table blocks parsed from contentHtml in API mode. When set,
+  // table-aware renderers (HTML, PDF, TXT) use this instead of the flat `text`
+  // so real tables render with structure. Derived into the JSON `tables` field
+  // and stripped before JSON serialization (it is a render aid, not output).
+  bodyBlocks?: BodyBlock[];
   replyTo?: ReplyContext | null;
   mentions?: Array<{ name: string; mri?: string }>;  // @mentions in the message
   systemAttendees?: string[];     // participant display names for call/meeting system messages

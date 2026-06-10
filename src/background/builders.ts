@@ -1,4 +1,4 @@
-import type { ExportMessage, ExportMeta, Reaction } from '../types/shared';
+import type { ExportMessage, ExportMeta, Reaction, TableData, MergeRegion } from '../types/shared';
 import { mintBlobUrlViaOffscreen, revokeBlobUrlViaOffscreen } from '../utils/offscreen-client';
 
 /**
@@ -210,6 +210,38 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
   const avatarMap = meta.avatars || {};
   const safeCssId = (id: string) => id.replace(/[^a-zA-Z0-9_-]/g, '');
 
+  // Render a parsed table as a real <table> with native rowspan/colspan.
+  // Covered positions (the cells a span sits on top of) are skipped; the
+  // span is emitted once on its anchor. Header rows become <th>.
+  const renderHtmlTable = (t: TableData): string => {
+    if (!t.columns || !t.rows.length) return '';
+    const covered = new Set<string>();
+    const anchor = new Map<string, MergeRegion>();
+    for (const mg of t.merges) {
+      anchor.set(`${mg.row},${mg.col}`, mg);
+      for (let dr = 0; dr < mg.rowspan; dr++) {
+        for (let dc = 0; dc < mg.colspan; dc++) {
+          if (dr || dc) covered.add(`${mg.row + dr},${mg.col + dc}`);
+        }
+      }
+    }
+    let rowsHtml = '';
+    t.rows.forEach((row, r) => {
+      let cells = '';
+      for (let c = 0; c < t.columns; c++) {
+        if (covered.has(`${r},${c}`)) continue;
+        const mg = anchor.get(`${r},${c}`);
+        const tag = r < t.headerRowCount ? 'th' : 'td';
+        const span = mg
+          ? `${mg.rowspan > 1 ? ` rowspan="${mg.rowspan}"` : ''}${mg.colspan > 1 ? ` colspan="${mg.colspan}"` : ''}`
+          : '';
+        cells += `<${tag}${span}>${formatText(row[c] || '')}</${tag}>`;
+      }
+      rowsHtml += `<tr>${cells}</tr>`;
+    });
+    return `<div class="tbl-wrap"><table class="tbl">${rowsHtml}</table></div>`;
+  };
+
   const style = `<style>
     :root { --muted:#6b7280; --border:#e5e7eb; --bg:#ffffff; --chip:#f3f4f6; --thread-bg:#f8fafc; --thread-border:#dbeafe; --thread-accent:#3b82f6; }
     body{font:14px system-ui, -apple-system, Segoe UI, Roboto; background:#fff; color:#111; padding:20px}
@@ -278,10 +310,10 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     .att-preview-title{font-weight:600; margin-bottom:4px}
     .att-preview-lines{font-size:13px; color:#374151}
     .tbl-wrap{margin:8px 0; border:1px solid var(--border); border-radius:10px; overflow-x:auto; background:#fff}
-    .tbl{width:100%; border-collapse:collapse; font-size:13px}
-    .tbl td,.tbl th{padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:top}
-    .tbl tr:last-child td{border-bottom:none}
-    .tbl tr:nth-child(even) td{background:#f8fafc}
+    .tbl{border-collapse:collapse; font-size:13px}
+    /* Full cell borders so rowspan/colspan merges read as one cell. */
+    .tbl td,.tbl th{padding:7px 10px; border:1px solid var(--border); vertical-align:top; text-align:left}
+    .tbl th{background:#f1f5f9; font-weight:600}
     .img-modal{position:fixed; inset:0; background:rgba(0,0,0,0.8); display:flex; align-items:center; justify-content:center; z-index:9999}
     .img-modal[hidden]{display:none}
     .img-modal img{max-width:96vw; max-height:92vh; object-fit:contain; box-shadow:0 12px 40px rgba(0,0,0,0.4); background:#111}
@@ -563,6 +595,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
       })
       .join('');
 
+    // Legacy DOM-scrape tables: flat string[][][], appended after the text.
     const tablesHtml = tables
       .map(table => {
         if (!Array.isArray(table) || !table.length) return '';
@@ -577,6 +610,16 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
         return `<div class="tbl-wrap"><table class="tbl"><tbody>${rowsHtml}</tbody></table></div>`;
       })
       .join('');
+
+    // API mode: ordered text/table blocks. Renders text and real tables in
+    // their original positions. Falls back to the flat text + legacy tables
+    // when no bodyBlocks were parsed (non-table messages, DOM-scrape mode).
+    const blocks = Array.isArray(m.bodyBlocks) ? m.bodyBlocks : null;
+    const bodyHtml = blocks && blocks.length
+      ? blocks
+          .map(b => (b.type === 'table' ? renderHtmlTable(b.table) : `<div>${formatText(b.text)}</div>`))
+          .join('')
+      : `<div>${text || (m.forwarded || atts.length ? '' : '<span class="meta">(no text)</span>')}</div>${tablesHtml || ''}`;
 
     // Forward card (API mode provides ForwardContext)
     let forwardHtml = '';
@@ -604,8 +647,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
         <div class="hdr">${escapeHtml(m.author || '')} — <span title="${escapeHtml(ts)}">${tsLabel}</span>${rel ? `<span class="rel">(${rel})</span>` : ''}${m.edited ? ' <span class="edited">• edited</span>' : ''}${m.importance === 'urgent' ? '<span class="badge-urgent">URGENT</span>' : m.importance === 'high' ? '<span class="badge-important">IMPORTANT</span>' : ''}</div>
         ${m.subject ? `<div class="subject">${escapeHtml(m.subject)}</div>` : ''}
         ${forwardHtml}${replyHtml}
-        <div>${text || (m.forwarded || atts.length ? '' : '<span class="meta">(no text)</span>')}</div>
-        ${tablesHtml || ''}
+        ${bodyHtml}
         ${reactHtml ? `<div class="reactions">${reactHtml}</div>` : ''}
         ${attsHtml ? `<div class="atts">${attsHtml}</div>` : ''}
         ${atts.length ? `<div class="att-summary">📎 ${atts.length} attachment${atts.length > 1 ? 's' : ''}</div>` : ''}

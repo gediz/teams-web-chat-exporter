@@ -45,7 +45,7 @@ import {
   type PDFPage,
 } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
-import type { Attachment, ExportMessage, ExportMeta, Reaction, ReactorInfo } from '../types/shared';
+import type { Attachment, ExportMessage, ExportMeta, Reaction, ReactorInfo, TableData, MergeRegion } from '../types/shared';
 import { subsetFont } from './font-subset';
 import { rasterizeSvgInDom } from '../utils/svg-rasterize';
 import { rasterizeViaOffscreen } from '../utils/offscreen-client';
@@ -665,6 +665,15 @@ function scanDocument(
   // Per-message text fields. Kept in sync with renderMessage's reads.
   for (const m of messages) {
     visit(m.text);
+    // Table cells render via bodyBlocks, and a cell's text can carry glyphs
+    // (emoji from <img alt>, mention @names) that the flat m.text misses, so
+    // scan them too or those glyphs would be tofu / absent in the subset.
+    if (Array.isArray(m.bodyBlocks)) {
+      for (const b of m.bodyBlocks) {
+        if (b.type === 'text') visit(b.text);
+        else for (const row of b.table.rows) for (const cell of row) visit(cell);
+      }
+    }
     visit(m.author);
     visit(m.subject);
     visit(m.replyTo?.text);
@@ -1316,6 +1325,165 @@ function drawImage(cursor: Cursor, img: PDFImage): number {
   return h + 4;
 }
 
+const COLOR_TABLE_HEAD_BG = rgb(0.945, 0.957, 0.97);
+
+// Draw a parsed table as a real bordered grid in the text column. rowspan/
+// colspan merges are drawn as one box on the anchor cell (covered positions
+// skipped), matching the HTML/TXT output. Cells wrap to their column width;
+// row height is the tallest cell. The grid page-breaks at row boundaries and
+// keeps each merged block on a single page (ensures its full height up front).
+function drawTable(cursor: Cursor, table: TableData, ctx: TextCtx) {
+  const W = table.columns;
+  const R = table.rows.length;
+  if (!W || !R) return;
+
+  const layout = ctx.layout;
+  const PAD = 4;
+  const cellSize = Math.max(8, layout.sizeBody - 1);
+  const cellLead = cellSize * 1.32;
+
+  const covered = new Set<string>();
+  const anchorAt = new Map<string, MergeRegion>();
+  for (const mg of table.merges) {
+    anchorAt.set(`${mg.row},${mg.col}`, mg);
+    for (let dr = 0; dr < mg.rowspan; dr++) {
+      for (let dc = 0; dc < mg.colspan; dc++) {
+        if (dr || dc) covered.add(`${mg.row + dr},${mg.col + dc}`);
+      }
+    }
+  }
+  const isHeader = (r: number) => r < table.headerRowCount;
+  const cellText = (r: number, c: number) => (table.rows[r]?.[c] ?? '').replace(/\r\n/g, '\n');
+  const isCovered = (r: number, c: number) => covered.has(`${r},${c}`);
+
+  // Column widths via min/max content distribution (like CSS auto table
+  // layout). minW = widest unbreakable token, so a column is never squeezed
+  // below the width of a single word (which would wrap "Priority" -> "Priori
+  // ty"). maxW = widest full line, the column's ideal width. Sizing each column
+  // to at least minW and handing leftover space to the columns that want it
+  // most (maxW - minW) stops a long "Summary" column from starving the short
+  // "Priority" column when the table is scaled to fit the page.
+  const PAD2 = 2 * PAD;
+  const lineW = (txt: string, weight: PreferredWeight) =>
+    txt.split('\n').reduce((m, l) => Math.max(m, safeWidthOf(l, weight, ctx, cellSize)), 0);
+  const wordW = (txt: string, weight: PreferredWeight) =>
+    txt.split(/\s+/).reduce((m, w) => Math.max(m, safeWidthOf(w, weight, ctx, cellSize)), 0);
+  const minW = new Array<number>(W).fill(8 + PAD2);
+  const maxW = new Array<number>(W).fill(16);
+  for (let r = 0; r < R; r++) {
+    for (let c = 0; c < W; c++) {
+      if (isCovered(r, c)) continue;
+      const a = anchorAt.get(`${r},${c}`);
+      if (a && a.colspan > 1) continue;
+      const weight: PreferredWeight = isHeader(r) ? 'bold' : 'regular';
+      maxW[c] = Math.max(maxW[c], lineW(cellText(r, c), weight) + PAD2);
+      minW[c] = Math.max(minW[c], wordW(cellText(r, c), weight) + PAD2);
+    }
+  }
+  // colspan anchors: spread any width deficit across the columns they cover.
+  for (let r = 0; r < R; r++) {
+    for (let c = 0; c < W; c++) {
+      if (isCovered(r, c)) continue;
+      const a = anchorAt.get(`${r},${c}`);
+      if (!a || a.colspan <= 1) continue;
+      const weight: PreferredWeight = isHeader(r) ? 'bold' : 'regular';
+      const needMax = lineW(cellText(r, c), weight) + PAD2;
+      const needMin = wordW(cellText(r, c), weight) + PAD2;
+      let haveMax = 0, haveMin = 0;
+      for (let k = 0; k < a.colspan; k++) { haveMax += maxW[c + k]; haveMin += minW[c + k]; }
+      if (needMax > haveMax) { const add = (needMax - haveMax) / a.colspan; for (let k = 0; k < a.colspan; k++) maxW[c + k] += add; }
+      if (needMin > haveMin) { const add = (needMin - haveMin) / a.colspan; for (let k = 0; k < a.colspan; k++) minW[c + k] += add; }
+    }
+  }
+  const avail = Math.max(1, layout.textWidth); // guard against a degenerate (<=0) layout
+  // Cap each column's min so one no-space token (long URL / CJK run) can't
+  // claim more than half the width and starve the others.
+  for (let c = 0; c < W; c++) minW[c] = Math.min(minW[c], maxW[c], avail * 0.5);
+  const totalMin = minW.reduce((a, b) => a + b, 0);
+  let colW: number[];
+  if (totalMin >= avail) {
+    // Even the minimums overflow (very wide / many-column table): scale them
+    // down proportionally; some mid-word wrapping is then unavoidable.
+    colW = minW.map(w => (w / totalMin) * avail);
+  } else {
+    // Each column gets its min; slack goes to the columns that want to grow.
+    const slack = avail - totalMin;
+    const want = maxW.map((w, c) => Math.max(0, w - minW[c]));
+    const totalWant = want.reduce((a, b) => a + b, 0) || 1;
+    colW = minW.map((w, c) => w + slack * (want[c] / totalWant));
+  }
+  const colLeft = (c: number) => { let x = 0; for (let i = 0; i < c; i++) x += colW[i]; return x; };
+
+  // Wrap each anchor cell to its (possibly spanned) width; size the rows.
+  const wrapped: Record<string, string[]> = {};
+  const rowH = new Array<number>(R).fill(cellLead + 2 * PAD);
+  const multiRow: Array<{ r: number; a: MergeRegion; lines: number }> = [];
+  for (let r = 0; r < R; r++) {
+    for (let c = 0; c < W; c++) {
+      if (isCovered(r, c)) continue;
+      const a = anchorAt.get(`${r},${c}`);
+      const colspan = a ? a.colspan : 1;
+      const rowspan = a ? a.rowspan : 1;
+      let w = 0; for (let k = 0; k < colspan; k++) w += colW[c + k];
+      const weight: PreferredWeight = isHeader(r) ? 'bold' : 'regular';
+      const lines = wrapText(cellText(r, c), weight, ctx, cellSize, Math.max(8, w - 2 * PAD));
+      wrapped[`${r},${c}`] = lines;
+      const contentH = lines.length * cellLead + 2 * PAD;
+      if (rowspan === 1) rowH[r] = Math.max(rowH[r], contentH);
+      else if (a) multiRow.push({ r, a, lines: lines.length });
+    }
+  }
+  // Grow the last spanned row so a tall rowspan cell's text fits its box.
+  for (const { r, a, lines } of multiRow) {
+    const contentH = lines * cellLead + 2 * PAD;
+    let spanH = 0; for (let k = 0; k < a.rowspan; k++) spanH += rowH[r + k];
+    if (contentH > spanH) rowH[r + a.rowspan - 1] += contentH - spanH;
+  }
+
+  const usable = layout.pageH - 2 * MARGIN;
+  const tableX = layout.textColX;
+  cursor.y -= 4; // gap above the table
+
+  for (let r = 0; r < R; r++) {
+    const ownCells: number[] = [];
+    for (let c = 0; c < W; c++) if (!isCovered(r, c)) ownCells.push(c);
+    if (!ownCells.length) { cursor.y -= rowH[r]; continue; } // fully covered row
+
+    // Keep a merged block on one page: reserve the tallest span starting here.
+    // Capped at `usable`: a single block taller than a full page can't be kept
+    // intact and will overflow the bottom margin (rare; a cell with dozens of
+    // wrapped lines). Normal tables, including wide ones, page-break cleanly.
+    let keepH = rowH[r];
+    for (const c of ownCells) {
+      const a = anchorAt.get(`${r},${c}`);
+      if (a && a.rowspan > 1) { let h = 0; for (let k = 0; k < a.rowspan; k++) h += rowH[r + k]; keepH = Math.max(keepH, h); }
+    }
+    ensureSpace(cursor, Math.min(keepH, usable));
+    const rowTopY = cursor.y;
+
+    for (const c of ownCells) {
+      const a = anchorAt.get(`${r},${c}`);
+      const rowspan = a ? a.rowspan : 1;
+      const colspan = a ? a.colspan : 1;
+      let h = 0; for (let k = 0; k < rowspan; k++) h += rowH[r + k];
+      let w = 0; for (let k = 0; k < colspan; k++) w += colW[c + k];
+      const x = tableX + colLeft(c);
+      const yBottom = rowTopY - h;
+      if (isHeader(r)) cursor.page.drawRectangle({ x, y: yBottom, width: w, height: h, color: COLOR_TABLE_HEAD_BG });
+      cursor.page.drawRectangle({ x, y: yBottom, width: w, height: h, borderColor: COLOR_RULE, borderWidth: 0.7 });
+      const weight: PreferredWeight = isHeader(r) ? 'bold' : 'regular';
+      let ty = rowTopY - PAD - cellSize;
+      for (const ln of wrapped[`${r},${c}`] || []) {
+        if (ty < yBottom + 1) break; // clip text that overflows the cell box
+        drawMixed(cursor.page, ln, x + PAD, ty, cellSize, weight, ctx, COLOR_BODY);
+        ty -= cellLead;
+      }
+    }
+    cursor.y = rowTopY - rowH[r];
+  }
+  cursor.y -= 2;
+}
+
 // ----- rendering ------------------------------------------------------
 
 function renderHeader(cursor: Cursor, meta: ExportMeta, ctx: TextCtx) {
@@ -1477,10 +1645,27 @@ async function renderMessage(
     drawLines(cursor, wrapText(`Subject: ${m.subject}`, 'bold', ctx, ctx.layout.sizeBody, ctx.layout.textWidth), 'bold', ctx, ctx.layout.sizeBody, COLOR_BODY, ctx.layout.leadBody);
   }
 
-  const text = (m.text || '').replace(/\r\n/g, '\n');
-  if (text) {
-    cursor.y -= 2;
-    drawLinkedText(cursor, text, 'regular', ctx, ctx.layout.sizeBody, COLOR_BODY, ctx.layout.leadBody, ctx.layout.textWidth, 0);
+  // API mode: ordered text/table blocks, so pasted tables draw as real grids
+  // in their original positions. Falls back to the flat `text` otherwise.
+  const blocks = Array.isArray(m.bodyBlocks) ? m.bodyBlocks : null;
+  if (blocks && blocks.length) {
+    for (const b of blocks) {
+      if (b.type === 'table') {
+        drawTable(cursor, b.table, ctx);
+      } else {
+        const bt = b.text.replace(/\r\n/g, '\n');
+        if (bt) {
+          cursor.y -= 2;
+          drawLinkedText(cursor, bt, 'regular', ctx, ctx.layout.sizeBody, COLOR_BODY, ctx.layout.leadBody, ctx.layout.textWidth, 0);
+        }
+      }
+    }
+  } else {
+    const text = (m.text || '').replace(/\r\n/g, '\n');
+    if (text) {
+      cursor.y -= 2;
+      drawLinkedText(cursor, text, 'regular', ctx, ctx.layout.sizeBody, COLOR_BODY, ctx.layout.leadBody, ctx.layout.textWidth, 0);
+    }
   }
 
   if (Array.isArray(m.reactions) && m.reactions.length) {

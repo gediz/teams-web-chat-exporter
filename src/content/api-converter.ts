@@ -5,10 +5,11 @@
  * used by the extension's builders (JSON, CSV, HTML, TXT).
  */
 
-import type { ExportMessage, ForwardContext, Reaction, ReactorInfo, Attachment, ReplyContext, ScrapeOptions, RecordingDetails } from '../types/shared';
+import type { ExportMessage, ForwardContext, Reaction, ReactorInfo, Attachment, ReplyContext, ScrapeOptions, RecordingDetails, BodyBlock } from '../types/shared';
 import type { TeamsApiMessage } from './api-client';
 import { cleanAltText } from './text';
 import { resolveReactionEmoji, reactionFallbackLabel } from './reaction-emoji';
+import { parseBodyBlocksFromHtml } from './table-model';
 
 // Parse an HTML fragment into a detached, inert <body> for safe traversal.
 // DOMParser produces an inert document, so script tags do not execute,
@@ -970,6 +971,10 @@ function convertOneMessage(
   // Content + reply extraction
   const rawContent = msg.content || '';
   let text = '';
+  // The HTML the body text was built from. Captured for table parsing so we
+  // parse the same content `text` used (the reply-stripped HTML for replies),
+  // not the raw blockquote-wrapped payload. Stays unset for non-HTML bodies.
+  let bodyHtml = '';
   let replyTo: ReplyContext | null = null;
 
   // Build forward context for forwarded messages
@@ -1063,11 +1068,14 @@ function convertOneMessage(
       const replyResult = extractReplyFromHtml(rawContent);
       if (replyResult) {
         replyTo = replyResult.replyTo;
+        bodyHtml = replyResult.cleanHtml;
         text = htmlToText(replyResult.cleanHtml);
       } else {
+        bodyHtml = rawContent;
         text = htmlToText(rawContent);
       }
     } else {
+      bodyHtml = rawContent;
       text = htmlToText(rawContent);
     }
   } else {
@@ -1157,6 +1165,12 @@ function convertOneMessage(
     }
   }
 
+  // Pasted tables: parse the HTML body into ordered text/table blocks so the
+  // renderers can rebuild real tables. Left undefined when the body has no
+  // table, so non-table messages keep using the flat `text` unchanged.
+  const parsedBlocks = bodyHtml ? parseBodyBlocksFromHtml(bodyHtml, htmlToText) : [];
+  const bodyBlocks: BodyBlock[] | undefined = parsedBlocks.length ? parsedBlocks : undefined;
+
   return {
     id: msg.id || msg.clientmessageid || '',
     author,
@@ -1173,6 +1187,7 @@ function convertOneMessage(
     avatar: null,
     reactions,
     attachments,
+    bodyBlocks,
     replyTo,
     mentions,
     systemAttendees,
