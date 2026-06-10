@@ -230,19 +230,30 @@ function parseSystemContent(content: string, messageType: string, mriMap: Map<st
     return '(unknown user)';
   };
 
+  // ThreadActivity payloads are XML whose text is entity-escaped (a topic
+  // "A & B" arrives as "A &amp; B"). The extractors below capture that text
+  // raw, so decode the XML entities here or the plain-text exports show a
+  // literal "&amp;" and the HTML export re-escapes it to "&amp;amp;". Decode
+  // &amp; LAST so a double-escaped "&amp;lt;" resolves to "&lt;", not "<".
+  const decodeXmlEntities = (s: string): string =>
+    s.replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+      .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&amp;/g, '&');
+
   // Helper: extract text content of an XML element
   const xmlText = (xml: string, tag: string): string => {
     const match = xml.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
-    return match ? match[1] : '';
+    return match ? decodeXmlEntities(match[1]) : '';
   };
 
   // Helper: extract all occurrences
   const xmlTextAll = (xml: string, tag: string): string[] => {
     const re = new RegExp(`<${tag}>([^<]*)</${tag}>`, 'g');
-    const results: string[] = [];
-    let m;
-    while ((m = re.exec(xml)) !== null) results.push(m[1]);
-    return results;
+    return [...xml.matchAll(re)].map(m => decodeXmlEntities(m[1]));
   };
 
   // ThreadActivity/MemberJoined and MemberLeft use a JSON content body
