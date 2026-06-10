@@ -1339,8 +1339,7 @@ function drawTable(cursor: Cursor, table: TableData, ctx: TextCtx) {
 
   const layout = ctx.layout;
   const PAD = 4;
-  const cellSize = Math.max(8, layout.sizeBody - 1);
-  const cellLead = cellSize * 1.32;
+  const PAD2 = 2 * PAD;
 
   const covered = new Set<string>();
   const anchorAt = new Map<string, MergeRegion>();
@@ -1356,50 +1355,72 @@ function drawTable(cursor: Cursor, table: TableData, ctx: TextCtx) {
   const cellText = (r: number, c: number) => (table.rows[r]?.[c] ?? '').replace(/\r\n/g, '\n');
   const isCovered = (r: number, c: number) => covered.has(`${r},${c}`);
 
-  // Column widths via min/max content distribution (like CSS auto table
-  // layout). minW = widest unbreakable token, so a column is never squeezed
-  // below the width of a single word (which would wrap "Priority" -> "Priori
-  // ty"). maxW = widest full line, the column's ideal width. Sizing each column
-  // to at least minW and handing leftover space to the columns that want it
-  // most (maxW - minW) stops a long "Summary" column from starving the short
-  // "Priority" column when the table is scaled to fit the page.
-  const PAD2 = 2 * PAD;
-  const lineW = (txt: string, weight: PreferredWeight) =>
-    txt.split('\n').reduce((m, l) => Math.max(m, safeWidthOf(l, weight, ctx, cellSize)), 0);
-  const wordW = (txt: string, weight: PreferredWeight) =>
-    txt.split(/\s+/).reduce((m, w) => Math.max(m, safeWidthOf(w, weight, ctx, cellSize)), 0);
-  const minW = new Array<number>(W).fill(8 + PAD2);
-  const maxW = new Array<number>(W).fill(16);
-  for (let r = 0; r < R; r++) {
-    for (let c = 0; c < W; c++) {
-      if (isCovered(r, c)) continue;
-      const a = anchorAt.get(`${r},${c}`);
-      if (a && a.colspan > 1) continue;
-      const weight: PreferredWeight = isHeader(r) ? 'bold' : 'regular';
-      maxW[c] = Math.max(maxW[c], lineW(cellText(r, c), weight) + PAD2);
-      minW[c] = Math.max(minW[c], wordW(cellText(r, c), weight) + PAD2);
-    }
-  }
-  // colspan anchors: spread any width deficit across the columns they cover.
-  for (let r = 0; r < R; r++) {
-    for (let c = 0; c < W; c++) {
-      if (isCovered(r, c)) continue;
-      const a = anchorAt.get(`${r},${c}`);
-      if (!a || a.colspan <= 1) continue;
-      const weight: PreferredWeight = isHeader(r) ? 'bold' : 'regular';
-      const needMax = lineW(cellText(r, c), weight) + PAD2;
-      const needMin = wordW(cellText(r, c), weight) + PAD2;
-      let haveMax = 0, haveMin = 0;
-      for (let k = 0; k < a.colspan; k++) { haveMax += maxW[c + k]; haveMin += minW[c + k]; }
-      if (needMax > haveMax) { const add = (needMax - haveMax) / a.colspan; for (let k = 0; k < a.colspan; k++) maxW[c + k] += add; }
-      if (needMin > haveMin) { const add = (needMin - haveMin) / a.colspan; for (let k = 0; k < a.colspan; k++) minW[c + k] += add; }
-    }
-  }
   const avail = Math.max(1, layout.textWidth); // guard against a degenerate (<=0) layout
-  // Cap each column's min so one no-space token (long URL / CJK run) can't
-  // claim more than half the width and starve the others.
-  for (let c = 0; c < W; c++) minW[c] = Math.min(minW[c], maxW[c], avail * 0.5);
-  const totalMin = minW.reduce((a, b) => a + b, 0);
+
+  // Column widths via min/max content distribution (like CSS auto table
+  // layout), measured at a given font size. minW = widest unbreakable token, so
+  // a column is never squeezed below the width of a single word (which would
+  // wrap "Priority" -> "Priori ty"). maxW = widest full line, the column's ideal
+  // width. Sizing each column to at least minW and handing leftover space to the
+  // columns that want it most (maxW - minW) stops a long "Summary" column from
+  // starving the short "Priority" column when the table is scaled to fit.
+  const measureCols = (size: number) => {
+    const lineW = (txt: string, weight: PreferredWeight) =>
+      txt.split('\n').reduce((m, l) => Math.max(m, safeWidthOf(l, weight, ctx, size)), 0);
+    const wordW = (txt: string, weight: PreferredWeight) =>
+      txt.split(/\s+/).reduce((m, w) => Math.max(m, safeWidthOf(w, weight, ctx, size)), 0);
+    const minW = new Array<number>(W).fill(8 + PAD2);
+    const maxW = new Array<number>(W).fill(16);
+    for (let r = 0; r < R; r++) {
+      for (let c = 0; c < W; c++) {
+        if (isCovered(r, c)) continue;
+        const a = anchorAt.get(`${r},${c}`);
+        if (a && a.colspan > 1) continue;
+        const weight: PreferredWeight = isHeader(r) ? 'bold' : 'regular';
+        maxW[c] = Math.max(maxW[c], lineW(cellText(r, c), weight) + PAD2);
+        minW[c] = Math.max(minW[c], wordW(cellText(r, c), weight) + PAD2);
+      }
+    }
+    // colspan anchors: spread any width deficit across the columns they cover.
+    for (let r = 0; r < R; r++) {
+      for (let c = 0; c < W; c++) {
+        if (isCovered(r, c)) continue;
+        const a = anchorAt.get(`${r},${c}`);
+        if (!a || a.colspan <= 1) continue;
+        const weight: PreferredWeight = isHeader(r) ? 'bold' : 'regular';
+        const needMax = lineW(cellText(r, c), weight) + PAD2;
+        const needMin = wordW(cellText(r, c), weight) + PAD2;
+        let haveMax = 0, haveMin = 0;
+        for (let k = 0; k < a.colspan; k++) { haveMax += maxW[c + k]; haveMin += minW[c + k]; }
+        if (needMax > haveMax) { const add = (needMax - haveMax) / a.colspan; for (let k = 0; k < a.colspan; k++) maxW[c + k] += add; }
+        if (needMin > haveMin) { const add = (needMin - haveMin) / a.colspan; for (let k = 0; k < a.colspan; k++) minW[c + k] += add; }
+      }
+    }
+    // Cap each column's min so one no-space token (long URL / CJK run) can't
+    // claim more than half the width and starve the others.
+    for (let c = 0; c < W; c++) minW[c] = Math.min(minW[c], maxW[c], avail * 0.5);
+    return { minW, maxW, totalMin: minW.reduce((a, b) => a + b, 0) };
+  };
+
+  // Auto-shrink the cell font so a very wide table stays on one line instead of
+  // wrapping every cell to fragments. Start at the normal body-derived size; if
+  // the column minimums overflow the text width, step the font down (0.5pt at a
+  // time, to a readable 6pt floor) and take the largest size whose minimums fit.
+  // A table that already fits keeps the normal size, so only over-wide tables
+  // change. Past the floor we fall back to the old proportional squeeze + wrap.
+  const CELL_BASE = Math.max(8, layout.sizeBody - 1);
+  const CELL_FLOOR = 6;
+  let cellSize = CELL_BASE;
+  let cols = measureCols(CELL_BASE);
+  if (cols.totalMin >= avail) {
+    for (let s = CELL_BASE - 0.5; s >= CELL_FLOOR; s -= 0.5) {
+      cellSize = s;
+      cols = measureCols(s);
+      if (cols.totalMin < avail) break;
+    }
+  }
+  const cellLead = cellSize * 1.32;
+  const { minW, maxW, totalMin } = cols;
   let colW: number[];
   if (totalMin >= avail) {
     // Even the minimums overflow (very wide / many-column table): scale them
