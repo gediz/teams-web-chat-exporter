@@ -4,7 +4,7 @@ import { blobToDownloadUrl, removeAvatars, revokeDownloadUrl, summarizeAttachmen
 // createObjectURL) it routes large payloads through the offscreen document
 // instead of a base64 data: URL, which would throw "Invalid string length"
 // past ~384 MB (issue #27).
-import { buildPdf } from './pdf';
+import { buildPdfResilient } from './pdf';
 import { formatRangeLabel, sanitizeBase } from '../utils/messages';
 import { buildZipAsync } from './zip';
 import type { Attachment, ExportMessage, ExportMeta } from '../types/shared';
@@ -329,7 +329,7 @@ export async function buildAndDownload(
     await Promise.resolve();
     const base = computeBaseName(meta);
     const filename = `${base}.pdf`;
-    const bytes = await buildPdf(messages, meta, (done, total) => {
+    const bytes = await buildPdfResilient(messages, meta, (done, total) => {
       onStatus?.({ phase: 'build', filename, messages: messages.length, messagesBuilt: done, messagesTotal: total });
     }, toPdfOptions(options));
     onStatus?.({ phase: 'build', filename, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
@@ -536,7 +536,7 @@ export async function buildAndDownloadBundle(
       // its own copies — the avatars/ folder is HTML-only. Progress
       // callbacks flow through to the popup so the "building" segment
       // actually ticks during the (potentially long) PDF phase.
-      const bytes = await buildPdf(
+      const bytes = await buildPdfResilient(
         messages,
         meta,
         (done, total) => {
@@ -679,7 +679,7 @@ export async function buildOneChatForBundle(
     try {
       console.log(`[bundle] building ${format} for "${titleForLog}"`);
       if (format === 'pdf') {
-        const bytes = await buildPdf(messages, meta, onPdfProgress, toPdfOptions(options));
+        const bytes = await buildPdfResilient(messages, meta, onPdfProgress, toPdfOptions(options));
         out.push({ relativePath: 'messages.pdf', data: bytes });
         continue;
       }

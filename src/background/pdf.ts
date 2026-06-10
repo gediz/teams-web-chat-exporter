@@ -210,6 +210,10 @@ export type PdfOptions = {
   bodyFontSize?: number;     // clamped to [8, 16]
   showPageNumbers?: boolean;
   includeAvatars?: boolean;
+  // Skip HarfBuzz subsetting and embed the full fonts. Only set by the
+  // resilient retry below when a subset build throws (rare per-chat font
+  // corruption). Normal builds leave this off so PDFs stay small.
+  disableSubset?: boolean;
 };
 
 function buildLayout(opts: PdfOptions): Layout {
@@ -304,7 +308,7 @@ export async function buildPdf(
   const emojiManifest = await loadTwemojiManifest();
   const scan = scanDocument(messages, meta, emojiManifest);
 
-  const fonts = await loadFonts(doc, scan.codepoints);
+  const fonts = await loadFonts(doc, scan.codepoints, pdfOptions.disableSubset);
   doc.setTitle(meta.title || 'Teams Chat Export');
   doc.setCreator('Teams Chat Exporter');
   doc.setProducer('Teams Chat Exporter');
@@ -379,6 +383,28 @@ export async function buildPdf(
   return doc.save();
 }
 
+// Build a PDF, retrying once with subsetting disabled if the subset build
+// throws. Certain glyph sets make HarfBuzz emit a subset that pdf-lib can't
+// read back ("Trying to access beyond buffer length"), and that error only
+// surfaces at save time — too late for the per-face fallback in
+// embedSubsetOrFull. The retry embeds the original full fonts, which are
+// always readable. Only the affected chat pays the larger size; every chat
+// whose subset build succeeds (the overwhelming majority) stays small.
+export async function buildPdfResilient(
+  messages: ExportMessage[],
+  meta: ExportMeta,
+  onProgress?: (done: number, total: number) => void,
+  pdfOptions: PdfOptions = {},
+): Promise<Uint8Array> {
+  try {
+    return await buildPdf(messages, meta, onProgress, pdfOptions);
+  } catch (e) {
+    const msg = (e as Error)?.message || String(e);
+    console.log(`[pdf] subset build failed (${msg}); retrying with full fonts`);
+    return buildPdf(messages, meta, onProgress, { ...pdfOptions, disableSubset: true });
+  }
+}
+
 // ----- font loading ---------------------------------------------------
 
 async function fetchFont(path: string): Promise<ArrayBuffer> {
@@ -393,7 +419,7 @@ async function fetchFont(path: string): Promise<ArrayBuffer> {
 // chat that happens not to use any digit, slash, or space character.
 const PAGE_NUMBER_CODEPOINTS = '0123456789/ ';
 
-async function loadFonts(doc: PDFDocument, codepoints: Set<number>): Promise<Fonts> {
+async function loadFonts(doc: PDFDocument, codepoints: Set<number>, disableSubset = false): Promise<Fonts> {
   const [regularBytes, boldBytes, cjkBytes, krBytes] = await Promise.all([
     fetchFont(FONT_REGULAR_PATH),
     fetchFont(FONT_BOLD_PATH),
@@ -412,10 +438,10 @@ async function loadFonts(doc: PDFDocument, codepoints: Set<number>): Promise<Fon
   // empty codepoint set), we fall back to embedding the original full
   // font. That costs more bytes in the PDF but keeps every glyph
   // available — fail-safe, not fail-broken.
-  const regular = await embedSubsetOrFull(doc, regularBytes, codepoints, 'regular');
-  const bold = await embedSubsetOrFull(doc, boldBytes, codepoints, 'bold');
-  const cjk = await embedSubsetOrFull(doc, cjkBytes, codepoints, 'cjk');
-  const kr = await embedSubsetOrFull(doc, krBytes, codepoints, 'kr');
+  const regular = await embedSubsetOrFull(doc, regularBytes, codepoints, 'regular', disableSubset);
+  const bold = await embedSubsetOrFull(doc, boldBytes, codepoints, 'bold', disableSubset);
+  const cjk = await embedSubsetOrFull(doc, cjkBytes, codepoints, 'cjk', disableSubset);
+  const kr = await embedSubsetOrFull(doc, krBytes, codepoints, 'kr', disableSubset);
   return { regular, bold, cjk, kr };
 }
 
@@ -424,7 +450,15 @@ async function embedSubsetOrFull(
   fontBytes: ArrayBuffer,
   codepoints: Set<number>,
   label = 'font',
+  disableSubset = false,
 ): Promise<PDFFont> {
+  // Resilient retry path: skip subsetting entirely and embed the original
+  // (known-good) font. Used when a prior subset build threw a font read error
+  // ("Trying to access beyond buffer length") that surfaced only at save time.
+  if (disableSubset) {
+    console.log(`[hb-subset] ${label}: subsetting disabled, embedding FULL font (${fontBytes.byteLength} bytes)`);
+    return doc.embedFont(fontBytes, { subset: false });
+  }
   try {
     const subset = await subsetFont(new Uint8Array(fontBytes), codepoints);
     if (subset && subset.byteLength > 0) {
@@ -432,7 +466,8 @@ async function embedSubsetOrFull(
       // real export proves subsetting ran end-to-end. Emitted via console.log
       // (not warn/error) so they never surface in the extension's error badge;
       // the diagnostics buffer captures them by the [hb-subset] prefix
-      // regardless of level.
+      // regardless of level. (subsetFont pads the bytes so @pdf-lib/fontkit's
+      // empty-glyph cbox over-read can't crash save(); see font-subset.ts.)
       console.log(`[hb-subset] ${label}: ${fontBytes.byteLength} -> ${subset.byteLength} bytes (subset OK)`);
       return await doc.embedFont(subset, { subset: false });
     }

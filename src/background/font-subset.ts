@@ -182,7 +182,19 @@ export async function subsetFont(fontBytes: Uint8Array, codepoints: Iterable<num
   // a detached Uint8Array before anything else happens.
   const dataPtr = hb.hb_blob_get_data(resultBlob, 0);
   const freshHeap = new Uint8Array(hb.memory.buffer);
-  const out = new Uint8Array(resultLen);
+  // Trailing zero pad. @pdf-lib/fontkit's TTFGlyph._getCBox reads a fixed
+  // 10-byte glyph header (numberOfContours + bbox) for EVERY glyph, including
+  // empty ones (a glyph whose `loca` entry has zero length, e.g. space or
+  // U+200D ZERO WIDTH JOINER). When such an empty glyph is the LAST glyph and
+  // `glyf` is the last table, that 10-byte read runs past the end of the buffer
+  // and throws "Trying to access beyond buffer length" — but only at pdf-lib
+  // save() time, after embedFont() already returned, so it crashes the whole
+  // PDF. Padding keeps the over-read in-bounds: it reads zeros, decoding to
+  // numberOfContours 0 (correctly an empty glyph). Trailing bytes after the
+  // last table are ignored by the TTF table directory, so this is otherwise
+  // inert. 16 covers the 10-byte header with margin. See debug/pdf-repro.
+  const GLYF_OVERREAD_PAD = 16;
+  const out = new Uint8Array(resultLen + GLYF_OVERREAD_PAD);
   out.set(freshHeap.subarray(dataPtr, dataPtr + resultLen));
 
   hb.hb_blob_destroy(resultBlob);
