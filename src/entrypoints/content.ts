@@ -1838,13 +1838,18 @@ export default defineContentScript({
         // background FETCH_BLOB path used for author photos. Rate-limit safe: the
         // input is already deduped by UUID, capped, and backs off after repeated
         // 429s (see the documented API rate-limit caution).
+        // Session cache so a reactor who appears across many chats in a bundle is
+        // fetched at most once per Teams-tab session (null = tried, no photo).
+        const reactorPhotoCache = new Map<string, string | null>();
         async function fetchReactorPhotos(uuids: string[]): Promise<Map<string, string>> {
             const out = new Map<string, string>();
-            if (!uuids.length) return out;
+            for (const u of uuids) { const c = reactorPhotoCache.get(u); if (c) out.set(u, c); }
+            const toFetch = uuids.filter(u => !reactorPhotoCache.has(u));
+            if (!toFetch.length) return out;
             const graphToken = await getGraphToken();
             if (!graphToken) return out;
             const CAP = 400;
-            const targets = uuids.slice(0, CAP);
+            const targets = toFetch.slice(0, CAP);
             let consecutive429 = 0;
             for (const uuid of targets) {
                 if (currentAbortController?.signal.aborted) break;
@@ -1860,15 +1865,15 @@ export default defineContentScript({
                         maxBytes: MAX_IMAGE_BYTES,
                         minBytes: 1,
                     }) as { ok: boolean; dataUrl?: string; status?: number };
-                    if (resp?.ok && resp.dataUrl) { out.set(uuid, resp.dataUrl); consecutive429 = 0; }
-                    else if (resp?.status === 429) consecutive429++;
-                    else consecutive429 = 0;
+                    if (resp?.ok && resp.dataUrl) { out.set(uuid, resp.dataUrl); reactorPhotoCache.set(uuid, resp.dataUrl); consecutive429 = 0; }
+                    else if (resp?.status === 429) consecutive429++; // transient — don't cache
+                    else { reactorPhotoCache.set(uuid, null); consecutive429 = 0; } // 404/other — cache the miss
                 } catch { /* skip this reactor */ }
             }
-            if (uuids.length > CAP) {
-                console.log(`[Teams Exporter] Reactor photos: capped at ${CAP} of ${uuids.length} unique reactors`);
+            if (toFetch.length > CAP) {
+                console.log(`[Teams Exporter] Reactor photos: capped at ${CAP} of ${toFetch.length} new reactors`);
             }
-            if (out.size) console.log(`[Teams Exporter] Fetched ${out.size} reactor profile photos`);
+            if (out.size) console.log(`[Teams Exporter] Reactor profile photos: ${out.size} (session cache ${reactorPhotoCache.size})`);
             return out;
         }
 
