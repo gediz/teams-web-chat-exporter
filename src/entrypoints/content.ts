@@ -639,19 +639,33 @@ export default defineContentScript({
                 return { ...m, avatar: null };
             });
 
-            // Enrich reactor avatarIds by matching reactor display name to
-            // the same author→id map we just built. Reactors who never
-            // appeared as message senders stay without an avatarId and
-            // render as initials in the chip's dot stack. Mutates in place
-            // because ReactorInfo is a plain object we already own.
+            // Self reactor avatars: the self user often reacts in chats where
+            // they never sent a message, so the name-join below misses them.
+            // Reuse the captured self avatar (no network). If the self user did
+            // author here, prefer their existing entry; otherwise register the
+            // captured self avatar under a fresh id.
+            const self = findSelfAvatar();
+            let selfAvatarId: string | undefined = self.name ? authorToId.get(self.name) : undefined;
+            if (!selfAvatarId && self.dataUrl) {
+                selfAvatarId = `api-avatar-${apiAvatarIdx++}`;
+                avatars[selfAvatarId] = self.dataUrl;
+            }
+
+            // Enrich reactor avatarIds: self reactors from the self avatar, the
+            // rest by matching reactor display name to the author→id map we just
+            // built. Reactors who never appeared as a message sender (and aren't
+            // self) stay without an avatarId and render as initials in the chip's
+            // dot stack. Mutates in place because ReactorInfo is a plain object we
+            // already own.
             for (const m of normalized) {
                 const reactions = (m as { reactions?: unknown[] }).reactions;
                 if (!Array.isArray(reactions)) continue;
                 for (const r of reactions) {
-                    const reactors = (r as { reactors?: Array<{ name: string; avatarId?: string }> }).reactors;
+                    const reactors = (r as { reactors?: Array<{ name: string; avatarId?: string; self?: boolean }> }).reactors;
                     if (!Array.isArray(reactors)) continue;
                     for (const reactor of reactors) {
                         if (reactor.avatarId) continue;
+                        if (reactor.self && selfAvatarId) { reactor.avatarId = selfAvatarId; continue; }
                         const id = authorToId.get(reactor.name);
                         if (id) reactor.avatarId = id;
                     }
