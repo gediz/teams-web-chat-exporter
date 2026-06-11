@@ -971,7 +971,11 @@ function buildMentionMap(messages: TeamsApiMessage[]): Map<string, string> {
     } catch { continue; }
     if (!Array.isArray(mentions)) continue;
     for (const m of mentions) {
-      if (m.mri && m.displayName) map.set(m.mri, m.displayName);
+      // Only fill an MRI no sender has already named. A sender's imdisplayname
+      // is the canonical full name; a mention can be a partial (Teams splits
+      // "Sertac Tulluk" into "@Sertac" + "@Tulluk" spans), and letting the last
+      // part overwrite the sender name made reactors/system msgs read "Tulluk".
+      if (m.mri && m.displayName && !map.has(m.mri)) map.set(m.mri, m.displayName);
     }
   }
   return map;
