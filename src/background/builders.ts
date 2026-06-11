@@ -164,12 +164,35 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
   };
   const escapeHtml = (str = '') =>
     str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  const urlRe = /https?:\/\/[^\s<>"']+/g;
-  // `escaped` is already HTML-escaped, so the matched URL `u` already carries
+  // URL body excludes whitespace, HTML-sensitive chars, and ALL non-ASCII, so a
+  // link stops at CJK text / full-width punctuation instead of running through a
+  // whole Chinese sentence (Chinese has no spaces for \s to catch). Real hrefs
+  // are ASCII (percent-encoded), so this never truncates a genuine URL.
+  const urlRe = /https?:\/\/[^\s<>"\'\u0080-\uFFFF]+/g;
+  // Trim trailing sentence punctuation and an UNBALANCED closing bracket, so
+  // "版本(https://x.com)。" links only "https://x.com", while a wiki-style
+  // "/Foo_(bar)" (its "(" is inside the URL) keeps its ")".
+  const trimUrlTail = (u: string): string => {
+    let url = u, prev = '';
+    while (url !== prev) {
+      prev = url;
+      url = url.replace(/[.,!?:]+$/, '');
+      for (const [open, close] of [['(', ')'], ['[', ']'], ['{', '}']] as const) {
+        if (url.endsWith(close) && !url.includes(open)) url = url.slice(0, -1);
+      }
+    }
+    return url;
+  };
+  // `escaped` is already HTML-escaped, so the matched URL already carries
   // entity-encoded ampersands (a `&` query separator is `&amp;` here). Do NOT
   // re-escape it, or `&amp;` becomes `&amp;amp;` and the href/link text break.
+  // Trimmed trailing chars are re-emitted as plain (already-escaped) text.
   const autolinkEscaped = (escaped: string) =>
-    escaped.replace(urlRe, u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+    escaped.replace(urlRe, u => {
+      const url = trimUrlTail(u);
+      const tail = u.slice(url.length);
+      return `<a href="${url}" target="_blank" rel="noopener">${url}</a>${tail}`;
+    });
   const formatInline = (segment: string) => {
     const parts = segment.split('`');
     let html = '';

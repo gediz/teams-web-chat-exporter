@@ -68,11 +68,12 @@ const TEXT_FONT_KR_NAME = 'FK';
 const EMOJI_FONT_RESOURCE_NAME = 'FE';
 
 // Match-anywhere regex for URL detection inside rendered text. Kept
-// deliberately conservative — URLs end at whitespace or any character
-// that's unusual in real URLs (quote, paren, bracket, curly). Trailing
-// punctuation (.,;!?) is trimmed off post-match to avoid "visit..."
-// swallowing the sentence's trailing period.
-const URL_RE = /https?:\/\/[^\s<>"')\]}]+/g;
+// deliberately conservative — URLs end at whitespace, any character that's
+// unusual in real URLs (quote, paren, bracket, curly), or any non-ASCII
+// character (so a link stops at CJK text / full-width punctuation rather than
+// running through a Chinese sentence). Trailing punctuation (.,;!?) is trimmed
+// off post-match to avoid "visit..." swallowing the sentence's trailing period.
+const URL_RE = /https?:\/\/[^\s<>"\')\]}\u0080-\uFFFF]+/g;
 
 function trimTrailingPunct(url: string): string {
   return url.replace(/[.,;:!?)\]}]+$/, '');
