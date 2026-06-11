@@ -118,12 +118,28 @@ export type ExportMessage = {
   recordingDetails?: RecordingDetails; // populated for RichText/Media_CallRecording messages
 };
 
+// One member of the chat roster, as surfaced in the export's participant
+// list. Reflects CURRENT membership (the roster API), not every historical
+// actor — someone who reacted/posted then left appears in the messages but
+// not here. `name` is the best-resolved display name (Graph displayName, else
+// the roster's friendlyName). `external` flags members named only via the
+// roster's friendlyName cache (typically federated/guest users Graph can't read).
+export type Participant = {
+  name: string;
+  mri?: string;
+  external?: boolean;
+};
+
 export type ExportMeta = {
   title?: string | null;
   startAt?: string | null;
   endAt?: string | null;
   timeRange?: string | null;
   avatars?: Record<string, string>; // Map of avatarId -> base64 data URL
+  // Current chat roster (resolved names), and the roster API's canonical
+  // member count (may exceed participants.length when enumeration is capped).
+  participants?: Participant[];
+  memberCount?: number;
   // Teams conversation id for the scraped chat (when the content script could
   // resolve it). Used by the background to pin the persisted outcome snapshot
   // to a specific conversation, not just a tab.

@@ -1522,6 +1522,16 @@ function renderHeader(cursor: Cursor, meta: ExportMeta, ctx: TextCtx) {
   if (sub) {
     drawLines(cursor, wrapText(sub, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.contentWidth), 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta);
   }
+  // Participant roster — "who's in the chat", wrapped under the subtitle. The
+  // PDF has no collapsible UI, so it's a plain comma-joined line.
+  const roster = Array.isArray(meta.participants) ? meta.participants : [];
+  if (roster.length) {
+    const total = typeof meta.memberCount === 'number' && meta.memberCount > roster.length
+      ? `${roster.length} of ${meta.memberCount}` : `${roster.length}`;
+    const label = `Participants (${total}): ${roster.map(p => p.name).join(', ')}`;
+    cursor.y -= ctx.layout.leadMeta / 2;
+    drawLines(cursor, wrapText(label, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.contentWidth), 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta);
+  }
   // Partial-export banner. Amber block immediately under the
   // header so it's the first thing on page 1. Drawn as a filled
   // rectangle with text laid on top via drawMixed (NOT drawLines —

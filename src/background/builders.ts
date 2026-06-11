@@ -299,6 +299,10 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     body{font:14px system-ui, -apple-system, Segoe UI, Roboto; background:#fff; color:#111; padding:20px}
     h1{margin:0 0 10px 0}
     .meta{color:var(--muted); margin:0 0 12px 0}
+    .participants{margin:0 0 12px 0; font-size:13px}
+    .participants summary{cursor:pointer; color:var(--muted); font-weight:600}
+    .participants p{margin:6px 0 0 0; color:var(--text, #111827); line-height:1.6}
+    .participants .ext{color:var(--muted); font-size:12px}
     .partial-warning{background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; padding:10px 14px; margin:0 0 14px 0; color:#78350f; font-size:13px; line-height:1.5}
     .partial-warning strong{color:#7c2d12}
     .partial-warning .partial-tag{font-family:ui-monospace,Menlo,monospace; font-size:11px; color:#92400e; opacity:0.85}
@@ -458,6 +462,17 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
   if (meta.timeRange) metaParts.push(`<b>Range:</b> ${escapeHtml(meta.timeRange)}`);
   const metaLine = metaParts.length ? `<p class="meta">${metaParts.join(' &nbsp; ')}</p>` : '';
 
+  // Participant roster: collapsible "who's in the chat" list. Members named
+  // only via the roster friendlyName cache (federated/guests) are tagged
+  // "(external)". memberCount may exceed the named list when enumeration capped.
+  const roster = Array.isArray(meta.participants) ? meta.participants : [];
+  const rosterTotal = typeof meta.memberCount === 'number' && meta.memberCount > roster.length
+    ? `${roster.length} of ${meta.memberCount}` : `${roster.length}`;
+  const participantsBlock = roster.length
+    ? `<details class="participants"><summary>Participants (${rosterTotal})</summary>`
+      + `<p>${roster.map(p => escapeHtml(p.name) + (p.external ? ' <span class="ext">(external)</span>' : '')).join(', ')}</p></details>`
+    : '';
+
   // Partial-export warning banner. Shown right at the top of the
   // body when the scrape signalled an incomplete-data condition. The
   // banner stays in the rendered file forever, so a user opening the
@@ -477,6 +492,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
 
   const head = `<h1>${escapeHtml(meta.title || 'Teams Chat Export')}</h1>
     ${metaLine}
+    ${participantsBlock}
     ${partialBanner}
     <div class="toolbar"><button type="button" data-toggle-compact>Toggle compact view</button></div><hr/>`;
 

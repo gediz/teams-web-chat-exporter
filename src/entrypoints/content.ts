@@ -3504,6 +3504,9 @@ export default defineContentScript({
                         let messages: ExportMessage[] | null = null;
                         let title: string | null = null;
                         let avatars: Record<string, string> = {};
+                        // Chat roster (API mode only): participant list + member count for meta.
+                        let participants: import('../types/shared').Participant[] = [];
+                        let memberCount: number | undefined;
                         // Partial-export tracking. Set when we detect a high-
                         // confidence "this scrape is incomplete" signal during
                         // the run. Wins are propagated into meta.partial so
@@ -3578,7 +3581,10 @@ export default defineContentScript({
                                     title = (typeof conversationTitle === 'string' && conversationTitle.trim())
                                       ? conversationTitle.trim()
                                       : (target === 'team' ? extractChannelTitle() : extractChatTitle());
-                                    console.log(`[Teams Exporter] API mode: ${converted.length} messages from ${apiResult.messages.length} raw`);
+                                    // Roster captured by the API scraper (current members + count).
+                                    if (Array.isArray(apiResult.participants)) participants = apiResult.participants;
+                                    if (typeof apiResult.memberCount === 'number') memberCount = apiResult.memberCount;
+                                    console.log(`[Teams Exporter] API mode: ${converted.length} messages from ${apiResult.messages.length} raw; ${participants.length} participants`);
                                     hud(`API: ${converted.length} messages`);
                                 } else {
                                     console.log('[Teams Exporter] API returned messages but all filtered out, trying DOM scroll');
@@ -3812,6 +3818,9 @@ export default defineContentScript({
                             avatars,
                         };
                         if (scrapeConvId) meta.conversationId = scrapeConvId;
+                        // Roster (API mode only; DOM-scroll fallback can't fetch it).
+                        if (participants.length) meta.participants = participants;
+                        if (typeof memberCount === 'number') meta.memberCount = memberCount;
                         // Propagate the partial signal. Only flagged when we
                         // saw a high-confidence partial-condition AND we have
                         // SOME messages — empty exports aren't "partial",

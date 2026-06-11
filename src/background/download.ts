@@ -1013,6 +1013,16 @@ function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
       '',
     );
   }
+  // Participant roster (API mode) — a quick "who's in the chat" header line.
+  const roster = Array.isArray(meta.participants) ? meta.participants : [];
+  if (roster.length) {
+    const total = typeof meta.memberCount === 'number' && meta.memberCount > roster.length
+      ? `${roster.length} of ${meta.memberCount}` : `${roster.length}`;
+    lines.push(
+      `Participants (${total}): ${roster.map(p => p.name + (p.external ? ' (external)' : '')).join(', ')}`,
+      '',
+    );
+  }
   // Flatten a quote/forward body to one line, truncated with an ellipsis so
   // it is clear the text was shortened (the TXT format keeps quotes brief).
   const clip = (s: string, max: number) => {

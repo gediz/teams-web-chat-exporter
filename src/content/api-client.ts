@@ -8,7 +8,7 @@
 
 /* eslint-disable no-console */
 
-import type { ConversationSummary, FolderSummary } from '../types/shared';
+import type { ConversationSummary, FolderSummary, Participant } from '../types/shared';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -467,6 +467,18 @@ export function collectUnresolvedMris(messages: TeamsApiMessage[]): string[] {
           }
         }
       } catch { /* ignore */ }
+    }
+
+    // Add/remove member system events (ThreadActivity/AddMember, DeleteMember,
+    // MemberJoined/Left, RoleUpdate) reference participants by MRI only, inside
+    // <initiator>/<target> tags. A member who never posted and was never
+    // @mentioned otherwise renders as "(unknown user)". Collect those MRIs so
+    // Graph can name them the way Teams' own roster does.
+    if ((msg.messagetype || '').startsWith('ThreadActivity/') && msg.content) {
+      for (const m of msg.content.matchAll(/<(?:initiator|target)>([^<]+)<\/(?:initiator|target)>/gi)) {
+        const mri = m[1].trim();
+        if (mri && !knownMris.has(mri)) unresolved.add(mri);
+      }
     }
   }
 
@@ -959,11 +971,25 @@ async function fetchThreadRoster(
 ): Promise<RosterFetchResult> {
   try {
     const url = `${config.chatServiceUrl}/v1/threads/${encodeURIComponent(threadId)}/members`;
+    // Re-read the token the same way fetchAllMessages does. The captured
+    // config.ic3Token can be a discovery-time messaging token whose audience
+    // the /v1/threads endpoint silently rejects (200-less empty roster). Work/
+    // School needs a fresh IC3 token; Teams Free needs the consumer Skype token.
+    let token = config.ic3Token;
+    if (config.chatServiceUrl.includes('teams.live.com/api/chatsvc/consumer')) {
+      const fresh = await getTeamsFreeChatAuth();
+      if (fresh?.token) token = fresh.token;
+    } else {
+      token = (await getIc3Token()) || config.ic3Token;
+    }
     const resp = await fetch(url, {
-      headers: { 'Authorization': `Bearer ${config.ic3Token}` },
+      headers: buildMessagingHeaders(url, token),
       signal: AbortSignal.timeout(10_000),
     });
-    if (!resp.ok) return { members: [] };
+    if (!resp.ok) {
+      console.log(`[API] roster fetch ${resp.status} for ${threadId.slice(0, 24)} — no member list`);
+      return { members: [] };
+    }
     const data = (await resp.json()) as {
       totalMemberCount?: number;
       members?: Array<{ id?: string; mri?: string; friendlyName?: string; properties?: { friendlyName?: string } }>;
@@ -1850,7 +1876,7 @@ function isNetworkError(err: unknown): boolean {
 export async function apiScrape(
   onProgress?: (p: FetchProgress) => void,
   options?: { signal?: AbortSignal; startAtISO?: string | null; conversationId?: string | null },
-): Promise<{ messages: TeamsApiMessage[]; conversationId: string; userId: string | null; userRegion: string; ic3Token: string } | null> {
+): Promise<{ messages: TeamsApiMessage[]; conversationId: string; userId: string | null; userRegion: string; ic3Token: string; participants?: Participant[]; memberCount?: number } | null> {
   const signal = options?.signal;
   const startAtISO = options?.startAtISO ?? null;
   const explicitConvId = options?.conversationId ?? null;
@@ -1920,51 +1946,88 @@ export async function apiScrape(
     const messages = await fetchAllMessages(config, conversationId, onProgress, signal, startAtISO);
     console.log(`[API] Fetched ${messages.length} messages`);
 
-    // Step 5: Resolve unresolved MRIs (forwarded senders, reactors) via Graph API
-    const graphToken = await getGraphToken();
-    if (graphToken) {
-      const unresolved = collectUnresolvedMris(messages);
-      if (unresolved.length > 0) {
-        console.log(`[API] Resolving ${unresolved.length} unknown user MRIs via Graph API...`);
-        const resolved = await resolveUserNames(unresolved, graphToken);
-        if (resolved.size > 0) {
-          // Inject resolved names back into messages
-          for (const msg of messages) {
-            // Fill in missing imdisplayname for forwarded messages
-            if (!msg.imdisplayname && msg.from) {
-              const name = resolved.get(msg.from);
-              if (name) msg.imdisplayname = name;
-            }
-          }
-          // Store resolved map on messages for the converter to use
-          (messages as unknown as { __resolvedMris: Map<string, string> }).__resolvedMris = resolved;
-          console.log(`[API] Resolved ${resolved.size} user names`);
-        }
-      }
+    // Roster of the current chat. Powers the export's participant list and
+    // supplies friendlyName for external/federated members Graph can't read.
+    // Best-effort: a miss just means no participant list + Graph-only names.
+    // Skipped for 1:1 / self chats — the counterpart is already named from
+    // messages, so the roster would only add a network call and a pointless
+    // two-name participant list. Group/channel/meeting threads still fetch it.
+    // (Member name resolution via Graph below is independent of this.)
+    let rosterMembers: RosterMember[] = [];
+    let memberCount: number | undefined;
+    const isOneOnOne = conversationId === '48:notes'
+      || /^19:[a-f0-9-]{36}_[a-f0-9-]{36}@/i.test(conversationId);
+    if (!isOneOnOne) {
+      try {
+        const roster = await fetchThreadRoster(config, conversationId);
+        rosterMembers = roster.members;
+        memberCount = roster.totalMemberCount;
+      } catch { /* roster optional */ }
     }
 
-    // Teams Free: layer the local profiles cache on top of any Graph-
-    // resolved names. Skype consumer IDs (`8:live:<id>`, `8:<id>`)
-    // can't be resolved via Graph (different identity system), and their
-    // names live only in this IDB store. Empty map on Work/School (no DB
-    // matches the pattern there) — costs ~one IDB roundtrip in the worst
-    // case. Merge order: existing __resolvedMris wins on conflict (Graph
-    // is the more authoritative source when it has a record at all).
+    // Step 5: Resolve unresolved MRIs (forwarded senders, reactors, add/remove
+    // members, in-tenant roster members) via Graph; layer the roster's
+    // friendlyName for external members; layer the Teams Free local profile
+    // cache for consumer IDs Graph can't resolve. The combined name map flows
+    // to the converter via __resolvedMris and into system-message / reactor /
+    // author resolution. Skype consumer IDs (`8:live:<id>`) and federated
+    // users never hit Graph; the roster and IDB cache are their only sources.
+    const resolvedNames = new Map<string, string>();
+    const graphToken = await getGraphToken();
+    const unresolved = new Set(collectUnresolvedMris(messages));
+    for (const m of rosterMembers) if (!m.friendlyName) unresolved.add(m.mri);
+    if (graphToken && unresolved.size > 0) {
+      console.log(`[API] Resolving ${unresolved.size} unknown user MRIs via Graph API...`);
+      const resolved = await resolveUserNames([...unresolved], graphToken);
+      for (const [k, v] of resolved) resolvedNames.set(k, v);
+      // Fill in missing imdisplayname for forwarded messages.
+      for (const msg of messages) {
+        if (!msg.imdisplayname && msg.from) {
+          const name = resolved.get(msg.from);
+          if (name) msg.imdisplayname = name;
+        }
+      }
+      if (resolved.size > 0) console.log(`[API] Resolved ${resolved.size} user names`);
+    }
+    // Roster friendlyName: Teams' local cache of external contacts' names,
+    // the only source for federated users Graph 404s on. Graph wins on conflict.
+    for (const m of rosterMembers) {
+      if (!m.friendlyName) continue;
+      const uuid = extractUuid(m.mri);
+      const keys = [m.mri, ...(uuid ? [`8:orgid:${uuid}`, `gid:${uuid}`] : [])];
+      for (const key of keys) if (!resolvedNames.has(key)) resolvedNames.set(key, m.friendlyName);
+    }
+    // Teams Free local profile cache (one IDB roundtrip; empty on Work/School).
     if (isTeamsFree) {
       const localProfiles = await loadTeamsFreeProfiles();
-      if (localProfiles.size > 0) {
-        const existing = (messages as unknown as { __resolvedMris?: Map<string, string> }).__resolvedMris
-          || new Map<string, string>();
-        for (const [k, v] of localProfiles) {
-          if (!existing.has(k)) existing.set(k, v);
-        }
-        (messages as unknown as { __resolvedMris: Map<string, string> }).__resolvedMris = existing;
-        console.log(`[API:tfl] layered ${localProfiles.size} profile names`);
-      }
+      for (const [k, v] of localProfiles) if (!resolvedNames.has(k)) resolvedNames.set(k, v);
+      if (localProfiles.size > 0) console.log(`[API:tfl] layered ${localProfiles.size} profile names`);
+    }
+    if (resolvedNames.size > 0) {
+      (messages as unknown as { __resolvedMris: Map<string, string> }).__resolvedMris = resolvedNames;
     }
 
+    // Participant list: current members with their best-resolved name, deduped
+    // by identity and sorted. Drives the export's "who's in the chat" section.
+    const participants: Participant[] = [];
+    const seenParticipant = new Set<string>();
+    for (const m of rosterMembers) {
+      const uuid = extractUuid(m.mri);
+      const name = resolvedNames.get(m.mri)
+        || (uuid ? resolvedNames.get(`8:orgid:${uuid}`) : undefined)
+        || m.friendlyName;
+      if (!name) continue;
+      const key = (uuid || m.mri).toLowerCase();
+      if (seenParticipant.has(key)) continue;
+      seenParticipant.add(key);
+      // The roster only stamps friendlyName on federated/guest contacts (Teams'
+      // local cache for users Graph can't read), so it doubles as the external flag.
+      participants.push({ name, mri: m.mri, external: !!m.friendlyName });
+    }
+    participants.sort((a, b) => a.name.localeCompare(b.name));
+
     const userId = getCurrentUserUuid();
-    return { messages, conversationId, userId, userRegion, ic3Token: messagingAuthToken };
+    return { messages, conversationId, userId, userRegion, ic3Token: messagingAuthToken, participants, memberCount };
   } catch (err: any) {
     // Re-throw an abort so the caller's try/catch can branch on cancellation
     // instead of treating it as a normal API failure (and triggering DOM
