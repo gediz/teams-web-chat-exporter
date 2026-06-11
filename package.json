@@ -15,7 +15,8 @@
     "zip:firefox": "wxt zip -b firefox",
     "zip:edge": "wxt zip -b edge",
     "zip:safari": "wxt zip -b safari",
-    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "check": "node scripts/check-i18n.mjs && svelte-check --tsconfig ./tsconfig.json",
+    "check:i18n": "node scripts/check-i18n.mjs",
     "postinstall": "wxt prepare && node scripts/vendor-twemoji.mjs"
   },
   "dependencies": {
