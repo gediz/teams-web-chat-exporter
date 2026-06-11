@@ -62,7 +62,20 @@ function isSystemMessageType(messageType: string): boolean {
 // ── HTML → Plain Text ──────────────────────────────────────────────────
 
 /** Convert HTML content to plain text, preserving basic structure. */
-function htmlToText(html: string): string {
+// MRI by mention-index from the message properties. The Mention spans in the
+// content HTML carry an `itemid` that indexes into this array, letting
+// htmlToText tell whether two adjacent mention spans are the same person.
+function mentionMrisFromProps(properties: Record<string, unknown>): Array<string | undefined> {
+  const raw = properties.mentions;
+  if (!raw) return [];
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (Array.isArray(parsed)) return parsed.map((m: Record<string, unknown>) => (m && m.mri ? String(m.mri) : undefined));
+  } catch { /* ignore */ }
+  return [];
+}
+
+function htmlToText(html: string, mentionMris?: Array<string | undefined>): string {
   if (!html) return '';
 
   const temp = parseHtmlFragment(html);
@@ -73,10 +86,28 @@ function htmlToText(html: string): string {
   // Prefix "@" on @mention spans so a mention reads "@Name" and is
   // distinguishable from the same name occurring as ordinary text. The
   // DOM-scrape path (normalizeMentions in text.ts) already does this; this
-  // covers the API path so all formats agree.
+  // covers the API path so all formats agree. Teams splits ONE person's mention
+  // into consecutive same-MRI spans ("Sertac" + "Tulluk" for "Sertac Tulluk"),
+  // so only @ the FIRST span of an adjacent same-MRI run and let the parts join
+  // — otherwise a single mention reads "@Sertac @Tulluk". Different people have
+  // different MRIs (or non-whitespace text between), so each still gets its @.
+  let prevMention: Element | null = null;
   temp.querySelectorAll('[itemtype*="Mention" i]').forEach(el => {
     const name = (el.textContent || '').trim();
-    if (name && !name.startsWith('@')) el.textContent = `@${name}`;
+    if (!name) { prevMention = el; return; }
+    let continuation = false;
+    if (prevMention && mentionMris && prevMention.parentNode === el.parentNode) {
+      let between = '';
+      for (let n = prevMention.nextSibling; n && n !== el; n = n.nextSibling) between += n.textContent || '';
+      const adjacent = between.replace(/ /g, ' ').trim() === '';
+      const idA = el.getAttribute('itemid');
+      const idB = prevMention.getAttribute('itemid');
+      const mri = idA != null ? mentionMris[Number(idA)] : undefined;
+      const prevMri = idB != null ? mentionMris[Number(idB)] : undefined;
+      continuation = adjacent && !!mri && mri === prevMri;
+    }
+    if (!continuation && !name.startsWith('@')) el.textContent = `@${name}`;
+    prevMention = el;
   });
 
   // Replace emoji/GIF <img> tags with their alt/title text
@@ -1007,6 +1038,9 @@ function convertOneMessage(
   // not the raw blockquote-wrapped payload. Stays unset for non-HTML bodies.
   let bodyHtml = '';
   let replyTo: ReplyContext | null = null;
+  // MRI per mention index, so htmlToText can collapse a person's split mention
+  // ("@First @Last" -> "@First Last") without merging two different people.
+  const mentionMris = mentionMrisFromProps(properties);
 
   // Build forward context for forwarded messages
   let forwardCtx: ForwardContext | undefined;
@@ -1050,7 +1084,7 @@ function convertOneMessage(
       originalText: fwdParts?.forwardedText || undefined,
     };
 
-    text = fwdParts ? fwdParts.comment : htmlToText(rawContent);
+    text = fwdParts ? fwdParts.comment : htmlToText(rawContent, mentionMris);
   }
 
   let systemAttendees: string[] | undefined;
@@ -1100,14 +1134,14 @@ function convertOneMessage(
       if (replyResult) {
         replyTo = replyResult.replyTo;
         bodyHtml = replyResult.cleanHtml;
-        text = htmlToText(replyResult.cleanHtml);
+        text = htmlToText(replyResult.cleanHtml, mentionMris);
       } else {
         bodyHtml = rawContent;
-        text = htmlToText(rawContent);
+        text = htmlToText(rawContent, mentionMris);
       }
     } else {
       bodyHtml = rawContent;
-      text = htmlToText(rawContent);
+      text = htmlToText(rawContent, mentionMris);
     }
   } else {
     text = rawContent;
