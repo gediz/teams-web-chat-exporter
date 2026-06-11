@@ -171,7 +171,10 @@ function htmlToText(html: string): string {
 // &amp; is decoded LAST so a double-escaped "&amp;lt;" resolves to "&lt;", not "<".
 // An out-of-range numeric ref is left literal rather than throwing in fromCodePoint.
 function fromCp(n: number, literal: string): string {
-  return n <= 0x10ffff ? String.fromCodePoint(n) : literal;
+  // Leave out-of-range and lone-surrogate code points as their literal text
+  // rather than emitting an invalid/replacement char (fromCodePoint accepts
+  // surrogates without throwing).
+  return (n > 0x10ffff || (n >= 0xd800 && n <= 0xdfff)) ? literal : String.fromCodePoint(n);
 }
 function decodeXmlEntities(s: string): string {
   return s
@@ -1313,13 +1316,16 @@ function pairRecordingsWithMeetings(messages: ExportMessage[], apiMessages: Team
     if (c.includes('<ended')) {
       meta.endTs = ts;
       meta.durationSec = parseInt(get(c, /<duration>([^<]+)<\/duration>/) || '0', 10) || meta.durationSec;
-      const names = getAll(c, /<displayName>([^<]+)<\/displayName>/g);
+      const names = getAll(c, /<displayName>([^<]+)<\/displayName>/g).map(decodeXmlEntities);
       if (names.length) meta.attendees = names;
     } else {
       meta.startTs = ts;
     }
-    meta.organizer = meta.organizer || get(c, /<organizerUpn>([^<]+)<\/organizerUpn>/);
-    meta.subject = meta.subject || get(c, /<subject>([^<]+)<\/subject>/);
+    // Decode like the recording <Title>: these feed the same "Recording —"
+    // divider (meetingSubject is the title fallback) and serialize to JSON, so
+    // a raw "&amp;" would double-escape in HTML / leak into JSON otherwise.
+    meta.organizer = meta.organizer || decodeXmlEntities(get(c, /<organizerUpn>([^<]+)<\/organizerUpn>/) || '') || undefined;
+    meta.subject = meta.subject || decodeXmlEntities(get(c, /<subject>([^<]+)<\/subject>/) || '') || undefined;
     meta.type = meta.type || get(c, /<meetingType>([^<]+)<\/meetingType>/);
     byCallId.set(callId, meta);
   }

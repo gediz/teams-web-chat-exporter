@@ -608,11 +608,12 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
         // a broken-icon <img>.
         if (looksLikeImage && (isAuthProtected || !att.href)) {
           // We couldn't embed the image (it needs auth). If we still have its
-          // original URL, link it so the user can open it in the browser where
-          // they may be signed in, instead of losing it; otherwise show a quiet
-          // "not included" card. Generic across hosts (SharePoint, OneDrive,
-          // AMS, ...) — the link points at wherever the image actually lives.
-          const canLink = !!href && /^https?:\/\//i.test(att.href || '');
+          // original URL on a host a browser can open with the user's session
+          // (SharePoint/OneDrive/etc., where they may be signed in), link it so
+          // the image isn't lost. AMS/asyncgw needs a bearer token a plain link
+          // can't supply, so those stay a quiet "not included" card rather than
+          // a dead link.
+          const canLink = !!href && /^https?:\/\//i.test(att.href || '') && !isAmsImage;
           if (canLink) {
             return `<div class="att att-missing">🖼️ <a href="${href}" target="_blank" rel="noopener">${label}</a> <span class="att-meta-hint">(open original)</span></div>`;
           }

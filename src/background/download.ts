@@ -1027,8 +1027,15 @@ function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
   const reactionSummary = (m: ExportMessage): string => {
     const rs = Array.isArray(m.reactions) ? m.reactions : [];
     const parts = rs.map(r => {
-      const names = (r.reactors || []).map(x => (x.self ? 'You' : x.name)).filter(Boolean);
-      const who = names.length ? ` ${names.join(', ')}` : (r.count ? ` ×${r.count}` : '');
+      // Handle legacy string[] reactors as well as ReactorInfo objects.
+      const names = ((r.reactors || []) as Array<{ name?: string; self?: boolean } | string>)
+        .map(x => (typeof x === 'string' ? x : (x.self ? 'You' : x.name)))
+        .filter(Boolean);
+      // Names when known; "+N" for any unnamed reactors so the count isn't lost;
+      // "×count" when no names are known at all.
+      const who = names.length
+        ? ` ${names.join(', ')}${r.count > names.length ? ` +${r.count - names.length}` : ''}`
+        : (r.count ? ` ×${r.count}` : '');
       return `${r.emoji}${who}`;
     });
     return parts.length ? `  [${parts.join(' · ')}]` : '';
@@ -1060,21 +1067,22 @@ function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
     const body = text.includes('\n') ? text.replace(/\n/g, '\n    ') : text;
     const urgencyTag = m.importance === 'urgent' ? ' [!URGENT]' : m.importance === 'high' ? ' [!IMPORTANT]' : '';
     const subjectLine = m.subject ? `[Subject: ${m.subject}] ` : '';
-    let line = `[${ts}] ${author}${urgencyTag}: ${subjectLine}${body}`;
-
-    // Include forward/reply context
+    // Edited marker + reactions belong to the OUTER message, so build them as a
+    // suffix spliced onto the message's own line — not appended after a forwarded
+    // continuation, where they would read as part of the forwarded original.
+    // HTML/CSV/JSON already carry both; this keeps the leanest TXT format
+    // consistent. The reply quote stays on its own trailing line below.
+    const meta = (m.edited ? ' (edited)' : '') + reactionSummary(m);
+    let line: string;
     if (m.forwarded?.originalAuthor) {
       const fwdFrom = `[forwarded from ${m.forwarded.originalAuthor}]`;
       const fwdText = m.forwarded.originalText ? clip(m.forwarded.originalText, 300) : '';
       line = text
-        ? `[${ts}] ${author}${urgencyTag}: ${subjectLine}${body}\n  ${fwdFrom}: ${fwdText}`
-        : `[${ts}] ${author}${urgencyTag} ${fwdFrom}: ${subjectLine}${fwdText}`;
+        ? `[${ts}] ${author}${urgencyTag}: ${subjectLine}${body}${meta}\n  ${fwdFrom}: ${fwdText}`
+        : `[${ts}] ${author}${urgencyTag} ${fwdFrom}: ${subjectLine}${fwdText}${meta}`;
+    } else {
+      line = `[${ts}] ${author}${urgencyTag}: ${subjectLine}${body}${meta}`;
     }
-    // Edited marker + reactions on the same line as the message (HTML/CSV/JSON
-    // already carry both; this keeps the leanest TXT format consistent).
-    if (m.edited) line += ' (edited)';
-    const reactions = reactionSummary(m);
-    if (reactions) line += reactions;
     if (m.replyTo?.text) {
       const quotedText = clip(m.replyTo.text, 200);
       const attribution = m.replyTo.author ? `${m.replyTo.author}: ` : '';
