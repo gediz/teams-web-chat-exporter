@@ -64,11 +64,15 @@ export function toCSV(messages: ExportMessage[], meta: ExportMeta = {}) {
         '',
       ].join('\n')
     : '';
-  const header = ['id', 'author', 'timestamp', 'text', 'edited', 'system', 'subject', 'importance', 'mentions', 'reactions_json', 'attachments_json'];
+  const header = ['id', 'author', 'timestamp', 'text', 'edited', 'system', 'subject', 'importance', 'mentions', 'reactions_json', 'attachments_json', 'forwarded'];
 
   const rows = (messages || []).map(m => {
     const row = [];
-    let text = (m.text || '').replace(/\n/g, '\\n');
+    // RFC 4180 (https://www.rfc-editor.org/rfc/rfc4180): a field containing a
+    // line break is wrapped in double quotes and the break is kept LITERAL
+    // inside the quotes (not escaped to "\n"). Every cell is quoted below, so
+    // we keep real newlines here; just normalize CRLF -> LF for consistency.
+    let text = (m.text || '').replace(/\r\n?/g, '\n');
     // Empty body + attachments → fill the readable text column with a
     // brief summary. The structured attachments_json column still has
     // the full data; this is purely so spreadsheet readers see
@@ -90,6 +94,18 @@ export function toCSV(messages: ExportMessage[], meta: ExportMeta = {}) {
     const attachments = Array.isArray(m.attachments) ? m.attachments : [];
     row.push(attachments.length ? JSON.stringify(attachments) : '');
 
+    // Forwarded body. CSV had no column for it, so a forwarded message (whose
+    // own m.text is usually empty) lost its content here while HTML/TXT/JSON
+    // kept it. Full text, newlines kept literal in-quote per RFC 4180.
+    const fwd = m.forwarded;
+    const forwarded = fwd && (fwd.originalAuthor || fwd.originalText)
+      ? `${fwd.originalAuthor ? `${fwd.originalAuthor}: ` : ''}${(fwd.originalText || '').replace(/\r\n?/g, '\n')}`
+      : '';
+    row.push(forwarded);
+
+    // RFC 4180 escaping: wrap every field in double quotes and double any
+    // internal quote. Quoting every cell means embedded commas and newlines
+    // need no special handling.
     return row.map(v => `"${(v ?? '').toString().split('"').join('""')}"`).join(',');
   });
 
