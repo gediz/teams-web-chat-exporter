@@ -1581,9 +1581,9 @@ function reactorNames(r: Reaction): string {
   return `${nameOf(list[0])} & ${list.length - 1}`;
 }
 
-// Draw one reaction on its own line: "emoji count", up to 3 reactor avatar
-// dots (for reactors whose photo we resolved), then the inline reactor names.
-// Mirrors the HTML chip's avatar stack + name list.
+// Draw one reaction on its own line: "emoji count", up to 3 reactor dots
+// (avatar when resolved, else a small placeholder circle) + a "+N" marker, then
+// the inline reactor names clipped to the text column. Mirrors the HTML chip.
 async function drawReactionLine(
   cursor: Cursor,
   r: Reaction,
@@ -1594,24 +1594,42 @@ async function drawReactionLine(
   ensureSpace(cursor, ctx.layout.leadMeta);
   cursor.y -= ctx.layout.leadMeta;
   const baseline = cursor.y;
+  const rightEdge = ctx.layout.textColX + ctx.layout.textWidth;
   let x = ctx.layout.textColX;
   const head = `${r.emoji} ${r.count} `;
   drawMixed(cursor.page, head, x, baseline, size, 'regular', ctx, COLOR_META);
   x += safeWidthOf(head, 'regular', ctx, size);
-  if (ctx.layout.includeAvatars && Array.isArray(r.reactors)) {
+
+  // Up to 3 reactor dots (avatar when resolved, else a placeholder circle),
+  // then "+N" when there are more — matching the HTML chip's dot stack.
+  const reactors = Array.isArray(r.reactors) ? r.reactors : [];
+  if (ctx.layout.includeAvatars && reactors.length) {
     const dot = size + 1;
-    const withAvatar = r.reactors.filter(rt => rt.avatarId).slice(0, 3);
-    for (const rt of withAvatar) {
-      const img = await getAvatar(ac.doc, ac.cache, rt.avatarId!, ac.avatars);
-      if (img) {
-        cursor.page.drawImage(img, { x, y: baseline - 1, width: dot, height: dot });
-        x += dot + 1;
-      }
+    for (const rt of reactors.slice(0, 3)) {
+      const img = rt.avatarId ? await getAvatar(ac.doc, ac.cache, rt.avatarId, ac.avatars) : null;
+      if (img) cursor.page.drawImage(img, { x, y: baseline - 1, width: dot, height: dot });
+      else cursor.page.drawCircle({ x: x + dot / 2, y: baseline - 1 + dot / 2, size: dot / 2, color: COLOR_RULE });
+      x += dot + 1;
     }
-    if (withAvatar.length) x += 2;
+    if (reactors.length > 3) {
+      const more = `+${reactors.length - 3} `;
+      drawMixed(cursor.page, more, x + 1, baseline, size, 'regular', ctx, COLOR_META);
+      x += safeWidthOf(more, 'regular', ctx, size) + 1;
+    } else {
+      x += 2;
+    }
   }
-  const names = reactorNames(r);
-  if (names) drawMixed(cursor.page, names, x, baseline, size, 'regular', ctx, COLOR_META);
+
+  // Names, clipped to the remaining width so nothing overruns the right margin.
+  let names = reactorNames(r);
+  if (names) {
+    const avail = rightEdge - x;
+    if (safeWidthOf(names, 'regular', ctx, size) > avail) {
+      while (names.length > 1 && safeWidthOf(`${names}…`, 'regular', ctx, size) > avail) names = names.slice(0, -1);
+      names += '…';
+    }
+    drawMixed(cursor.page, names, x, baseline, size, 'regular', ctx, COLOR_META);
+  }
 }
 
 async function renderMessage(
