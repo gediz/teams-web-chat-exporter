@@ -528,6 +528,9 @@ function decorateReactions(
       const info: ReactorInfo = { name };
       if (avatarId) info.avatarId = avatarId;
       if (isSelf) info.self = true;
+      // Carry the reactor UUID so the content script can resolve their avatar
+      // by stable identity (not display name); stripped before export.
+      if (uuid) info.uuid = uuid;
       return info;
     });
     const out: Reaction = { emoji: r.emoji, count: r.count };

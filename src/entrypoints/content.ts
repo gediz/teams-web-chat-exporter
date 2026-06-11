@@ -639,36 +639,61 @@ export default defineContentScript({
                 return { ...m, avatar: null };
             });
 
-            // Self reactor avatars: the self user often reacts in chats where
-            // they never sent a message, so the name-join below misses them.
-            // Reuse the captured self avatar (no network). If the self user did
-            // author here, prefer their existing entry; otherwise register the
-            // captured self avatar under a fresh id.
-            const self = findSelfAvatar();
-            let selfAvatarId: string | undefined = self.name ? authorToId.get(self.name) : undefined;
-            if (!selfAvatarId && self.dataUrl) {
-                selfAvatarId = `api-avatar-${apiAvatarIdx++}`;
-                avatars[selfAvatarId] = self.dataUrl;
-            }
+            // Reverse map so author / self / reactor avatars share ids: a given
+            // dataUrl is registered (or reused) once, no duplicate-byte entries.
+            const dataUrlToId = new Map<string, string>();
+            for (const id in avatars) dataUrlToId.set(avatars[id], id);
+            const idForDataUrl = (dataUrl: string): string => {
+                let id = dataUrlToId.get(dataUrl);
+                if (!id) {
+                    id = `api-avatar-${apiAvatarIdx++}`;
+                    avatars[id] = dataUrl;
+                    dataUrlToId.set(dataUrl, id);
+                }
+                return id;
+            };
 
-            // Enrich reactor avatarIds: self reactors from the self avatar, the
-            // rest by matching reactor display name to the author→id map we just
-            // built. Reactors who never appeared as a message sender (and aren't
-            // self) stay without an avatarId and render as initials in the chip's
-            // dot stack. Mutates in place because ReactorInfo is a plain object we
-            // already own.
-            for (const m of normalized) {
-                const reactions = (m as { reactions?: unknown[] }).reactions;
-                if (!Array.isArray(reactions)) continue;
-                for (const r of reactions) {
-                    const reactors = (r as { reactors?: Array<{ name: string; avatarId?: string; self?: boolean }> }).reactors;
-                    if (!Array.isArray(reactors)) continue;
-                    for (const reactor of reactors) {
-                        if (reactor.avatarId) continue;
-                        if (reactor.self && selfAvatarId) { reactor.avatarId = selfAvatarId; continue; }
-                        const id = authorToId.get(reactor.name);
-                        if (id) reactor.avatarId = id;
+            // Self reactor avatars: the self user often reacts in chats where
+            // they never sent a message. Reuse the captured self avatar (no
+            // network), preferring an existing author entry.
+            const self = findSelfAvatar();
+            const selfAvatarId: string | undefined =
+                (self.name ? authorToId.get(self.name) : undefined)
+                || (self.dataUrl ? idForDataUrl(self.dataUrl) : undefined);
+
+            type ReactorLike = { name: string; avatarId?: string; self?: boolean; uuid?: string };
+            const eachReactor = (fn: (reactor: ReactorLike) => void) => {
+                for (const m of normalized) {
+                    const reactions = (m as { reactions?: unknown[] }).reactions;
+                    if (!Array.isArray(reactions)) continue;
+                    for (const r of reactions) {
+                        const reactors = (r as { reactors?: ReactorLike[] }).reactors;
+                        if (Array.isArray(reactors)) for (const reactor of reactors) fn(reactor);
                     }
+                }
+            };
+
+            // Pass 1: resolve reactor avatars by self, then by author display
+            // name. Collect the still-unresolved reactor UUIDs for a Graph fetch.
+            const unresolved = new Set<string>();
+            eachReactor(reactor => {
+                if (reactor.avatarId) return;
+                if (reactor.self && selfAvatarId) { reactor.avatarId = selfAvatarId; return; }
+                const id = authorToId.get(reactor.name);
+                if (id) { reactor.avatarId = id; return; }
+                if (reactor.uuid) unresolved.add(reactor.uuid);
+            });
+
+            // Pass 2: Graph-fetch photos for the remaining (non-self, non-author)
+            // reactors, deduped by UUID, capped, with 429 backoff.
+            if (unresolved.size) {
+                const photos = await fetchReactorPhotos([...unresolved]);
+                if (photos.size) {
+                    eachReactor(reactor => {
+                        if (reactor.avatarId || !reactor.uuid) return;
+                        const dataUrl = photos.get(reactor.uuid);
+                        if (dataUrl) reactor.avatarId = idForDataUrl(dataUrl);
+                    });
                 }
             }
 
@@ -1806,6 +1831,45 @@ export default defineContentScript({
                     if (dataUrl) m.avatar = dataUrl;
                 }
             }
+        }
+
+        // Graph-fetch profile photos for reactor UUIDs the self/name join could
+        // not resolve (reactors who never sent a message in the chat). Reuses the
+        // background FETCH_BLOB path used for author photos. Rate-limit safe: the
+        // input is already deduped by UUID, capped, and backs off after repeated
+        // 429s (see the documented API rate-limit caution).
+        async function fetchReactorPhotos(uuids: string[]): Promise<Map<string, string>> {
+            const out = new Map<string, string>();
+            if (!uuids.length) return out;
+            const graphToken = await getGraphToken();
+            if (!graphToken) return out;
+            const CAP = 400;
+            const targets = uuids.slice(0, CAP);
+            let consecutive429 = 0;
+            for (const uuid of targets) {
+                if (currentAbortController?.signal.aborted) break;
+                if (consecutive429 >= 3) {
+                    console.warn('[Teams Exporter] Reactor photo fetch: backing off after repeated 429s');
+                    break;
+                }
+                try {
+                    const resp = await runtime.sendMessage({
+                        type: 'FETCH_BLOB',
+                        url: `https://graph.microsoft.com/v1.0/users/${uuid}/photo/$value`,
+                        bearerToken: graphToken,
+                        maxBytes: MAX_IMAGE_BYTES,
+                        minBytes: 1,
+                    }) as { ok: boolean; dataUrl?: string; status?: number };
+                    if (resp?.ok && resp.dataUrl) { out.set(uuid, resp.dataUrl); consecutive429 = 0; }
+                    else if (resp?.status === 429) consecutive429++;
+                    else consecutive429 = 0;
+                } catch { /* skip this reactor */ }
+            }
+            if (uuids.length > CAP) {
+                console.log(`[Teams Exporter] Reactor photos: capped at ${CAP} of ${uuids.length} unique reactors`);
+            }
+            if (out.size) console.log(`[Teams Exporter] Fetched ${out.size} reactor profile photos`);
+            return out;
         }
 
         const extractCodeBlock = (el: Element) => {
@@ -3697,6 +3761,16 @@ export default defineContentScript({
                             // anyway when embedAvatars is false.
                             normalizedMessages = messages.map(m => ({ ...m, avatar: null })) as ExtractedMessage[];
                             avatars = {};
+                        }
+
+                        // reactor.uuid is a transient content-script aid for the
+                        // avatar join; strip it here (covers BOTH branches above)
+                        // so user UUIDs never reach the serialized export.
+                        for (const m of normalizedMessages) {
+                            const reactions = (m as { reactions?: Array<{ reactors?: Array<{ uuid?: string }> }> }).reactions;
+                            if (Array.isArray(reactions)) for (const r of reactions) {
+                                if (Array.isArray(r.reactors)) for (const rt of r.reactors) delete rt.uuid;
+                            }
                         }
 
                         currentRunStartedAt = null;

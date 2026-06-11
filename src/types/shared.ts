@@ -3,8 +3,10 @@
 // when we already have the reactor's profile photo — it points into
 // meta.avatars so the HTML builder can render the dot stack without
 // re-fetching. `self` marks the current user so the chip can highlight
-// "You" differently.
-export type ReactorInfo = { name: string; avatarId?: string; self?: boolean };
+// "You" differently. `uuid` is TRANSIENT — set during conversion so the
+// content script can resolve a reactor's avatar by stable identity, then
+// stripped before the message is serialized to the export.
+export type ReactorInfo = { name: string; avatarId?: string; self?: boolean; uuid?: string };
 
 // A single emoji reaction on a message. `reactors` now carries rich
 // per-reactor info for the v9 reactor chip (avatar stack + popover).
