@@ -106,7 +106,17 @@ export function toCSV(messages: ExportMessage[], meta: ExportMeta = {}) {
     // RFC 4180 escaping: wrap every field in double quotes and double any
     // internal quote. Quoting every cell means embedded commas and newlines
     // need no special handling.
-    return row.map(v => `"${(v ?? '').toString().split('"').join('""')}"`).join(',');
+    return row.map(v => {
+      let s = (v ?? '').toString();
+      // CSV formula-injection guard (OWASP "CSV Injection"): Excel/Sheets run a
+      // cell starting with = + - @ Tab or CR as a formula on open. Prefix an
+      // apostrophe so the spreadsheet treats it as text. The apostrophe is
+      // hidden in Excel and also stops a benign @mention / "- bullet" / "=log"
+      // line from showing as a #NAME? error. Strip the leading ' if reading
+      // programmatically.
+      if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+      return `"${s.split('"').join('""')}"`;
+    }).join(',');
   });
 
   return partialBanner + [header.join(','), ...rows].join('\n');
