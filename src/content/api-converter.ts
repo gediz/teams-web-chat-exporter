@@ -94,7 +94,7 @@ function htmlToText(html: string, mentionMris?: Array<string | undefined>): stri
   let prevMention: Element | null = null;
   temp.querySelectorAll('[itemtype*="Mention" i]').forEach(el => {
     const name = (el.textContent || '').trim();
-    if (!name) { prevMention = el; return; }
+    if (!name) return; // don't anchor a continuation on an empty span
     let continuation = false;
     if (prevMention && mentionMris && prevMention.parentNode === el.parentNode) {
       let between = '';
@@ -102,8 +102,8 @@ function htmlToText(html: string, mentionMris?: Array<string | undefined>): stri
       const adjacent = between.replace(/ /g, ' ').trim() === '';
       const idA = el.getAttribute('itemid');
       const idB = prevMention.getAttribute('itemid');
-      const mri = idA != null ? mentionMris[Number(idA)] : undefined;
-      const prevMri = idB != null ? mentionMris[Number(idB)] : undefined;
+      const mri = idA && /^\d+$/.test(idA) ? mentionMris[Number(idA)] : undefined;
+      const prevMri = idB && /^\d+$/.test(idB) ? mentionMris[Number(idB)] : undefined;
       continuation = adjacent && !!mri && mri === prevMri;
     }
     if (!continuation && !name.startsWith('@')) el.textContent = `@${name}`;
@@ -1206,12 +1206,24 @@ function convertOneMessage(
     try {
       const parsed = typeof rawMentions === 'string' ? JSON.parse(rawMentions) : rawMentions;
       if (Array.isArray(parsed)) {
+        // Resolve each mention to its full name via the MRI map (sender names
+        // win there) and dedupe by MRI, so a person Teams split into "@First
+        // @Last" appears once with their full name — matching the collapsed
+        // body text instead of a partial "First, Last" in the CSV/JSON list.
+        const seen = new Set<string>();
         mentions = parsed
           .filter((m: Record<string, unknown>) => m.displayName)
-          .map((m: Record<string, unknown>) => ({
-            name: String(m.displayName),
-            mri: m.mri ? String(m.mri) : undefined,
-          }));
+          .map((m: Record<string, unknown>) => {
+            const mri = m.mri ? String(m.mri) : undefined;
+            const name = (mri && mriMap.get(mri)) || String(m.displayName);
+            return { name, mri };
+          })
+          .filter(m => {
+            const key = m.mri || m.name;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
         if (!mentions.length) mentions = undefined;
       }
     } catch { /* ignore */ }
