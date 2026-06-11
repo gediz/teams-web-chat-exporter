@@ -1581,6 +1581,39 @@ function reactorNames(r: Reaction): string {
   return `${nameOf(list[0])} & ${list.length - 1}`;
 }
 
+// Draw one reaction on its own line: "emoji count", up to 3 reactor avatar
+// dots (for reactors whose photo we resolved), then the inline reactor names.
+// Mirrors the HTML chip's avatar stack + name list.
+async function drawReactionLine(
+  cursor: Cursor,
+  r: Reaction,
+  ctx: TextCtx,
+  ac: { doc: PDFDocument; cache: AssetCache; avatars: Record<string, string> },
+) {
+  const size = ctx.layout.sizeMeta;
+  ensureSpace(cursor, ctx.layout.leadMeta);
+  cursor.y -= ctx.layout.leadMeta;
+  const baseline = cursor.y;
+  let x = ctx.layout.textColX;
+  const head = `${r.emoji} ${r.count} `;
+  drawMixed(cursor.page, head, x, baseline, size, 'regular', ctx, COLOR_META);
+  x += safeWidthOf(head, 'regular', ctx, size);
+  if (ctx.layout.includeAvatars && Array.isArray(r.reactors)) {
+    const dot = size + 1;
+    const withAvatar = r.reactors.filter(rt => rt.avatarId).slice(0, 3);
+    for (const rt of withAvatar) {
+      const img = await getAvatar(ac.doc, ac.cache, rt.avatarId!, ac.avatars);
+      if (img) {
+        cursor.page.drawImage(img, { x, y: baseline - 1, width: dot, height: dot });
+        x += dot + 1;
+      }
+    }
+    if (withAvatar.length) x += 2;
+  }
+  const names = reactorNames(r);
+  if (names) drawMixed(cursor.page, names, x, baseline, size, 'regular', ctx, COLOR_META);
+}
+
 async function renderMessage(
   cursor: Cursor,
   m: ExportMessage,
@@ -1690,16 +1723,23 @@ async function renderMessage(
   }
 
   if (Array.isArray(m.reactions) && m.reactions.length) {
-    // "emoji count  Name, Name & N" per reaction. When any reaction has
-    // resolved reactor names, lay them out one per line for readability;
-    // otherwise keep the compact single-line "emoji count  emoji count".
-    const anyNames = m.reactions.some(r => reactorNames(r));
-    const parts = m.reactions.map(r => {
-      const names = reactorNames(r);
-      return names ? `${r.emoji} ${r.count}  ${names}` : `${r.emoji} ${r.count}`;
-    });
-    const text = parts.join(anyNames ? '\n' : '  ');
-    drawLines(cursor, wrapText(text, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.textWidth), 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta);
+    // When any reactor has a resolved avatar, render each reaction on its own
+    // line with the avatar dots (drawReactionLine). Otherwise keep the compact
+    // text layout: "emoji count  Name, Name & N" (one per line if any names
+    // resolved, else a single "emoji count  emoji count" line).
+    const anyAvatars = ctx.layout.includeAvatars
+      && m.reactions.some(r => Array.isArray(r.reactors) && r.reactors.some(rt => rt.avatarId));
+    if (anyAvatars) {
+      for (const r of m.reactions) await drawReactionLine(cursor, r, ctx, ac);
+    } else {
+      const anyNames = m.reactions.some(r => reactorNames(r));
+      const parts = m.reactions.map(r => {
+        const names = reactorNames(r);
+        return names ? `${r.emoji} ${r.count}  ${names}` : `${r.emoji} ${r.count}`;
+      });
+      const text = parts.join(anyNames ? '\n' : '  ');
+      drawLines(cursor, wrapText(text, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.textWidth), 'regular', ctx, ctx.layout.sizeMeta, COLOR_META, ctx.layout.leadMeta);
+    }
   }
 
   // Attachments. If a dataUrl is present and embeds as PNG/JPEG we draw
