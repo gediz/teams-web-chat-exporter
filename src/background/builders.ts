@@ -318,6 +318,10 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     .thread-replies:before{content:""; position:absolute; left:7px; top:0; bottom:0; width:2px; background:var(--thread-border)}
     .msg.reply-msg{margin:10px 0 0 0; background:#fff}
     .msg.reply-msg:before{content:""; position:absolute; left:-16px; top:25px; width:10px; height:10px; border-radius:50%; background:var(--thread-accent)}
+    /* The dot is anchored to the .msg padding box, which sits after the left
+       border. .own-msg has a 4px left border (vs 1px), pushing the dot 3px
+       right; pull it back so it stays centered on the .thread-replies line. */
+    .own-msg.reply-msg:before{left:-19px}
     .atts{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; margin-top:8px}
     .att, .att-img{border:1px solid var(--border); border-radius:10px; padding:8px; background:#fff; transition:max-height .2s ease, opacity .2s ease}
     .att a{word-break:break-word; overflow-wrap:anywhere; text-decoration:none}
@@ -401,7 +405,8 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     .compact .msg{margin:8px 0; border-color:rgba(0,0,0,0.08)}
     .compact .thread{padding:6px 8px}
     .compact .thread-replies{padding-left:12px}
-    .compact .msg.reply-msg:before{left:-15px; top:24px; width:8px; height:8px}
+    .compact .msg.reply-msg:before{left:-9px; top:24px; width:8px; height:8px}
+    .compact .own-msg.reply-msg:before{left:-12px}
     .main > div{word-break:break-word; overflow-wrap:anywhere}
     ${(() => {
       // Avatar CSS source selection.
