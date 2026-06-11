@@ -1022,6 +1022,17 @@ function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
     const cps = Array.from(flat);
     return cps.length > max ? cps.slice(0, max).join('') + '…' : flat;
   };
+  // Compact single-line reaction summary, e.g. "[👍 Alice, Bob · ❤️ Carol]".
+  // Reactor names when present (the self reactor shows as "You"), else "×count".
+  const reactionSummary = (m: ExportMessage): string => {
+    const rs = Array.isArray(m.reactions) ? m.reactions : [];
+    const parts = rs.map(r => {
+      const names = (r.reactors || []).map(x => (x.self ? 'You' : x.name)).filter(Boolean);
+      const who = names.length ? ` ${names.join(', ')}` : (r.count ? ` ×${r.count}` : '');
+      return `${r.emoji}${who}`;
+    });
+    return parts.length ? `  [${parts.join(' · ')}]` : '';
+  };
   for (const m of messages) {
     const ts = m.timestamp || '';
     const author = m.author || '[unknown]';
@@ -1059,6 +1070,11 @@ function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
         ? `[${ts}] ${author}${urgencyTag}: ${subjectLine}${body}\n  ${fwdFrom}: ${fwdText}`
         : `[${ts}] ${author}${urgencyTag} ${fwdFrom}: ${subjectLine}${fwdText}`;
     }
+    // Edited marker + reactions on the same line as the message (HTML/CSV/JSON
+    // already carry both; this keeps the leanest TXT format consistent).
+    if (m.edited) line += ' (edited)';
+    const reactions = reactionSummary(m);
+    if (reactions) line += reactions;
     if (m.replyTo?.text) {
       const quotedText = clip(m.replyTo.text, 200);
       const attribution = m.replyTo.author ? `${m.replyTo.author}: ` : '';
