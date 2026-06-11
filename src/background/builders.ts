@@ -505,9 +505,11 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
       inlineNames = `${nameFor(normalized[0])} & ${normalized.length - 1}`;
     }
 
-    // Popover: full list, one row per reactor. Avatar dot + name. Shown
-    // on :hover and :focus-within via CSS.
-    const popoverRows = normalized.map(reactor => {
+    // Popover: full reactor list on hover/focus — only for 4+ reactors, where
+    // the inline names truncate to "First & N". For 1-3 reactors the inline
+    // names already show everyone, so a popover would just duplicate them.
+    const showPopover = normalized.length > 3;
+    const popoverRows = !showPopover ? '' : normalized.map(reactor => {
       let dot: string;
       if (reactor.avatarId && avatars[reactor.avatarId]) {
         dot = `<span class="avt-dot avt-${safeCssId(reactor.avatarId)}"></span>`;
@@ -519,11 +521,11 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
       return `<span class="chip-pop-row${reactor.self ? ' chip-pop-self' : ''}">${dot}${nameHtml}</span>`;
     }).join('');
 
-    return `<span class="chip${self}" tabindex="0">
+    return `<span class="chip${self}"${showPopover ? ' tabindex="0"' : ''}>
       <span class="chip-emoji">${emoji}</span>
       <span class="chip-avatars">${dots}${overflow}</span>
       <span class="chip-names">${escapeHtml(inlineNames)}</span>
-      <span class="chip-popover" role="tooltip">${popoverRows}</span>
+      ${showPopover ? `<span class="chip-popover" role="tooltip">${popoverRows}</span>` : ''}
     </span>`;
   }
 
@@ -688,7 +690,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     return `<div class="${msgClass}" id="msg-${idx}">
       <div class="avt">${avatar}</div>
       <div class="main">
-        <div class="hdr">${escapeHtml(m.author || '')} — <span title="${escapeHtml(ts)}">${tsLabel}</span>${rel ? `<span class="rel">(${rel})</span>` : ''}${m.edited ? ' <span class="edited">• edited</span>' : ''}${m.importance === 'urgent' ? '<span class="badge-urgent">URGENT</span>' : m.importance === 'high' ? '<span class="badge-important">IMPORTANT</span>' : ''}</div>
+        <div class="hdr">${escapeHtml(m.author || '')} · <span title="${escapeHtml(ts)}">${tsLabel}</span>${rel ? `<span class="rel">(${rel})</span>` : ''}${m.edited ? ' <span class="edited">• edited</span>' : ''}${m.importance === 'urgent' ? '<span class="badge-urgent">URGENT</span>' : m.importance === 'high' ? '<span class="badge-important">IMPORTANT</span>' : ''}</div>
         ${m.subject ? `<div class="subject">${escapeHtml(m.subject)}</div>` : ''}
         ${forwardHtml}${replyHtml}
         ${bodyHtml}
