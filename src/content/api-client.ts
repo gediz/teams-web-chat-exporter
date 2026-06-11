@@ -357,6 +357,31 @@ export type SharePointFetchResult =
   | { ok: true; bytes: Uint8Array; mime: string }
   | { ok: false; status: number; statusText: string; reason: string };
 
+// Sniff whether a fetched payload is actually an image. SharePoint/OneDrive
+// serve a "request access" / sign-in HTML page at HTTP 200 when the user lacks
+// access; without this check that HTML gets saved with an image extension and
+// renders as a broken <img>. Magic bytes are authoritative — Content-Type is
+// unreliable (SharePoint often serves images as application/octet-stream). A
+// genuine SVG (text, no binary magic) is allowed; any other non-raster body
+// (the auth/HTML pages) is rejected. Only ever called on image-file fetches.
+function isImagePayload(bytes: Uint8Array): boolean {
+  const b = bytes;
+  const has = (sig: number[], off = 0) => sig.every((v, i) => b[off + i] === v);
+  if (has([0xff, 0xd8, 0xff])) return true;                                          // JPEG
+  if (has([0x89, 0x50, 0x4e, 0x47])) return true;                                    // PNG
+  if (has([0x47, 0x49, 0x46, 0x38])) return true;                                    // GIF87a/89a
+  if (has([0x52, 0x49, 0x46, 0x46]) && has([0x57, 0x45, 0x42, 0x50], 8)) return true; // RIFF....WEBP
+  if (has([0x42, 0x4d])) return true;                                                // BMP
+  if (has([0x49, 0x49, 0x2a, 0x00]) || has([0x4d, 0x4d, 0x00, 0x2a])) return true;   // TIFF
+  if (has([0x66, 0x74, 0x79, 0x70], 4)) {                                            // ....ftyp (HEIC/HEIF/AVIF)
+    const brand = String.fromCharCode(b[8] || 0, b[9] || 0, b[10] || 0, b[11] || 0);
+    if (/heic|heix|hevc|heim|heis|mif1|msf1|avif/i.test(brand)) return true;
+  }
+  // Non-raster: accept only a real SVG document; reject HTML/XML auth pages.
+  const head = new TextDecoder('utf-8', { fatal: false }).decode(b.subarray(0, 512)).trimStart().toLowerCase();
+  return (head.startsWith('<?xml') || head.startsWith('<svg')) && head.includes('<svg');
+}
+
 /**
  * Fetch a SharePoint-hosted file's bytes using the user's session
  * cookies. Returns a result shape (never throws) so the caller can
@@ -378,8 +403,15 @@ export async function fetchSharePointFile(
       return { ok: false, status: resp.status, statusText: resp.statusText, reason: `SharePoint ${resp.status}` };
     }
     const buf = await resp.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    if (!isImagePayload(bytes)) {
+      // 200 OK but the body isn't an image — SharePoint/OneDrive returned a
+      // "request access" / sign-in HTML page. Saving it would be a broken
+      // image, so report a failed fetch; the caller renders a link placeholder.
+      return { ok: false, status: resp.status, statusText: 'non-image body', reason: 'SharePoint returned a non-image response (access/sign-in page)' };
+    }
     const mime = resp.headers.get('content-type')?.split(';')[0]?.trim() || 'application/octet-stream';
-    return { ok: true, bytes: new Uint8Array(buf), mime };
+    return { ok: true, bytes, mime };
   } catch (e: any) {
     return { ok: false, status: 0, statusText: '', reason: e?.message || String(e) };
   }

@@ -607,6 +607,15 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
         // cleared during scraping, renders as a quiet placeholder rather than
         // a broken-icon <img>.
         if (looksLikeImage && (isAuthProtected || !att.href)) {
+          // We couldn't embed the image (it needs auth). If we still have its
+          // original URL, link it so the user can open it in the browser where
+          // they may be signed in, instead of losing it; otherwise show a quiet
+          // "not included" card. Generic across hosts (SharePoint, OneDrive,
+          // AMS, ...) — the link points at wherever the image actually lives.
+          const canLink = !!href && /^https?:\/\//i.test(att.href || '');
+          if (canLink) {
+            return `<div class="att att-missing">🖼️ <a href="${href}" target="_blank" rel="noopener">${label}</a> <span class="att-meta-hint">(open original)</span></div>`;
+          }
           return `<div class="att att-missing">🖼️ ${label} <span class="att-meta-hint">(not included)</span></div>`;
         }
         const link = href ? `<a href="${href}" target="_blank" rel="noopener">${label}</a>` : label;
