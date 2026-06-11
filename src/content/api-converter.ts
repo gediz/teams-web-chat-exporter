@@ -164,6 +164,26 @@ function htmlToText(html: string): string {
  * struct. Pulls title, thumbnail URL, SharePoint play link, transcript URL,
  * video URL and roster URL out of the inline XML.
  */
+// XML/HTML text from Teams (ThreadActivity payloads, recording <Title>, link
+// previews) arrives entity-escaped: "A & B" comes as "A &amp; B". The exporters
+// re-escape on render, so a value left escaped here shows "&amp;" in TXT/JSON/CSV
+// and "&amp;amp;" in HTML. Decode the standard XML entities once at the source.
+// &amp; is decoded LAST so a double-escaped "&amp;lt;" resolves to "&lt;", not "<".
+// An out-of-range numeric ref is left literal rather than throwing in fromCodePoint.
+function fromCp(n: number, literal: string): string {
+  return n <= 0x10ffff ? String.fromCodePoint(n) : literal;
+}
+function decodeXmlEntities(s: string): string {
+  return s
+    .replace(/&#x([0-9a-fA-F]+);/g, (m, h) => fromCp(parseInt(h, 16), m))
+    .replace(/&#(\d+);/g, (m, d) => fromCp(parseInt(d, 10), m))
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
 function parseRecordingDetails(content: string): RecordingDetails | undefined {
   if (!content || !content.includes('Video.2/CallRecording')) return undefined;
   const get = (re: RegExp) => (content.match(re) || [])[1] || undefined;
@@ -172,7 +192,10 @@ function parseRecordingDetails(content: string): RecordingDetails | undefined {
   const videoUrl     = (recordingContent.match(/<item\s+type="amsVideo"\s+uri="([^"]+)"/i)      || [])[1];
   const rosterUrl    = (recordingContent.match(/<item\s+type="amsRosterEvents"\s+uri="([^"]+)"/i) || [])[1];
   return {
-    title:         get(/<Title>([^<]+)<\/Title>/),
+    // <Title> is XML text content; decode it (the other ThreadActivity
+    // extractors decode too). Left raw it double-escapes to "&amp;amp;" in the
+    // "Recording — <title>" HTML divider and leaks "&amp;" into JSON.
+    title:         decodeXmlEntities(get(/<Title>([^<]+)<\/Title>/) || '') || undefined,
     callId:        get(/<Id\s+type="callId"\s+value="([^"]+)"/i),
     amsDocumentId: get(/<Id\s+type="AMSDocumentID"\s+value="([^"]+)"/i),
     thumbnailUrl:  get(/<URIObject[^>]*\burl_thumbnail="([^"]+)"/),
@@ -230,24 +253,8 @@ function parseSystemContent(content: string, messageType: string, mriMap: Map<st
     return '(unknown user)';
   };
 
-  // ThreadActivity payloads are XML whose text is entity-escaped (a topic
-  // "A & B" arrives as "A &amp; B"). The extractors below capture that text
-  // raw, so decode the XML entities here or the plain-text exports show a
-  // literal "&amp;" and the HTML export re-escapes it to "&amp;amp;". Decode
-  // &amp; LAST so a double-escaped "&amp;lt;" resolves to "&lt;", not "<".
-  // A numeric ref past the Unicode max would make String.fromCodePoint throw,
-  // so out-of-range refs are left as their literal text rather than crashing.
-  const fromCp = (n: number, literal: string) => (n <= 0x10ffff ? String.fromCodePoint(n) : literal);
-  const decodeXmlEntities = (s: string): string =>
-    s.replace(/&#x([0-9a-fA-F]+);/g, (m, h) => fromCp(parseInt(h, 16), m))
-      .replace(/&#(\d+);/g, (m, d) => fromCp(parseInt(d, 10), m))
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&apos;/g, "'")
-      .replace(/&amp;/g, '&');
-
-  // Helper: extract text content of an XML element
+  // Helper: extract text content of an XML element (decodeXmlEntities is
+  // module-level so parseRecordingDetails / link previews can share it).
   const xmlText = (xml: string, tag: string): string => {
     const match = xml.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
     return match ? decodeXmlEntities(match[1]) : '';
@@ -724,8 +731,12 @@ function convertLinkPreviews(properties: Record<string, unknown>, existingHrefs:
     }
     if (typeof preview !== 'object' || !preview) continue;
 
-    const title = (preview.title || '') as string;
-    const description = (preview.description || '') as string;
+    // preview.title arrives decoded but preview.description arrives entity-escaped;
+    // decode both so the description doesn't double-escape on HTML render or leak
+    // a literal "&amp;" into the JSON/CSV metaText. (Decoding an already-decoded
+    // title is a no-op.)
+    const title = decodeXmlEntities((preview.title || '') as string);
+    const description = decodeXmlEntities((preview.description || '') as string);
     const previewUrl = (preview.previewurl || '') as string;
     const linkUrl = (link.url || '') as string;
 
