@@ -371,7 +371,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     .chip-popover{position:absolute; bottom:calc(100% + 6px); left:0; background:var(--bg, #fff); color:var(--text, #111827); border:1px solid var(--border, #e5e7eb); border-radius:8px; padding:8px 10px; box-shadow:0 8px 24px -8px rgba(0,0,0,0.25); min-width:180px; max-width:280px; z-index:10; display:none; pointer-events:none}
     .chip:hover .chip-popover, .chip:focus-within .chip-popover{display:block}
     .chip-pop-row{display:flex; align-items:center; gap:8px; padding:3px 0; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-    .chip-pop-row .avt-dot{width:18px; height:18px; flex-shrink:0; border-radius:50%; background-size:cover; background-position:center; background-color:#e5e7eb; box-shadow:none}
+    .chip-pop-row .avt-dot{width:18px; height:18px; flex-shrink:0; border-radius:50%; background-size:cover; background-position:center; background-color:#e5e7eb; color:#374151; font-size:9px; font-weight:600; display:inline-flex; align-items:center; justify-content:center; box-shadow:none}
     .chip-pop-self{font-weight:600; color:#2563eb}
     .divider{display:flex; align-items:center; gap:10px; margin:18px 0}
     .divider:before, .divider:after{content:""; flex:1; height:1px; background:var(--border)}

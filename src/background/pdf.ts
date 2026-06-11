@@ -277,6 +277,8 @@ const COLOR_BODY = rgb(0.12, 0.12, 0.15);
 const COLOR_META = rgb(0.45, 0.45, 0.50);
 const COLOR_AUTHOR = rgb(0.08, 0.14, 0.32);
 const COLOR_RULE = rgb(0.86, 0.86, 0.90);
+const COLOR_DOT_BG = rgb(0.898, 0.906, 0.922);   // #e5e7eb — reactor initial placeholder fill
+const COLOR_DOT_FG = rgb(0.216, 0.255, 0.318);   // #374151 — initials drawn on the placeholder
 // Own-message accent. Matches the HTML `.own-msg` left rail color
 // (#2563eb) so the visual cue is consistent across formats.
 const COLOR_OWN_ACCENT = rgb(0.145, 0.388, 0.922);
@@ -1572,18 +1574,26 @@ function renderHeader(cursor: Cursor, meta: ExportMeta, ctx: TextCtx) {
 // list, 4+ -> "First & N". A self reactor shows as "You". Returns '' when no
 // reactors were resolved (self-chat / unresolved counts), so the caller keeps
 // the bare "emoji count".
+// Up to two initials from a reactor's display name, mirroring the HTML chip
+// (builders.ts). For CJK names the first character stands in for the initial.
+function reactorInitials(name: string): string {
+  return (name || '').split(/\s+/).map(p => p[0] || '').join('').slice(0, 2).toUpperCase() || '?';
+}
+
+// Every reactor's name, comma-joined. The PDF has no hover popover, so the
+// full list is the only way to see who reacted; drawReactionLine wraps it
+// onto continuation lines, and the compact fallback wraps it via wrapText.
 function reactorNames(r: Reaction): string {
   const list = r.reactors;
   if (!list || !list.length) return '';
   const nameOf = (x: ReactorInfo) => (x.self ? 'You' : x.name);
-  if (list.length === 1) return nameOf(list[0]);
-  if (list.length <= 3) return list.map(nameOf).join(', ');
-  return `${nameOf(list[0])} & ${list.length - 1}`;
+  return list.map(nameOf).join(', ');
 }
 
-// Draw one reaction on its own line: "emoji count", up to 3 reactor dots
-// (avatar when resolved, else a small placeholder circle) + a "+N" marker, then
-// the inline reactor names clipped to the text column. Mirrors the HTML chip.
+// Draw one reaction starting on its own line: "emoji count", up to 3 reactor
+// dots (avatar when resolved, else a placeholder circle with initials) + a "+N"
+// marker, then every reactor's name wrapped onto continuation lines. Mirrors
+// the HTML chip, with the wrapped name list standing in for its hover popover.
 async function drawReactionLine(
   cursor: Cursor,
   r: Reaction,
@@ -1607,8 +1617,19 @@ async function drawReactionLine(
     const dot = size + 1;
     for (const rt of reactors.slice(0, 3)) {
       const img = rt.avatarId ? await getAvatar(ac.doc, ac.cache, rt.avatarId, ac.avatars) : null;
-      if (img) cursor.page.drawImage(img, { x, y: baseline - 1, width: dot, height: dot });
-      else cursor.page.drawCircle({ x: x + dot / 2, y: baseline - 1 + dot / 2, size: dot / 2, color: COLOR_RULE });
+      if (img) {
+        cursor.page.drawImage(img, { x, y: baseline - 1, width: dot, height: dot });
+      } else {
+        // No avatar: gray circle with the reactor's initials centered inside,
+        // mirroring the HTML chip's initial badge.
+        const cx = x + dot / 2;
+        const cy = baseline - 1 + dot / 2;
+        cursor.page.drawCircle({ x: cx, y: cy, size: dot / 2, color: COLOR_DOT_BG });
+        const initials = reactorInitials(rt.name);
+        const initSize = dot * 0.5;
+        const iw = safeWidthOf(initials, 'regular', ctx, initSize);
+        drawMixed(cursor.page, initials, cx - iw / 2, cy - initSize * 0.34, initSize, 'regular', ctx, COLOR_DOT_FG);
+      }
       x += dot + 1;
     }
     if (reactors.length > 3) {
@@ -1620,15 +1641,34 @@ async function drawReactionLine(
     }
   }
 
-  // Names, clipped to the remaining width so nothing overruns the right margin.
-  let names = reactorNames(r);
+  // Names: list every reactor, wrapping onto continuation lines aligned under
+  // the first name. The first line shares the emoji/dots baseline; each later
+  // line advances the cursor. Each reactor's name stays intact (wrap happens at
+  // ", " boundaries); a single over-long name is ellipsized to the column width.
+  const names = reactorNames(r);
   if (names) {
-    const avail = rightEdge - x;
-    if (safeWidthOf(names, 'regular', ctx, size) > avail) {
-      while (names.length > 1 && safeWidthOf(`${names}…`, 'regular', ctx, size) > avail) names = names.slice(0, -1);
-      names += '…';
+    const nameStartX = x;
+    const avail = rightEdge - nameStartX;
+    const parts = names.split(', ');
+    let line = '';
+    const flush = () => {
+      drawMixed(cursor.page, line, nameStartX, cursor.y, size, 'regular', ctx, COLOR_META);
+    };
+    for (let part of parts) {
+      const candidate = line ? `${line}, ${part}` : part;
+      if (line && safeWidthOf(candidate, 'regular', ctx, size) > avail) {
+        flush();
+        ensureSpace(cursor, ctx.layout.leadMeta);
+        cursor.y -= ctx.layout.leadMeta;
+        line = '';
+      }
+      if (!line && safeWidthOf(part, 'regular', ctx, size) > avail) {
+        while (part.length > 1 && safeWidthOf(`${part}…`, 'regular', ctx, size) > avail) part = part.slice(0, -1);
+        part += '…';
+      }
+      line = line ? `${line}, ${part}` : part;
     }
-    drawMixed(cursor.page, names, x, baseline, size, 'regular', ctx, COLOR_META);
+    if (line) flush();
   }
 }
 
