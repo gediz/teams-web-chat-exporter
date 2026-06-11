@@ -431,9 +431,15 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     .compact .avt{display:none}
     .compact .msg{margin:8px 0; border-color:rgba(0,0,0,0.08)}
     .compact .thread{padding:6px 8px}
-    .compact .thread-replies{padding-left:12px}
-    .compact .msg.reply-msg:before{left:-9px; top:24px; width:8px; height:8px}
-    .compact .own-msg.reply-msg:before{left:-12px}
+    /* Compact hides avatars; replies render borderless and indented under a
+       single thread line (no per-reply dot or box) so the thread reads cleanly
+       instead of feeling cramped and busy. Your own replies keep a subtle blue
+       tint so they stay distinguishable without reintroducing a hard box. */
+    .compact .thread-replies{padding-left:22px}
+    .compact .thread-replies:before{left:9px}
+    .compact .msg.reply-msg:before{display:none}
+    .compact .msg.reply-msg{border:none; background:transparent; padding:8px 4px; margin:2px 0}
+    .compact .own-msg.reply-msg{background:rgba(37,99,235,0.06); border-radius:10px; padding:8px 10px}
     .main > div{word-break:break-word; overflow-wrap:anywhere}
     ${(() => {
       // Avatar CSS source selection.
