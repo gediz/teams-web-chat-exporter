@@ -1,5 +1,6 @@
 import type { ExportMessage, ExportMeta, Reaction, TableData, MergeRegion } from '../types/shared';
 import { mintBlobUrlViaOffscreen, revokeBlobUrlViaOffscreen } from '../utils/offscreen-client';
+import { uint8ToBase64 } from '../utils/base64';
 
 /**
  * Removes avatar data entirely from messages.
@@ -1107,15 +1108,8 @@ export function binaryToDownloadUrl(data: Uint8Array, mime: string): string {
       return URL.createObjectURL(new Blob([data as BlobPart], { type: mime }));
     } catch { /* fall through */ }
   }
-  // Service worker fallback: chunked base64 data URL
-  // Process in small chunks to avoid string length limits
-  const CHUNK = 32768;
-  const binaryChunks: string[] = [];
-  for (let i = 0; i < data.length; i += CHUNK) {
-    const chunk = data.subarray(i, i + CHUNK);
-    binaryChunks.push(String.fromCharCode.apply(null, chunk as unknown as number[]));
-  }
-  return `data:${mime};base64,${btoa(binaryChunks.join(''))}`;
+  // Service worker fallback: chunked base64 data URL (shared helper).
+  return `data:${mime};base64,${uint8ToBase64(data)}`;
 }
 
 /** Revoke a URL if it's a Blob URL (no-op for data URLs). */
