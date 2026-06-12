@@ -85,6 +85,21 @@
     setTimeout(() => { flashActive = false; }, 700);
   }
 
+  // Suppress the width transition on the FIRST real segment paint after
+  // mount. On reopen mid-export the popup is a brand-new document: the phase
+  // track mounts empty (all 0%) because the replayed lastStatus carries no
+  // segment progress, and the first live progress event would otherwise
+  // sweep every bar up from zero — which reads as the export "restarting".
+  // We let that first non-empty state paint instantly (instant class kills
+  // the transition), then arm the transition so subsequent live ticks still
+  // animate smoothly. animArmed guards against re-entry while we wait a frame.
+  let animArmed = false;
+  let animReady = false;
+  $: if (!animArmed && busy && segments.some((s) => s != null)) {
+    animArmed = true;
+    tick().then(() => requestAnimationFrame(() => { animReady = true; }));
+  }
+
   function segClass(v: number | null) {
     if (v == null) return '';
     if (v < 0) return 'active';
@@ -131,7 +146,7 @@
       {#if counterLabel}<span class="l">{counterLabel}</span>{/if}
     </div>
 
-    <div class="phase-track" aria-hidden="true">
+    <div class="phase-track" class:instant={!animReady} aria-hidden="true">
       {#each segments as seg}
         <div class="seg {segClass(seg)}">
           <div class="seg-fill" style:width={segWidth(seg)}></div>
@@ -247,6 +262,12 @@
     height: 100%;
     background: rgba(255, 255, 255, 0.85);
     transition: width 0.3s ease;
+  }
+  /* First paint after (re)mount: snap segments to their current value
+     instead of sweeping up from 0. Cleared one frame later so live
+     progress still animates. See animReady in the script. */
+  .phase-track.instant .seg-fill {
+    transition: none;
   }
   /* Indeterminate (v < 0) renders as a narrow highlight band sliding
      across an otherwise-empty track — NOT a full-width fill. If the
