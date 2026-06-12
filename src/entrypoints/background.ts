@@ -13,6 +13,7 @@ import {
   type BundleFailure,
 } from '../background/download';
 import { revokeDownloadUrl, textToDownloadUrl } from '../background/builders';
+import { beginExportStats, endExportStats, getExportStats } from '../background/export-stats';
 import { clearTransferBlobs } from '../utils/blob-transfer';
 import { ACTIVE_EXPORTS_STORAGE_KEY, FIRST_INSTALL_STORAGE_KEY, appendHistoryEntry } from '../utils/options';
 import type { BackgroundIncomingMessage } from '../types/messaging';
@@ -545,6 +546,9 @@ function broadcastStatus(payload: ExportStatusPayload) {
     __broadcastCount += 1;
     let enriched = { ...payload };
     const tabId = payload?.tabId;
+    // Feed the build phase into the stage timeline (the fine fetch phases
+    // arrive via SCRAPE_PROGRESS instead; 'build' only flows through here).
+    if (tabId != null) getExportStats(tabId)?.markPhase(payload?.phase, Date.now());
     if (tabId != null) {
         const phase = payload?.phase;
         let info;
@@ -617,6 +621,10 @@ function handleExportWithScrape(
 
     (async () => {
         let startedAt;
+        // Console-only diagnostics. statsOutcome is set at each terminal
+        // branch; the finally block logs the collected block and clears it.
+        let statsOutcome = 'error';
+        let statsFilename: string | undefined;
         try {
             await ensureContentScript(tabId);
             const ctx = await checkContext(tabId, scrapeOptions);
@@ -627,15 +635,34 @@ function handleExportWithScrape(
             }
 
             startedAt = Date.now();
+            beginExportStats(tabId, 'single', startedAt);
             updateActiveExport(tabId, { startedAt, phase: 'starting', lastStatus: undefined });
+            // Await the FIRST snapshot write specifically. The popup's
+            // instant-paint reads this key on mount; if the user reopens the
+            // popup before this lands they fall through to the slow
+            // GET_EXPORT_STATUS round-trip (worsened by service-worker cold
+            // start), which shows "Checking status…" for a beat. Progress
+            // writes below stay fire-and-forget; only this start write gates
+            // the reopen reveal.
+            await persistActiveExports();
             broadcastStatus({ tabId, phase: 'starting', startedAt });
 
             broadcastStatus({ tabId, phase: 'scrape:start' });
+            const scrapeStartedAt = Date.now();
             const scrapeRes = await requestScrape(tabId, scrapeOptions);
             const totalMessages = Array.isArray(scrapeRes.messages) ? scrapeRes.messages.length : 0;
             broadcastStatus({ tabId, phase: 'scrape:complete', messages: totalMessages });
+            // One chat per single export. Title/convId come from the scrape
+            // meta when present (no extra tab round-trip on the stats path).
+            getExportStats(tabId)?.addChat({
+                title: typeof scrapeRes.meta?.title === 'string' ? scrapeRes.meta.title : undefined,
+                convId: typeof scrapeRes.meta?.conversationId === 'string' ? scrapeRes.meta.conversationId : undefined,
+                messages: totalMessages,
+                scrapeMs: Date.now() - scrapeStartedAt,
+            });
 
             if (totalMessages === 0) {
+                statsOutcome = 'empty';
                 const message = 'No messages found for the selected range.';
                 broadcastStatus({ tabId, phase: 'empty', message });
                 sendResponse({ error: message, code: 'EMPTY_RESULTS' });
@@ -657,12 +684,15 @@ function handleExportWithScrape(
                 ? await waitForDownloadComplete(buildRes.id, 30_000)
                 : true;
             if (!downloadOk) {
+                statsOutcome = 'cancelled';
                 log('export download did not complete (cancelled or interrupted) for id', buildRes.id);
                 broadcastStatus({ tabId, phase: 'cancelled' });
                 sendResponse({ cancelled: true });
                 return;
             }
 
+            statsOutcome = 'complete';
+            statsFilename = buildRes.filename;
             broadcastStatus({
                 tabId,
                 phase: 'complete',
@@ -745,17 +775,23 @@ function handleExportWithScrape(
             // with message 'cancelled'. Treat it as a successful stop so the
             // popup doesn't show a red error banner.
             if (message === 'cancelled') {
+                statsOutcome = 'cancelled';
                 sendResponse({ cancelled: true });
             } else {
                 // Surface the error message in the SW console so a red-badge
                 // failure is debuggable. Without this, broadcastStatus only
                 // updates state — the actual reason never reaches the log.
+                statsOutcome = 'error';
                 log('export failed:', message);
                 if (err?.stack) log('export stack:', err.stack);
                 broadcastStatus({ tabId, phase: 'error', error: message });
                 sendResponse({ error: message });
             }
         } finally {
+            // Emit the console-only stats block, then drop the collector. Runs
+            // for every outcome (complete / empty / cancelled / error).
+            getExportStats(tabId)?.log(Date.now(), statsOutcome, { filename: statsFilename });
+            endExportStats(tabId);
             activeExports.delete(tabId); void persistActiveExports();
         }
     })();
@@ -776,6 +812,8 @@ function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
             downloads,
             isFirefox,
             onStatus: (payload: Record<string, unknown>) => broadcastStatus({ ...payload, tabId }),
+            // Per-format output sizes for the console-only stats block.
+            onArtifact: (a: { format: string; bytes: number }) => getExportStats(tabId)?.addFormat(a.format, a.bytes),
         };
         // PDF knobs — plumb through to every build path that might
         // produce a PDF. Safe to pass even when PDF isn't selected;
@@ -856,7 +894,13 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
 
     (async () => {
         const startedAt = Date.now();
+        beginExportStats(tabId, 'bundle', startedAt);
         updateActiveExport(tabId, { startedAt, phase: 'starting', lastStatus: undefined });
+        // Await the first snapshot write so a popup reopened right after the
+        // bundle starts can instant-paint the busy state instead of waiting on
+        // the GET_EXPORT_STATUS round-trip. See the single-export path for the
+        // full rationale. Later progress writes stay fire-and-forget.
+        await persistActiveExports();
         broadcastStatus({ tabId, phase: 'starting', startedAt });
 
         try {
@@ -865,6 +909,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
             const message = e?.message || String(e);
             broadcastStatus({ tabId, phase: 'error', error: message });
             sendResponse({ error: message });
+            endExportStats(tabId);
             activeExports.delete(tabId); void persistActiveExports();
             return;
         }
@@ -881,7 +926,16 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
         // bundle-root PARTIAL.txt + outer-zip filename suffix are the
         // signals we want users to see anyway.
         const partials: { folderName: string; conversationId: string; reason: 'network' | 'truncation' }[] = [];
+        // Set true at either cancel point so the stats finally below can
+        // label the outcome without threading it through every return.
+        let bundleCancelled = false;
 
+        // Outer try/finally: the bundle has many terminal returns (cancelled,
+        // empty, all-fail, success). Wrapping from here lets ONE finally emit
+        // the console-only stats block and clear the collector for every path.
+        // The accumulators above stay in scope so the outcome is derived, not
+        // threaded.
+        try {
         for (let i = 0; i < list.length; i++) {
             if (bundleStops.has(tabId)) break;
 
@@ -907,6 +961,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
             };
 
             let scrapeRes: ScrapeResult;
+            const chatScrapeStartedAt = Date.now();
             try {
                 scrapeRes = await requestScrape(tabId, perChatScrape);
             } catch (e: any) {
@@ -921,6 +976,14 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
 
             const totalMessages = Array.isArray(scrapeRes.messages) ? scrapeRes.messages.length : 0;
             broadcastStatus({ tabId, phase: 'scrape:complete', messages: totalMessages, ...bundleCtx });
+            // Record every scraped chat (including 0-message ones) for the
+            // console-only stats block.
+            getExportStats(tabId)?.addChat({
+                title: conv.title || undefined,
+                convId: conv.id,
+                messages: totalMessages,
+                scrapeMs: Date.now() - chatScrapeStartedAt,
+            });
 
             // 0-message API responses go to NO_HISTORY.txt at bundle root
             // rather than producing a per-chat folder of empty files. The
@@ -961,6 +1024,20 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                         });
                     },
                 });
+                // Per-format output sizes for the stats block. Each content
+                // file is named `messages.<ext>`, so the extension IS the
+                // format. Everything else (avatars/, images/) is summed into a
+                // distinct 'assets' line so the size breakdown is complete.
+                const chatStats = getExportStats(tabId);
+                if (chatStats) {
+                    let assetBytes = 0;
+                    for (const f of files) {
+                        const m = f.relativePath.match(/^messages\.([a-z]+)$/);
+                        if (m) chatStats.addFormat(m[1], f.data.length);
+                        else assetBytes += f.data.length;
+                    }
+                    if (assetBytes > 0) chatStats.addFormat('assets', assetBytes);
+                }
                 // Per-format resilience: keep the chat (with the formats that
                 // built) when only some formats failed; drop it only if every
                 // format failed. Each failed format is still listed in
@@ -993,6 +1070,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
         // The user said stop; producing half a bundle would be confusing
         // and risks shipping output the user didn't sanity-check.
         if (cancelled) {
+            bundleCancelled = true;
             broadcastStatus({ tabId, phase: 'cancelled' });
             sendResponse({ cancelled: true });
             activeExports.delete(tabId); void persistActiveExports();
@@ -1165,6 +1243,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                 ? await waitForDownloadComplete(buildRes.id, 60_000)
                 : true;
             if (!downloadOk) {
+                bundleCancelled = true;
                 broadcastStatus({ tabId, phase: 'cancelled' });
                 sendResponse({ cancelled: true });
                 return;
@@ -1227,6 +1306,20 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
             sendResponse({ error: message });
         } finally {
             activeExports.delete(tabId); void persistActiveExports();
+        }
+        } finally {
+            // Derive the outcome from the accumulators rather than threading a
+            // flag through every return: cancelled wins, then truly-empty, then
+            // all-failed, otherwise complete (covers the no-history-only save).
+            const outcome = bundleCancelled
+                ? 'cancelled'
+                : (entries.length === 0 && failures.length === 0 && noHistory.length === 0)
+                    ? 'empty'
+                    : (entries.length === 0 && failures.length > 0)
+                        ? 'failed'
+                        : 'complete';
+            getExportStats(tabId)?.log(Date.now(), outcome);
+            endExportStats(tabId);
         }
     })();
 }
@@ -1658,6 +1751,9 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
         if (typeof senderTabId === 'number' && cancelledTabs.has(senderTabId)) {
             return;
         }
+        // Stage timeline: the fetch sub-phases (api-fetch / images / avatars,
+        // plus the DOM-fallback scroll / extract) only pass through here.
+        getExportStats(senderTabId)?.markPhase(payload?.phase, Date.now());
         updateBadgeForProgress(payload);
         // Forward progress to popup for detailed status display
         try {

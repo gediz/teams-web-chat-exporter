@@ -27,6 +27,11 @@ export type BuildDownloadDeps = {
   downloads: DownloadsApi;
   isFirefox: boolean;
   onStatus?: (payload: { phase?: string; message?: string; filename?: string; messages?: number; messagesBuilt?: number; messagesTotal?: number }) => void;
+  // Reports each produced format's serialized byte size for console-only
+  // export stats. Optional and side-effect-free: when unset the build paths
+  // skip it entirely. For a multi-format single-chat bundle it fires once
+  // per format (the per-format content bytes, pre-zip).
+  onArtifact?: (artifact: { format: string; bytes: number }) => void;
 };
 
 type SingleFormat = 'json' | 'csv' | 'html' | 'txt' | 'pdf';
@@ -333,7 +338,7 @@ export async function buildAndDownload(
   options: BuildExportOptions,
 ) {
   const { messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false, downloadImages = false } = options;
-  const { downloads, onStatus } = deps;
+  const { downloads, onStatus, onArtifact } = deps;
 
   // PDF is fundamentally different from the text formats — it produces
   // binary bytes via pdf-lib, not a string, and its builder is async
@@ -348,6 +353,7 @@ export async function buildAndDownload(
       onStatus?.({ phase: 'build', filename, messages: messages.length, messagesBuilt: done, messagesTotal: total });
     }, toPdfOptions(options));
     onStatus?.({ phase: 'build', filename, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
+    onArtifact?.({ format: 'pdf', bytes: bytes.byteLength });
     const url = await blobToDownloadUrl(new Blob([bytes as BlobPart], { type: 'application/pdf' }), 'application/pdf');
     try {
       console.log(`[pdf-single] downloads.download calling: filename=${filename} bytes=${bytes.byteLength}`);
@@ -384,10 +390,9 @@ export async function buildAndDownload(
   const built = buildExportInternal({ messages, meta, format, embedAvatars, downloadImages }, mode);
   onStatus?.({ phase: 'build', filename: built.filename, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
 
-  const url = await blobToDownloadUrl(
-    new Blob(Array.isArray(built.content) ? built.content : [built.content], { type: built.mime }),
-    built.mime,
-  );
+  const blob = new Blob(Array.isArray(built.content) ? built.content : [built.content], { type: built.mime });
+  onArtifact?.({ format, bytes: blob.size });
+  const url = await blobToDownloadUrl(blob, built.mime);
   try {
     console.log(`[text-single] downloads.download calling: filename=${built.filename} format=${format}`);
     const id = await downloads.download({ url, filename: built.filename, saveAs });
@@ -424,7 +429,7 @@ export async function buildAndDownloadZip(
   deps: BuildDownloadDeps,
   { messages = [], meta = {}, embedAvatars = false, downloadImages = false, avatarMode = 'inline' }: BuildExportOptions,
 ) {
-  const { downloads, onStatus } = deps;
+  const { downloads, onStatus, onArtifact } = deps;
   // Show segment 4 active before the synchronous build/zip work begins so the
   // popup has a render tick to paint the indeterminate stripe.
   onStatus?.({ phase: 'build', messages: messages.length });
@@ -466,6 +471,7 @@ export async function buildAndDownloadZip(
     path: `${built.baseFolder}/index.html`,
     data: contentBytes,
   });
+  onArtifact?.({ format: 'html', bytes: contentBytes.length });
 
   for (const img of built.inlineImages) {
     const bytes = dataUrlToBytes(img.dataUrl);
@@ -475,6 +481,13 @@ export async function buildAndDownloadZip(
       data: bytes,
     });
   }
+
+  // Report bundled image + avatar bytes as a distinct 'assets' line. The
+  // 'html' line above is the index.html document only, so without this the
+  // stats would undersell a files-mode zip whose size is image-dominated.
+  let assetBytes = 0;
+  for (const f of files) if (f.path !== `${built.baseFolder}/index.html`) assetBytes += f.data.length;
+  if (assetBytes > 0) onArtifact?.({ format: 'assets', bytes: assetBytes });
 
   const zipBlob = await buildZipAsync(files, 'zip-html-images');
   const zipName = `${built.baseFolder}.zip`;
@@ -504,7 +517,7 @@ export async function buildAndDownloadBundle(
   options: BuildBundleOptions,
 ) {
   const { messages = [], meta = {}, formats, embedAvatars = false, downloadImages = false, avatarMode = 'inline' } = options;
-  const { downloads, onStatus } = deps;
+  const { downloads, onStatus, onArtifact } = deps;
   if (!formats.length) throw new Error('buildAndDownloadBundle: formats is empty');
 
   onStatus?.({ phase: 'build', messages: messages.length });
@@ -560,6 +573,7 @@ export async function buildAndDownloadBundle(
         toPdfOptions(options),
       );
       files.push({ path: `${baseFolder}/${baseFolder}.pdf`, data: bytes });
+      onArtifact?.({ format: 'pdf', bytes: bytes.byteLength });
       continue;
     }
 
@@ -586,6 +600,7 @@ export async function buildAndDownloadBundle(
       offset += part.length;
     }
     files.push({ path: `${baseFolder}/${perFormatName}`, data: contentBytes });
+    onArtifact?.({ format, bytes: contentBytes.length });
 
     // Inline images only come from the HTML+files build. Dedupe in case
     // some hypothetical future format also produces them.
@@ -598,6 +613,15 @@ export async function buildAndDownloadBundle(
       files.push({ path, data: bytes });
     }
   }
+
+  // Bundled image + avatar bytes as a distinct 'assets' line (the per-format
+  // lines above are document bytes only). Document files are named
+  // <baseFolder>/<baseFolder>.<ext>; everything else (avatars/, images/) is an
+  // asset.
+  let assetBytes = 0;
+  const docPrefix = `${baseFolder}/${baseFolder}.`;
+  for (const f of files) if (!f.path.startsWith(docPrefix)) assetBytes += f.data.length;
+  if (assetBytes > 0) onArtifact?.({ format: 'assets', bytes: assetBytes });
 
   onStatus?.({ phase: 'build', filename: `${baseFolder}.zip`, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
 
