@@ -566,7 +566,9 @@
   let historyEntries: HistoryEntry[] = [];
   let savedGroups: SavedGroup[] = [];
 
-  // Saved chat groups: loaded on mount; mutated via the picker's Groups menu.
+  // Saved selection presets: loaded on mount; mutated via the picker's Presets
+  // menu. Internal identifiers and the storage key keep the legacy "group"
+  // name so existing saved data survives; only the UI label changed.
   // Apply is handled inside the picker (re-selects); save/remove come here so
   // persistence stays in App alongside the other storage writes.
   const refreshSavedGroups = async () => {

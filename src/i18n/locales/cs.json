@@ -271,13 +271,13 @@
   "errors.offline": "Žádná síť. Znovu se připojte a zkuste to znovu.",
   "history.partialMeta": "částečné",
   "picker.clearFilter": "Clear",
-  "groups.button": "Groups",
-  "groups.save": "Save selection ({n}) as group…",
-  "groups.namePlaceholder": "Group name…",
+  "groups.button": "Předvolby",
+  "groups.save": "Uložit výběr ({n}) jako předvolbu…",
+  "groups.namePlaceholder": "Název předvolby…",
   "groups.confirm": "Save",
   "groups.apply": "Apply",
-  "groups.delete": "Delete group",
-  "groups.empty": "No saved groups yet",
+  "groups.delete": "Odstranit předvolbu",
+  "groups.empty": "Zatím žádné uložené předvolby",
   "groups.chats": "{n} chats",
   "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

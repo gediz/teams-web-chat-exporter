@@ -271,13 +271,13 @@
   "errors.offline": "ネットワークなし。再接続してやり直してください。",
   "history.partialMeta": "部分的",
   "picker.clearFilter": "Clear",
-  "groups.button": "Groups",
-  "groups.save": "Save selection ({n}) as group…",
-  "groups.namePlaceholder": "Group name…",
+  "groups.button": "プリセット",
+  "groups.save": "選択中（{n} 件）をプリセットとして保存…",
+  "groups.namePlaceholder": "プリセット名…",
   "groups.confirm": "Save",
   "groups.apply": "Apply",
-  "groups.delete": "Delete group",
-  "groups.empty": "No saved groups yet",
+  "groups.delete": "プリセットを削除",
+  "groups.empty": "保存済みのプリセットはまだありません",
   "groups.chats": "{n} chats",
   "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

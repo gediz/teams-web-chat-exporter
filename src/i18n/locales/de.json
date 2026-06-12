@@ -271,13 +271,13 @@
   "errors.offline": "Kein Netzwerk. Bitte erneut verbinden.",
   "history.partialMeta": "unvollständig",
   "picker.clearFilter": "Clear",
-  "groups.button": "Groups",
-  "groups.save": "Save selection ({n}) as group…",
-  "groups.namePlaceholder": "Group name…",
+  "groups.button": "Vorlagen",
+  "groups.save": "Auswahl ({n}) als Vorlage speichern…",
+  "groups.namePlaceholder": "Name der Vorlage…",
   "groups.confirm": "Save",
   "groups.apply": "Apply",
-  "groups.delete": "Delete group",
-  "groups.empty": "No saved groups yet",
+  "groups.delete": "Vorlage löschen",
+  "groups.empty": "Noch keine Vorlagen gespeichert",
   "groups.chats": "{n} chats",
   "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

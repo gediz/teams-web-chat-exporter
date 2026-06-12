@@ -271,13 +271,13 @@
   "errors.offline": "Şəbəkə yoxdur. Yenidən qoşulub yenidən cəhd et.",
   "history.partialMeta": "qismən",
   "picker.clearFilter": "Clear",
-  "groups.button": "Groups",
-  "groups.save": "Save selection ({n}) as group…",
-  "groups.namePlaceholder": "Group name…",
+  "groups.button": "Dəstlər",
+  "groups.save": "Seçimi ({n}) dəst kimi yadda saxla…",
+  "groups.namePlaceholder": "Dəst adı…",
   "groups.confirm": "Save",
   "groups.apply": "Apply",
-  "groups.delete": "Delete group",
-  "groups.empty": "No saved groups yet",
+  "groups.delete": "Dəsti sil",
+  "groups.empty": "Hələ saxlanmış dəst yoxdur",
   "groups.chats": "{n} chats",
   "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

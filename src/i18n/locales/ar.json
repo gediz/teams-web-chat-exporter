@@ -271,13 +271,13 @@
   "errors.offline": "لا توجد شبكة. أعد الاتصال وحاول مرة أخرى.",
   "history.partialMeta": "جزئي",
   "picker.clearFilter": "Clear",
-  "groups.button": "Groups",
-  "groups.save": "Save selection ({n}) as group…",
-  "groups.namePlaceholder": "Group name…",
+  "groups.button": "الإعدادات المسبقة",
+  "groups.save": "حفظ التحديد ({n}) كإعداد مسبق…",
+  "groups.namePlaceholder": "اسم الإعداد المسبق…",
   "groups.confirm": "Save",
   "groups.apply": "Apply",
-  "groups.delete": "Delete group",
-  "groups.empty": "No saved groups yet",
+  "groups.delete": "حذف الإعداد المسبق",
+  "groups.empty": "لا توجد إعدادات مسبقة محفوظة بعد",
   "groups.chats": "{n} chats",
   "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

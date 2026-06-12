@@ -271,13 +271,13 @@
   "errors.offline": "Nessuna rete. Riconnettiti e riprova.",
   "history.partialMeta": "parziale",
   "picker.clearFilter": "Clear",
-  "groups.button": "Groups",
-  "groups.save": "Save selection ({n}) as group…",
-  "groups.namePlaceholder": "Group name…",
+  "groups.button": "Preset",
+  "groups.save": "Salva selezione ({n}) come preset…",
+  "groups.namePlaceholder": "Nome del preset…",
   "groups.confirm": "Save",
   "groups.apply": "Apply",
-  "groups.delete": "Delete group",
-  "groups.empty": "No saved groups yet",
+  "groups.delete": "Elimina preset",
+  "groups.empty": "Nessun preset salvato",
   "groups.chats": "{n} chats",
   "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

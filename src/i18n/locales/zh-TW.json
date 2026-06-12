@@ -271,13 +271,13 @@
   "errors.offline": "無網路。請重新連線後再試。",
   "history.partialMeta": "部分",
   "picker.clearFilter": "Clear",
-  "groups.button": "Groups",
-  "groups.save": "Save selection ({n}) as group…",
-  "groups.namePlaceholder": "Group name…",
+  "groups.button": "組合",
+  "groups.save": "將所選 ({n}) 儲存為組合…",
+  "groups.namePlaceholder": "組合名稱…",
   "groups.confirm": "Save",
   "groups.apply": "Apply",
-  "groups.delete": "Delete group",
-  "groups.empty": "No saved groups yet",
+  "groups.delete": "刪除組合",
+  "groups.empty": "尚無已儲存的組合",
   "groups.chats": "{n} chats",
   "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

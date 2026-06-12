@@ -59,7 +59,7 @@
     class:active={open}
     aria-haspopup="menu"
     aria-expanded={open}
-    title={t('groups.button', {}, lang) || 'Groups'}
+    title={t('groups.button', {}, lang) || 'Presets'}
     on:click|stopPropagation={toggle}
   >
     <span>{t('groups.button', {}, lang) || 'Groups'}</span>
@@ -76,7 +76,7 @@
             disabled={selectionCount === 0}
             on:click={startNaming}
           >
-            {t('groups.save', { n: selectionCount }, lang) || `Save selection (${selectionCount}) as group…`}
+            {t('groups.save', { n: selectionCount }, lang) || `Save selection (${selectionCount}) as preset…`}
           </button>
         {:else}
           <div class="groups-name-row">
@@ -84,7 +84,7 @@
               type="text"
               bind:value={name}
               bind:this={nameInputEl}
-              placeholder={t('groups.namePlaceholder', {}, lang) || 'Group name…'}
+              placeholder={t('groups.namePlaceholder', {}, lang) || 'Preset name…'}
               on:keydown={(e) => { if (e.key === 'Enter') confirmSave(); }}
             />
             <button type="button" class="groups-confirm" on:click={confirmSave}>
@@ -95,7 +95,7 @@
       </div>
 
       {#if groups.length === 0}
-        <div class="groups-empty">{t('groups.empty', {}, lang) || 'No saved groups yet'}</div>
+        <div class="groups-empty">{t('groups.empty', {}, lang) || 'No saved presets yet'}</div>
       {:else}
         {#each groups as g (g.id)}
           <div class="groups-row">
@@ -109,7 +109,7 @@
             <button
               type="button"
               class="groups-del"
-              title={t('groups.delete', {}, lang) || 'Delete group'}
+              title={t('groups.delete', {}, lang) || 'Delete preset'}
               on:click={() => dispatch('remove', g.id)}
             >
               <X size={13} />

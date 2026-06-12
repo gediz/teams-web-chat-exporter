@@ -271,13 +271,13 @@
   "errors.offline": "אין רשת. התחבר מחדש ונסה שוב.",
   "history.partialMeta": "חלקי",
   "picker.clearFilter": "Clear",
-  "groups.button": "Groups",
-  "groups.save": "Save selection ({n}) as group…",
-  "groups.namePlaceholder": "Group name…",
+  "groups.button": "ערכות",
+  "groups.save": "שמור את הבחירה ({n}) כערכה…",
+  "groups.namePlaceholder": "שם הערכה…",
   "groups.confirm": "Save",
   "groups.apply": "Apply",
-  "groups.delete": "Delete group",
-  "groups.empty": "No saved groups yet",
+  "groups.delete": "מחק ערכה",
+  "groups.empty": "עדיין אין ערכות שמורות",
   "groups.chats": "{n} chats",
   "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

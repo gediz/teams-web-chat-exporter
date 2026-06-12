@@ -271,13 +271,13 @@
   "errors.offline": "Няма мрежа. Свържете се отново и опитайте.",
   "history.partialMeta": "частично",
   "picker.clearFilter": "Clear",
-  "groups.button": "Groups",
-  "groups.save": "Save selection ({n}) as group…",
-  "groups.namePlaceholder": "Group name…",
+  "groups.button": "Набори",
+  "groups.save": "Запази избора ({n}) като набор…",
+  "groups.namePlaceholder": "Име на набора…",
   "groups.confirm": "Save",
   "groups.apply": "Apply",
-  "groups.delete": "Delete group",
-  "groups.empty": "No saved groups yet",
+  "groups.delete": "Изтрий набора",
+  "groups.empty": "Все още няма запазени набори",
   "groups.chats": "{n} chats",
   "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

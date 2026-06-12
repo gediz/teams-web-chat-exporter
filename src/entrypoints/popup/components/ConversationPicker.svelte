@@ -54,8 +54,11 @@
   // current chat (matches the pre-v1.4.0 habit).
   export let collapsed = false;
 
-  // Saved chat groups (owned + persisted by App). The picker hosts the Groups
-  // menu in its head, forwards save/remove to App, and handles apply itself.
+  // Saved selection presets (owned + persisted by App). The picker hosts the
+  // Presets menu in its head, forwards save/remove to App, and handles apply
+  // itself. Internal identifiers keep the "group" name (and the storage key is
+  // unchanged) so existing saved data isn't orphaned; only the UI label is
+  // "Presets" to avoid colliding with the rail's "Groups" chat-type filter.
   export let savedGroups: SavedGroup[] = [];
 
   const dispatch = createEventDispatcher<{

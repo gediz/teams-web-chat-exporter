@@ -271,13 +271,13 @@
   "errors.offline": "नेटवर्क नहीं। दोबारा कनेक्ट करके फिर कोशिश करें।",
   "history.partialMeta": "आंशिक",
   "picker.clearFilter": "Clear",
-  "groups.button": "Groups",
-  "groups.save": "Save selection ({n}) as group…",
-  "groups.namePlaceholder": "Group name…",
+  "groups.button": "प्रीसेट",
+  "groups.save": "चयन ({n}) को प्रीसेट के रूप में सेव करें…",
+  "groups.namePlaceholder": "प्रीसेट का नाम…",
   "groups.confirm": "Save",
   "groups.apply": "Apply",
-  "groups.delete": "Delete group",
-  "groups.empty": "No saved groups yet",
+  "groups.delete": "प्रीसेट हटाएँ",
+  "groups.empty": "अभी कोई सहेजा गया प्रीसेट नहीं",
   "groups.chats": "{n} chats",
   "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

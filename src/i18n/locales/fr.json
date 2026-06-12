@@ -271,13 +271,13 @@
   "errors.offline": "Pas de réseau. Reconnectez-vous et réessayez.",
   "history.partialMeta": "partiel",
   "picker.clearFilter": "Clear",
-  "groups.button": "Groups",
-  "groups.save": "Save selection ({n}) as group…",
-  "groups.namePlaceholder": "Group name…",
+  "groups.button": "Préréglages",
+  "groups.save": "Enregistrer la sélection ({n}) comme préréglage…",
+  "groups.namePlaceholder": "Nom du préréglage…",
   "groups.confirm": "Save",
   "groups.apply": "Apply",
-  "groups.delete": "Delete group",
-  "groups.empty": "No saved groups yet",
+  "groups.delete": "Supprimer le préréglage",
+  "groups.empty": "Aucun préréglage enregistré",
   "groups.chats": "{n} chats",
   "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }
