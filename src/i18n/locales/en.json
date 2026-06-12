@@ -93,7 +93,7 @@
   "status.error": "Export failed.",
   "status.cancelling": "Cancelling…",
   "status.cancelled": "Export cancelled. Nothing was saved.",
-  "status.bundleProgress": "Chat {current} of {total}: {name}",
+  "status.bundleProgress": "Chat {current} of {total}",
   "status.bundleComplete": "Bundle export complete: {success} of {total} chats.",
   "status.bundleCompleteWithFailures": "Bundle export complete: {success} of {total} chats ({failed} failed).",
   "phase.messages": "Fetching messages",

@@ -230,7 +230,7 @@
   "picker.nSelected": "{n} নির্বাচিত",
   "picker.justNow": "এখন",
   "actions.exportBundle": "{n}টি চ্যাট রপ্তানি করুন",
-  "status.bundleProgress": "চ্যাট {current} / {total}: {name}",
+  "status.bundleProgress": "চ্যাট {current} / {total}",
   "status.bundleComplete": "বান্ডিল রপ্তানি সম্পূর্ণ: {total}টির মধ্যে {success}টি চ্যাট।",
   "status.bundleCompleteWithFailures": "বান্ডিল রপ্তানি সম্পূর্ণ: {total}টির মধ্যে {success}টি চ্যাট ({failed}টি ব্যর্থ)।",
   "picker.rail.sectionType": "ধরন",

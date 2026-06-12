@@ -230,7 +230,7 @@
   "picker.nSelected": "{n} kijelölve",
   "picker.justNow": "most",
   "actions.exportBundle": "{n} csevegés exportálása",
-  "status.bundleProgress": "Csevegés {current} / {total}: {name}",
+  "status.bundleProgress": "Csevegés {current} / {total}",
   "status.bundleComplete": "Csomagos exportálás kész: {total} csevegésből {success}.",
   "status.bundleCompleteWithFailures": "Csomagos exportálás kész: {total} csevegésből {success} ({failed} sikertelen).",
   "picker.rail.sectionType": "Típus",

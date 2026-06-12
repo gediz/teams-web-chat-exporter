@@ -230,7 +230,7 @@
   "picker.nSelected": "已选 {n} 项",
   "picker.justNow": "刚刚",
   "actions.exportBundle": "导出 {n} 个聊天",
-  "status.bundleProgress": "聊天 {current} / {total}：{name}",
+  "status.bundleProgress": "聊天 {current} / {total}",
   "status.bundleComplete": "批量导出完成：{total} 个聊天中的 {success} 个。",
   "status.bundleCompleteWithFailures": "批量导出完成:{total} 个聊天中的 {success} 个({failed} 个失败)。",
   "picker.rail.sectionType": "类型",

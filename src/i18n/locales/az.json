@@ -230,7 +230,7 @@
   "picker.nSelected": "{n} seçilib",
   "picker.justNow": "indi",
   "actions.exportBundle": "{n} söhbəti ixrac et",
-  "status.bundleProgress": "Söhbət {current} / {total}: {name}",
+  "status.bundleProgress": "Söhbət {current} / {total}",
   "status.bundleComplete": "Toplu ixrac tamamlandı: {total} söhbətdən {success}.",
   "status.bundleCompleteWithFailures": "Toplu ixrac tamamlandı: {total} söhbətdən {success} ({failed} uğursuz).",
   "picker.rail.sectionType": "Növ",

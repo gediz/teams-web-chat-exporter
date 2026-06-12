@@ -230,7 +230,7 @@
   "picker.nSelected": "{n} sélectionnés",
   "picker.justNow": "maintenant",
   "actions.exportBundle": "Exporter {n} discussions",
-  "status.bundleProgress": "Discussion {current} sur {total} : {name}",
+  "status.bundleProgress": "Discussion {current} sur {total}",
   "status.bundleComplete": "Export groupé terminé : {success} sur {total} discussions.",
   "status.bundleCompleteWithFailures": "Export groupé terminé : {success} sur {total} discussions ({failed} échouée(s)).",
   "picker.rail.sectionType": "Type",

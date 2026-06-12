@@ -230,7 +230,7 @@
   "picker.nSelected": "{n} ausgewählt",
   "picker.justNow": "jetzt",
   "actions.exportBundle": "{n} Chats exportieren",
-  "status.bundleProgress": "Chat {current} von {total}: {name}",
+  "status.bundleProgress": "Chat {current} von {total}",
   "status.bundleComplete": "Sammelexport abgeschlossen: {success} von {total} Chats.",
   "status.bundleCompleteWithFailures": "Sammelexport abgeschlossen: {success} von {total} Chats ({failed} fehlgeschlagen).",
   "picker.rail.sectionType": "Typ",

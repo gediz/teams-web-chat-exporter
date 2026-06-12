@@ -230,7 +230,7 @@
   "picker.nSelected": "{n} selecionados",
   "picker.justNow": "agora",
   "actions.exportBundle": "Exportar {n} conversas",
-  "status.bundleProgress": "Conversa {current} de {total}: {name}",
+  "status.bundleProgress": "Conversa {current} de {total}",
   "status.bundleComplete": "Exportação em lote concluída: {success} de {total} conversas.",
   "status.bundleCompleteWithFailures": "Exportação em lote concluída: {success} de {total} conversas ({failed} com falha).",
   "picker.rail.sectionType": "Tipo",

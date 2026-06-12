@@ -230,7 +230,7 @@
   "picker.nSelected": "{n} محدد",
   "picker.justNow": "الآن",
   "actions.exportBundle": "تصدير {n} محادثة",
-  "status.bundleProgress": "محادثة {current} من {total}: {name}",
+  "status.bundleProgress": "محادثة {current} من {total}",
   "status.bundleComplete": "اكتمل تصدير الحزمة: {success} من {total} محادثة.",
   "status.bundleCompleteWithFailures": "اكتمل تصدير الحزمة: {success} من {total} محادثة ({failed} فشل).",
   "picker.rail.sectionType": "النوع",

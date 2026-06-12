@@ -82,7 +82,7 @@
   "status.error": "Dışa aktarma başarısız.",
   "status.cancelling": "İptal ediliyor…",
   "status.cancelled": "Dışa aktarma iptal edildi. Hiçbir şey kaydedilmedi.",
-  "status.bundleProgress": "Sohbet {current} / {total}: {name}",
+  "status.bundleProgress": "Sohbet {current} / {total}",
   "status.bundleComplete": "Toplu dışa aktarma tamamlandı: {total} sohbetten {success} adedi.",
   "status.bundleCompleteWithFailures": "Toplu dışa aktarma tamamlandı: {total} sohbetten {success} adedi ({failed} başarısız).",
   "phase.messages": "Mesajlar alınıyor",

@@ -230,7 +230,7 @@
   "picker.nSelected": "เลือกแล้ว {n} รายการ",
   "picker.justNow": "ตอนนี้",
   "actions.exportBundle": "ส่งออก {n} แชท",
-  "status.bundleProgress": "แชท {current} จาก {total}: {name}",
+  "status.bundleProgress": "แชท {current} จาก {total}",
   "status.bundleComplete": "ส่งออกชุดเสร็จสิ้น: {success} จาก {total} แชท",
   "status.bundleCompleteWithFailures": "ส่งออกชุดเสร็จสิ้น: {success} จาก {total} แชท ({failed} ล้มเหลว)",
   "picker.rail.sectionType": "ประเภท",

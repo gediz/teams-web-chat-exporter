@@ -230,7 +230,7 @@
   "picker.nSelected": "{n} избрани",
   "picker.justNow": "сега",
   "actions.exportBundle": "Експортирай {n} чата",
-  "status.bundleProgress": "Чат {current} от {total}: {name}",
+  "status.bundleProgress": "Чат {current} от {total}",
   "status.bundleComplete": "Пакетен експорт готов: {success} от {total} чата.",
   "status.bundleCompleteWithFailures": "Пакетен експорт готов: {success} от {total} чата ({failed} с грешка).",
   "picker.rail.sectionType": "Тип",

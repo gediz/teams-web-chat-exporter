@@ -230,7 +230,7 @@
   "picker.nSelected": "{n} dipilih",
   "picker.justNow": "sekarang",
   "actions.exportBundle": "Eksport {n} sembang",
-  "status.bundleProgress": "Sembang {current} daripada {total}: {name}",
+  "status.bundleProgress": "Sembang {current} daripada {total}",
   "status.bundleComplete": "Eksport himpunan selesai: {success} daripada {total} sembang.",
   "status.bundleCompleteWithFailures": "Eksport himpunan selesai: {success} daripada {total} sembang ({failed} gagal).",
   "picker.rail.sectionType": "Jenis",

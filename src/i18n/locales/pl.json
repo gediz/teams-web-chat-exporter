@@ -230,7 +230,7 @@
   "picker.nSelected": "Wybrano {n}",
   "picker.justNow": "teraz",
   "actions.exportBundle": "Eksportuj {n} czatów",
-  "status.bundleProgress": "Czat {current} z {total}: {name}",
+  "status.bundleProgress": "Czat {current} z {total}",
   "status.bundleComplete": "Eksport zbiorczy ukończony: {success} z {total} czatów.",
   "status.bundleCompleteWithFailures": "Eksport zbiorczy ukończony: {success} z {total} czatów ({failed} nieudane).",
   "picker.rail.sectionType": "Typ",

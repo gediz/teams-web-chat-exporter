@@ -230,7 +230,7 @@
   "picker.nSelected": "{n}개 선택됨",
   "picker.justNow": "방금",
   "actions.exportBundle": "{n}개 채팅 내보내기",
-  "status.bundleProgress": "채팅 {current} / {total}: {name}",
+  "status.bundleProgress": "채팅 {current} / {total}",
   "status.bundleComplete": "번들 내보내기 완료: {total}개 채팅 중 {success}개.",
   "status.bundleCompleteWithFailures": "번들 내보내기 완료: {total}개 채팅 중 {success}개 ({failed}개 실패).",
   "picker.rail.sectionType": "유형",

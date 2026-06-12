@@ -230,7 +230,7 @@
   "picker.nSelected": "{n} चयनित",
   "picker.justNow": "अभी",
   "actions.exportBundle": "{n} चैट निर्यात करें",
-  "status.bundleProgress": "चैट {current} / {total}: {name}",
+  "status.bundleProgress": "चैट {current} / {total}",
   "status.bundleComplete": "बंडल निर्यात पूर्ण: {total} में से {success} चैट।",
   "status.bundleCompleteWithFailures": "बंडल निर्यात पूर्ण: {total} में से {success} चैट ({failed} विफल)।",
   "picker.rail.sectionType": "प्रकार",

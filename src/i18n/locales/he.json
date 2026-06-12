@@ -230,7 +230,7 @@
   "picker.nSelected": "{n} נבחרו",
   "picker.justNow": "עכשיו",
   "actions.exportBundle": "ייצא {n} צ'אטים",
-  "status.bundleProgress": "צ'אט {current} מתוך {total}: {name}",
+  "status.bundleProgress": "צ'אט {current} מתוך {total}",
   "status.bundleComplete": "ייצוא חבילה הסתיים: {success} מתוך {total} צ'אטים.",
   "status.bundleCompleteWithFailures": "ייצוא חבילה הסתיים: {success} מתוך {total} צ'אטים ({failed} נכשלו).",
   "picker.rail.sectionType": "סוג",

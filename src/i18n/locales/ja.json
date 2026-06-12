@@ -230,7 +230,7 @@
   "picker.nSelected": "{n} 件選択中",
   "picker.justNow": "たった今",
   "actions.exportBundle": "{n} 件のチャットをエクスポート",
-  "status.bundleProgress": "チャット {current} / {total}:{name}",
+  "status.bundleProgress": "チャット {current} / {total}",
   "status.bundleComplete": "バンドルエクスポート完了:{total} 件のうち {success} 件。",
   "status.bundleCompleteWithFailures": "バンドルエクスポート完了:{total} 件のうち {success} 件({failed} 件失敗)。",
   "picker.rail.sectionType": "種類",

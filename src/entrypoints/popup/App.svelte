@@ -646,12 +646,12 @@
   let segments: SegState[] = [null, null, null, null];
 
   // Bundle context — present while a multi-chat export is running. Drives
-  // the "Chat 3 of 12: <name>" prefix on the phase tracker label so the
-  // user sees per-chat progress AND overall position in the bundle.
+  // the "Chat 3 of 12" prefix on the phase tracker label so the user sees
+  // overall position in the bundle (the per-chat name was dropped to keep
+  // the one-line detail from overflowing).
   type BundleContext = {
     current: number;
     total: number;
-    name: string;
   };
   let bundleContext: BundleContext | null = null;
 
@@ -686,11 +686,14 @@
     const parts: string[] = [];
     if (bundleContext) {
       const lang = currentLang();
+      // Bundle prefix is just "Chat X of Y" now — the per-chat name was
+      // dropped from the phase label (it kept overflowing the one-line
+      // detail and the name is already visible in the picker).
       const prefix = t(
         'status.bundleProgress',
-        { current: bundleContext.current, total: bundleContext.total, name: bundleContext.name },
+        { current: bundleContext.current, total: bundleContext.total },
         lang,
-      ) || `Chat ${bundleContext.current} of ${bundleContext.total}: ${bundleContext.name}`;
+      ) || `Chat ${bundleContext.current} of ${bundleContext.total}`;
       parts.push(prefix);
     }
     parts.push(phaseBaseLabel);
@@ -819,9 +822,7 @@
     parts.push(targetLabel);
 
     // Format(s). For multi-format we list all selected, then suffix "(zip)"
-    // since the output is a bundle. For single-html with downloadImages
-    // we still produce a .zip — that gets added below alongside the
-    // images note so the wording stays familiar.
+    // since the output is a bundle.
     const labels = options.formats.map(f => t(`format.${f}`, {}, lang));
     const formatLabel = labels.join(", ");
     if (options.formats.length >= 2) {
@@ -836,38 +837,20 @@
       if (rangeLabel) parts.push(rangeLabel);
     }
 
-    // Include-options summary. Skip when every selected format is `txt` —
-    // none of these flags affect a TXT-only export.
-    const onlyTxt = options.formats.every(f => f === "txt");
-    if (!onlyTxt) {
-      const hasHtml = options.formats.includes("html");
-      const includes: string[] = [];
-      if (options.includeReplies) includes.push(t("summary.replies", {}, lang));
-      if (options.includeReactions)
-        includes.push(t("summary.reactions", {}, lang));
-      if (options.includeSystem) includes.push(t("summary.system", {}, lang));
-      if (options.embedAvatars) includes.push(t("summary.avatars", {}, lang));
-      if (hasHtml && options.downloadImages) {
-        includes.push(t("summary.images", {}, lang));
-        // Only append the explicit "zip" hint for the legacy single-HTML
-        // case; the multi-format suffix above already says "(zip)".
-        if (options.formats.length === 1) includes.push(t("summary.zip", {}, lang));
-      }
-      if (includes.length > 0) parts.push(includes.join(", "));
-    }
-
+    // The include-options toggle list (replies/reactions/system/avatars/
+    // images) used to be appended here. It was dropped: the line kept
+    // overflowing the one-line button detail, and the toggles are already
+    // visible right above the button. Summary is now just target • format •
+    // range.
     return parts.join(" • ");
   };
 
-  // Update summary when options change
+  // Update summary when options change. Only target, formats and the active
+  // quick-range feed the summary now (the include toggles were dropped), so
+  // those are the only reactive dependencies we touch here.
   $: {
     options.exportTarget;
     options.formats;
-    options.includeReplies;
-    options.includeReactions;
-    options.includeSystem;
-    options.embedAvatars;
-    options.downloadImages;
     quickActive;
     exportSummary = computeSummary();
   }
@@ -1075,12 +1058,11 @@
     // Capture bundle context from any status payload that carries it.
     // The SW broadcasts these fields on every per-chat status during a
     // bundle run; capturing them here lets refreshPhaseLabel render
-    // "Chat N of M: <name>" without a separate code path per phase.
+    // "Chat N of M" without a separate code path per phase.
     if (typeof msg?.bundleCurrentChat === 'number' && typeof msg?.bundleTotalChats === 'number') {
       bundleContext = {
         current: msg.bundleCurrentChat,
         total: msg.bundleTotalChats,
-        name: msg.bundleChatName ?? '',
       };
     }
     if (phase === "starting") {

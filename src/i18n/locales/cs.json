@@ -230,7 +230,7 @@
   "picker.nSelected": "{n} vybráno",
   "picker.justNow": "nyní",
   "actions.exportBundle": "Exportovat {n} chatů",
-  "status.bundleProgress": "Chat {current} z {total}: {name}",
+  "status.bundleProgress": "Chat {current} z {total}",
   "status.bundleComplete": "Hromadný export dokončen: {success} z {total} chatů.",
   "status.bundleCompleteWithFailures": "Hromadný export dokončen: {success} z {total} chatů ({failed} selhalo).",
   "picker.rail.sectionType": "Typ",
