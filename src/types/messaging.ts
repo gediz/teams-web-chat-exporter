@@ -164,6 +164,12 @@ export type ClearDiagnosticsLogsResponse = { ok: boolean };
 export type SetDiagLogPersistRequest = { type: 'SET_DIAG_LOG_PERSIST'; enabled: boolean };
 export type SetDiagLogPersistResponse = { ok: boolean };
 
+// Toggles whether the console-only [export-stats] line includes per-chat
+// detail (titles/convIds/per-chat stage split). Off by default; aggregates
+// only. Opt-in from the Diagnostics page for local perf debugging.
+export type SetDiagVerboseStatsRequest = { type: 'SET_DIAG_VERBOSE_STATS'; enabled: boolean };
+export type SetDiagVerboseStatsResponse = { ok: boolean };
+
 export type DiagnosticsProbeResult = {
   name: string;
   status: 'pass' | 'fail' | 'skipped';
@@ -231,7 +237,8 @@ export type RuntimeRequest =
   | GetDiagnosticsBgRequest
   | RunProbesBgRequest
   | ClearDiagnosticsLogsRequest
-  | SetDiagLogPersistRequest;
+  | SetDiagLogPersistRequest
+  | SetDiagVerboseStatsRequest;
 
 export type BackgroundIncomingMessage =
   | PingSWRequest
@@ -251,7 +258,8 @@ export type BackgroundIncomingMessage =
   | RunProbesBgRequest
   | DiagLogForwardRequest
   | ClearDiagnosticsLogsRequest
-  | SetDiagLogPersistRequest;
+  | SetDiagLogPersistRequest
+  | SetDiagVerboseStatsRequest;
 
 export type RuntimeResponse<T extends RuntimeRequest> =
   T extends PingSWRequest ? PingSWResponse :
@@ -265,4 +273,5 @@ export type RuntimeResponse<T extends RuntimeRequest> =
   T extends RunProbesBgRequest ? RunProbesBgResponse :
   T extends ClearDiagnosticsLogsRequest ? ClearDiagnosticsLogsResponse :
   T extends SetDiagLogPersistRequest ? SetDiagLogPersistResponse :
+  T extends SetDiagVerboseStatsRequest ? SetDiagVerboseStatsResponse :
   unknown;

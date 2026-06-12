@@ -60,6 +60,11 @@
   let persistFlushError: { ts: number; reason: string } | null = null;
   let persistBusy = false;
   let clearBusy = false;
+  // Verbose export-stats state, mirrored from the loaded option. Off keeps the
+  // [export-stats] console line ID-free; on adds per-chat detail for local
+  // perf debugging.
+  let verboseStatsEnabled = false;
+  let verboseStatsBusy = false;
   let summary: {
     env: EnvInfo;
     idb: IdbShape;
@@ -67,7 +72,11 @@
     logsMissing: string | null;
   } | null = null;
 
-  onMount(() => { void refresh(); });
+  onMount(() => {
+    void refresh();
+    // Verbose-stats reflects an option only (no BG round-trip needed).
+    void loadOptions(storage, DEFAULT_OPTIONS).then((o) => { verboseStatsEnabled = !!o.diagVerboseStats; });
+  });
 
   async function refresh() {
     state = 'loading';
@@ -442,6 +451,36 @@
     }
   }
 
+  async function onToggleVerbose(event: Event) {
+    if (verboseStatsBusy) return;
+    const desired = (event.target as HTMLInputElement).checked;
+    verboseStatsBusy = true;
+    try {
+      const previousEnabled = verboseStatsEnabled;
+      const opts = await loadOptions(storage, DEFAULT_OPTIONS);
+      await saveOptions(storage, { ...opts, diagVerboseStats: desired }, DEFAULT_OPTIONS);
+      try {
+        const resp = await runtimeSend(runtime, { type: 'SET_DIAG_VERBOSE_STATS', enabled: desired });
+        if (resp?.ok) {
+          verboseStatsEnabled = desired;
+        } else {
+          // BG rejected: revert both option storage and the checkbox so they
+          // don't drift apart at the next SW boot.
+          await saveOptions(storage, { ...opts, diagVerboseStats: previousEnabled }, DEFAULT_OPTIONS);
+          (event.target as HTMLInputElement).checked = previousEnabled;
+        }
+      } catch (innerErr) {
+        await saveOptions(storage, { ...opts, diagVerboseStats: previousEnabled }, DEFAULT_OPTIONS);
+        (event.target as HTMLInputElement).checked = previousEnabled;
+        throw innerErr;
+      }
+    } catch (e) {
+      errorMessage = e instanceof Error ? e.message : String(e);
+    } finally {
+      verboseStatsBusy = false;
+    }
+  }
+
   async function onClearLogs() {
     if (clearBusy) return;
     clearBusy = true;
@@ -726,6 +765,26 @@
           </div>
         {/if}
       {/if}
+    </div>
+
+    <div class="section-title">{t('diagnostics.verboseStats.title', {}, lang)}</div>
+    <div class="card stack">
+      <div class="row persist-row">
+        <label class="persist-toggle">
+          <input
+            type="checkbox"
+            checked={verboseStatsEnabled}
+            disabled={verboseStatsBusy}
+            on:change={onToggleVerbose}
+          />
+          <span class="persist-label">{t('diagnostics.verboseStats.toggle', {}, lang)}</span>
+        </label>
+      </div>
+      <div class="row persist-hint">
+        {verboseStatsEnabled
+          ? t('diagnostics.verboseStats.on', {}, lang)
+          : t('diagnostics.verboseStats.off', {}, lang)}
+      </div>
     </div>
 
     <div class="footer-note">

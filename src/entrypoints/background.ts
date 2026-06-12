@@ -60,6 +60,11 @@ const DIAG_FLUSH_DEBOUNCE_MS = 500;
 const DIAG_PREFIX_RE = /^\[[A-Za-z][A-Za-z0-9 _\-:]{0,40}\]/;
 const diagLogBuffer: DiagLogEntry[] = [];
 let diagLogPersistEnabled = false;
+// Opt-in (Options.diagVerboseStats, default false). When on, the
+// [export-stats] block includes per-chat detail (titles, convIds, per-chat
+// scrape-stage split); off, only the ID-free aggregates are logged. Toggled
+// from the Diagnostics page. Independent of log persistence.
+let diagVerboseStatsEnabled = false;
 let diagLogFlushTimer: ReturnType<typeof setTimeout> | null = null;
 // Tracks the most recent in-flight storage write so toggle-off can
 // await it before removing the storage key. Without this, an in-flight
@@ -151,6 +156,9 @@ async function restoreDiagBuffer() {
         const r = await chrome.storage.local.get([DIAG_LOG_STORAGE_KEY, 'teamsExporterOptions']);
         const opts = r['teamsExporterOptions'];
         diagLogPersistEnabled = !!opts?.diagLogPersist;
+        // Sync the verbose-stats flag regardless of persistence (the early
+        // return below only concerns the log buffer restore).
+        diagVerboseStatsEnabled = !!opts?.diagVerboseStats;
         if (!diagLogPersistEnabled) return;
         const stored = r[DIAG_LOG_STORAGE_KEY];
         if (!Array.isArray(stored) || stored.length === 0) return;
@@ -649,17 +657,19 @@ function handleExportWithScrape(
 
             broadcastStatus({ tabId, phase: 'scrape:start' });
             const scrapeStartedAt = Date.now();
+            getExportStats(tabId)?.beginChat(scrapeStartedAt);
             const scrapeRes = await requestScrape(tabId, scrapeOptions);
             const totalMessages = Array.isArray(scrapeRes.messages) ? scrapeRes.messages.length : 0;
             broadcastStatus({ tabId, phase: 'scrape:complete', messages: totalMessages });
             // One chat per single export. Title/convId come from the scrape
             // meta when present (no extra tab round-trip on the stats path).
+            const scrapeDoneAt = Date.now();
             getExportStats(tabId)?.addChat({
                 title: typeof scrapeRes.meta?.title === 'string' ? scrapeRes.meta.title : undefined,
                 convId: typeof scrapeRes.meta?.conversationId === 'string' ? scrapeRes.meta.conversationId : undefined,
                 messages: totalMessages,
-                scrapeMs: Date.now() - scrapeStartedAt,
-            });
+                scrapeMs: scrapeDoneAt - scrapeStartedAt,
+            }, scrapeDoneAt);
 
             if (totalMessages === 0) {
                 statsOutcome = 'empty';
@@ -790,7 +800,7 @@ function handleExportWithScrape(
         } finally {
             // Emit the console-only stats block, then drop the collector. Runs
             // for every outcome (complete / empty / cancelled / error).
-            getExportStats(tabId)?.log(Date.now(), statsOutcome, { filename: statsFilename });
+            getExportStats(tabId)?.log(Date.now(), statsOutcome, { filename: statsFilename, verbose: diagVerboseStatsEnabled });
             endExportStats(tabId);
             activeExports.delete(tabId); void persistActiveExports();
         }
@@ -962,6 +972,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
 
             let scrapeRes: ScrapeResult;
             const chatScrapeStartedAt = Date.now();
+            getExportStats(tabId)?.beginChat(chatScrapeStartedAt);
             try {
                 scrapeRes = await requestScrape(tabId, perChatScrape);
             } catch (e: any) {
@@ -978,12 +989,13 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
             broadcastStatus({ tabId, phase: 'scrape:complete', messages: totalMessages, ...bundleCtx });
             // Record every scraped chat (including 0-message ones) for the
             // console-only stats block.
+            const chatScrapeDoneAt = Date.now();
             getExportStats(tabId)?.addChat({
                 title: conv.title || undefined,
                 convId: conv.id,
                 messages: totalMessages,
-                scrapeMs: Date.now() - chatScrapeStartedAt,
-            });
+                scrapeMs: chatScrapeDoneAt - chatScrapeStartedAt,
+            }, chatScrapeDoneAt);
 
             // 0-message API responses go to NO_HISTORY.txt at bundle root
             // rather than producing a per-chat folder of empty files. The
@@ -1318,7 +1330,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                     : (entries.length === 0 && failures.length > 0)
                         ? 'failed'
                         : 'complete';
-            getExportStats(tabId)?.log(Date.now(), outcome);
+            getExportStats(tabId)?.log(Date.now(), outcome, { verbose: diagVerboseStatsEnabled });
             endExportStats(tabId);
         }
     })();
@@ -1665,6 +1677,15 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
             }
             sendResponse({ ok: true });
         })();
+        return true;
+    }
+
+    if (msg.type === 'SET_DIAG_VERBOSE_STATS') {
+        // The popup already saved the option; mirror it into the BG runtime
+        // flag so the next export's [export-stats] line reflects it without
+        // waiting for an SW restart. No buffer side effects.
+        diagVerboseStatsEnabled = !!msg.enabled;
+        sendResponse({ ok: true });
         return true;
     }
 

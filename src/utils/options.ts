@@ -88,6 +88,11 @@ export type Options = {
   // so logs survive service-worker eviction. Off by default; users who
   // want richer support data enable it via the Diagnostics page.
   diagLogPersist: boolean;
+  // Opt-in: include per-chat detail (titles, convIds, per-chat scrape-stage
+  // split) in the console-only [export-stats] line. Off by default so the line
+  // stays ID-free and safe to share; enabled from the Diagnostics page for
+  // local performance debugging.
+  diagVerboseStats: boolean;
 };
 
 // Storage shape kept compatible with the pre-multi-format release: older
@@ -192,6 +197,7 @@ export const DEFAULT_OPTIONS: Options = {
   onboardingDismissed: false,
   imageFetchFallback: false,
   diagLogPersist: false,
+  diagVerboseStats: false,
 };
 
 const VALID_FORMATS: readonly OptionFormat[] = ['json', 'csv', 'html', 'txt', 'pdf'];
@@ -263,6 +269,9 @@ const normalizeOptions = (raw: LegacyOptions, defaults: Options = DEFAULT_OPTION
   }
   if (typeof merged.diagLogPersist !== 'boolean') {
     merged.diagLogPersist = defaults.diagLogPersist;
+  }
+  if (typeof merged.diagVerboseStats !== 'boolean') {
+    merged.diagVerboseStats = defaults.diagVerboseStats;
   }
   return merged;
 };

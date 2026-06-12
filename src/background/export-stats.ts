@@ -28,8 +28,21 @@ const PHASE_TO_STAGE: Readonly<Record<string, ButtonStage>> = {
   build: 'file',
 };
 
+// The three scrape stages that are bounded by a single chat's
+// scrape:start -> scrape:complete window, so they can be attributed per chat.
+// 'file' (build) happens AFTER the scrape, so it stays in the global total only.
+type ScrapeStage = 'messages' | 'images' | 'people';
+
 type FormatBytes = { format: string; bytes: number };
-type ChatStat = { title?: string; convId?: string; messages: number; scrapeMs: number };
+type ChatStat = {
+  title?: string;
+  convId?: string;
+  messages: number;
+  scrapeMs: number;
+  // Per-chat scrape-stage split, present once a chat has been opened with
+  // beginChat. Only logged when verbose mode is on (see log()).
+  stageMs?: Record<ScrapeStage, number>;
+};
 
 export class ExportStats {
   readonly kind: 'single' | 'bundle';
@@ -42,6 +55,10 @@ export class ExportStats {
   };
   private curStage: ButtonStage | null = null;
   private curStageStart = 0;
+  // Per-chat scrape-stage accumulator. Non-null between beginChat
+  // (scrape:start) and addChat (scrape:complete); markPhase banks the
+  // fetch stages into it alongside the global total.
+  private curChatStages: Record<ScrapeStage, number> | null = null;
   private readonly formats: FormatBytes[] = [];
   private readonly chats: ChatStat[] = [];
 
@@ -61,14 +78,42 @@ export class ExportStats {
     const stage = PHASE_TO_STAGE[phase];
     if (!stage || stage === this.curStage) return;
     if (this.curStage) {
-      this.stageMs[this.curStage] += Math.max(0, now - this.curStageStart);
+      const d = Math.max(0, now - this.curStageStart);
+      this.stageMs[this.curStage] += d;
+      // 'file' (build) runs after a chat's scrape window, when curChatStages
+      // is already closed, so it never reaches the per-chat split.
+      if (this.curChatStages && this.curStage !== 'file') {
+        this.curChatStages[this.curStage] += d;
+      }
     }
     this.curStage = stage;
     this.curStageStart = now;
   }
 
-  addChat(chat: ChatStat): void {
-    this.chats.push(chat);
+  // Open a fresh per-chat scrape-stage accumulator at a chat's scrape:start.
+  // First banks any still-open stage (the PREVIOUS chat's trailing build
+  // phase) into the global total only, since that chat is already finalized.
+  beginChat(now: number): void {
+    if (this.curStage) {
+      this.stageMs[this.curStage] += Math.max(0, now - this.curStageStart);
+      this.curStage = null;
+    }
+    this.curChatStages = { messages: 0, images: 0, people: 0 };
+  }
+
+  // Finalize a chat at scrape:complete. Flushes the trailing fetch stage into
+  // both the global total and this chat's split, then closes the stage so the
+  // gap until the build phase isn't misattributed to a fetch stage.
+  addChat(chat: Omit<ChatStat, 'stageMs'>, now: number): void {
+    if (this.curStage && this.curStage !== 'file') {
+      const d = Math.max(0, now - this.curStageStart);
+      this.stageMs[this.curStage] += d;
+      if (this.curChatStages) this.curChatStages[this.curStage] += d;
+      this.curStage = null;
+    }
+    const stageMs = this.curChatStages ? { ...this.curChatStages } : undefined;
+    this.chats.push({ ...chat, stageMs });
+    this.curChatStages = null;
   }
 
   // Per-format output size. Keys are the document formats (json/csv/html/txt/
@@ -85,7 +130,16 @@ export class ExportStats {
   // Bank the final open stage and emit the structured log line. `outcome`
   // distinguishes a clean finish from a cancel/empty/error so a short export
   // log isn't mistaken for a complete one.
-  log(now: number, outcome: string, extra: { messages?: number; outputBytes?: number; filename?: string } = {}): void {
+  // `verbose` gates the per-chat detail. When false (the default, every
+  // shipped build) only the ID-free aggregates are logged; when true (a
+  // deliberate, visible opt-in on the Diagnostics page) the block also carries
+  // per-chat titles, convIds and the scrape-stage split. The aggregates are
+  // safe to share; the per-chat block is not, which is why it is opt-in.
+  log(
+    now: number,
+    outcome: string,
+    extra: { messages?: number; outputBytes?: number; filename?: string; verbose?: boolean } = {},
+  ): void {
     if (this.curStage) {
       this.stageMs[this.curStage] += Math.max(0, now - this.curStageStart);
       this.curStage = null;
@@ -110,8 +164,9 @@ export class ExportStats {
       formatBytes,
       ...(extra.outputBytes != null ? { outputBytes: extra.outputBytes } : {}),
       ...(extra.filename ? { filename: extra.filename } : {}),
-      // Per-chat detail last so the summary fields read first in the console.
-      perChat: this.chats,
+      // Per-chat detail only in verbose mode, and last so the aggregate summary
+      // reads first in the console.
+      ...(extra.verbose ? { perChat: this.chats } : {}),
     };
     // Single grouped line keyed so it's greppable in the SW console.
     console.log('[export-stats]', JSON.stringify(block));
