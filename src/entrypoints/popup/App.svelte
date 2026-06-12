@@ -18,9 +18,9 @@
     persistErrorMessage,
     removeHistoryEntry as removeHistoryEntryFromStorage,
     clearHistory as clearHistoryStorage,
-    loadSavedGroups,
-    saveSavedGroup,
-    removeSavedGroup,
+    loadSavedPresets,
+    saveSavedPreset,
+    removeSavedPreset,
     saveOptions,
     updateHistoryEntry,
     validateRange,
@@ -58,7 +58,7 @@
     StartBundleExportResponse,
     StopExportRequest,
   } from "../../types/messaging";
-  import type { ConversationKind, ConversationSummary, ExportStatusPayload, FolderSummary, HistoryEntry, SavedGroup } from "../../types/shared";
+  import type { ConversationKind, ConversationSummary, ExportStatusPayload, FolderSummary, HistoryEntry, SavedPreset } from "../../types/shared";
   import type {
     ListConversationsRequest, ListConversationsResponse,
     ListConversationsQuickRequest, ListConversationsQuickResponse,
@@ -564,32 +564,32 @@
   // (popup hears phase=complete or phase=cancelled), and after the user opens
   // the History page (which marks them all as seen).
   let historyEntries: HistoryEntry[] = [];
-  let savedGroups: SavedGroup[] = [];
+  let savedPresets: SavedPreset[] = [];
 
   // Saved selection presets: loaded on mount; mutated via the picker's Presets
   // menu. Internal identifiers and the storage key keep the legacy "group"
   // name so existing saved data survives; only the UI label changed.
   // Apply is handled inside the picker (re-selects); save/remove come here so
   // persistence stays in App alongside the other storage writes.
-  const refreshSavedGroups = async () => {
+  const refreshSavedPresets = async () => {
     if (!alive) return;
-    savedGroups = await loadSavedGroups(storage);
+    savedPresets = await loadSavedPresets(storage);
   };
-  async function onSaveGroup(name: string) {
+  async function onSavePreset(name: string) {
     const now = Date.now();
-    const group: SavedGroup = {
+    const preset: SavedPreset = {
       id: crypto.randomUUID(),
       name,
       convIds: [...selectedConversationIds],
       createdAt: now,
       updatedAt: now,
     };
-    await saveSavedGroup(storage, group);
-    await refreshSavedGroups();
+    await saveSavedPreset(storage, preset);
+    await refreshSavedPresets();
   }
-  async function onRemoveGroup(id: string) {
-    await removeSavedGroup(storage, id);
-    await refreshSavedGroups();
+  async function onRemovePreset(id: string) {
+    await removeSavedPreset(storage, id);
+    await refreshSavedPresets();
   }
   let lastHistoryViewedAt = 0;
   // Number of entries added since the last visit to the History page.
@@ -1510,7 +1510,7 @@
       if (!alive) return;
       options = loaded;
       __popupTrace('options-loaded');
-      void refreshSavedGroups();
+      void refreshSavedPresets();
       // Reconcile imageFetchFallback with the live <all_urls>
       // permission state on every popup open. Both Firefox and Chrome
       // can close the popup mid-await on focus-loss when the permission
@@ -1828,9 +1828,9 @@
         on:folderChange={(e) => persistFolderChoice(e.detail)}
         on:kindChange={(e) => persistKindChoice(e.detail)}
         on:collapseChange={(e) => persistPickerCollapsed(e.detail)}
-        {savedGroups}
-        on:saveGroup={(e) => onSaveGroup(e.detail)}
-        on:removeGroup={(e) => onRemoveGroup(e.detail)}
+        {savedPresets}
+        on:savePreset={(e) => onSavePreset(e.detail)}
+        on:removePreset={(e) => onRemovePreset(e.detail)}
       />
 
       <!-- Export button — plain in every state. Outcomes live in History page. -->

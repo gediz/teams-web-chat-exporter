@@ -2,16 +2,16 @@
   import { createEventDispatcher, tick } from 'svelte';
   import { X } from 'lucide-svelte';
   import { t } from '../../../i18n/i18n';
-  import type { SavedGroup } from '../../../types/shared';
+  import type { SavedPreset } from '../../../types/shared';
 
-  export let groups: SavedGroup[] = [];
+  export let presets: SavedPreset[] = [];
   export let selectionCount = 0;
   export let lang = 'en';
 
   const dispatch = createEventDispatcher<{
-    save: string;          // new group name (parent builds the SavedGroup from the live selection)
-    apply: SavedGroup;     // parent re-selects this group's convIds
-    remove: string;        // group id
+    save: string;          // new preset name (parent builds the SavedPreset from the live selection)
+    apply: SavedPreset;     // parent re-selects this preset's convIds
+    remove: string;        // preset id
   }>();
 
   let open = false;
@@ -52,64 +52,64 @@
 
 <svelte:window on:mousedown={onWindowPointerDown} on:keydown={onKeydown} />
 
-<div class="groups" bind:this={rootEl}>
+<div class="presets" bind:this={rootEl}>
   <button
     type="button"
-    class="groups-btn"
+    class="presets-btn"
     class:active={open}
     aria-haspopup="menu"
     aria-expanded={open}
-    title={t('groups.button', {}, lang) || 'Presets'}
+    title={t('presets.button', {}, lang) || 'Presets'}
     on:click|stopPropagation={toggle}
   >
-    <span>{t('groups.button', {}, lang) || 'Groups'}</span>
-    {#if groups.length > 0}<span class="groups-badge">{groups.length}</span>{/if}
+    <span>{t('presets.button', {}, lang) || 'Presets'}</span>
+    {#if presets.length > 0}<span class="presets-badge">{presets.length}</span>{/if}
   </button>
 
   {#if open}
-    <div class="groups-menu">
-      <div class="groups-save" class:naming>
+    <div class="presets-menu">
+      <div class="presets-save" class:naming>
         {#if !naming}
           <button
             type="button"
-            class="groups-save-trigger"
+            class="presets-save-trigger"
             disabled={selectionCount === 0}
             on:click={startNaming}
           >
-            {t('groups.save', { n: selectionCount }, lang) || `Save selection (${selectionCount}) as preset…`}
+            {t('presets.save', { n: selectionCount }, lang) || `Save selection (${selectionCount}) as preset…`}
           </button>
         {:else}
-          <div class="groups-name-row">
+          <div class="presets-name-row">
             <input
               type="text"
               bind:value={name}
               bind:this={nameInputEl}
-              placeholder={t('groups.namePlaceholder', {}, lang) || 'Preset name…'}
+              placeholder={t('presets.namePlaceholder', {}, lang) || 'Preset name…'}
               on:keydown={(e) => { if (e.key === 'Enter') confirmSave(); }}
             />
-            <button type="button" class="groups-confirm" on:click={confirmSave}>
-              {t('groups.confirm', {}, lang) || 'Save'}
+            <button type="button" class="presets-confirm" on:click={confirmSave}>
+              {t('presets.confirm', {}, lang) || 'Save'}
             </button>
           </div>
         {/if}
       </div>
 
-      {#if groups.length === 0}
-        <div class="groups-empty">{t('groups.empty', {}, lang) || 'No saved presets yet'}</div>
+      {#if presets.length === 0}
+        <div class="presets-empty">{t('presets.empty', {}, lang) || 'No saved presets yet'}</div>
       {:else}
-        {#each groups as g (g.id)}
-          <div class="groups-row">
-            <span class="groups-name" title={g.name}>{g.name}</span>
-            <span class="groups-count">
-              {t('groups.chats', { n: g.convIds.length }, lang) || `${g.convIds.length} chats`}
+        {#each presets as g (g.id)}
+          <div class="presets-row">
+            <span class="presets-name" title={g.name}>{g.name}</span>
+            <span class="presets-count">
+              {t('presets.chats', { n: g.convIds.length }, lang) || `${g.convIds.length} chats`}
             </span>
-            <button type="button" class="groups-apply" on:click={() => { dispatch('apply', g); close(); }}>
-              {t('groups.apply', {}, lang) || 'Apply'}
+            <button type="button" class="presets-apply" on:click={() => { dispatch('apply', g); close(); }}>
+              {t('presets.apply', {}, lang) || 'Apply'}
             </button>
             <button
               type="button"
-              class="groups-del"
-              title={t('groups.delete', {}, lang) || 'Delete preset'}
+              class="presets-del"
+              title={t('presets.delete', {}, lang) || 'Delete preset'}
               on:click={() => dispatch('remove', g.id)}
             >
               <X size={13} />
@@ -122,8 +122,8 @@
 </div>
 
 <style>
-  .groups { position: relative; display: inline-flex; }
-  .groups-btn {
+  .presets { position: relative; display: inline-flex; }
+  .presets-btn {
     border: 1px solid var(--color-border);
     background: var(--color-bg);
     color: var(--color-text);
@@ -138,13 +138,13 @@
     gap: 4px;
     white-space: nowrap;
   }
-  .groups-btn:hover,
-  .groups-btn.active {
+  .presets-btn:hover,
+  .presets-btn.active {
     border-color: var(--color-accent);
     color: var(--color-accent);
     background: var(--color-accent-light);
   }
-  .groups-badge {
+  .presets-badge {
     background: var(--color-accent);
     color: #fff;
     border-radius: 999px;
@@ -154,7 +154,7 @@
   }
   /* Capped to fit inside the picker-body (overflow:hidden), so the menu is
      never clipped at the bottom. */
-  .groups-menu {
+  .presets-menu {
     position: absolute;
     right: 0;
     top: calc(100% + 6px);
@@ -167,8 +167,8 @@
     box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.28);
     z-index: 40;
   }
-  .groups-save { padding: 8px 10px; border-bottom: 1px solid var(--color-border); }
-  .groups-save-trigger {
+  .presets-save { padding: 8px 10px; border-bottom: 1px solid var(--color-border); }
+  .presets-save-trigger {
     width: 100%;
     border: 1px solid var(--color-accent);
     background: var(--color-accent);
@@ -179,9 +179,9 @@
     font-size: 11px;
     cursor: pointer;
   }
-  .groups-save-trigger:disabled { opacity: 0.45; cursor: not-allowed; }
-  .groups-name-row { display: flex; gap: 6px; }
-  .groups-name-row input {
+  .presets-save-trigger:disabled { opacity: 0.45; cursor: not-allowed; }
+  .presets-name-row { display: flex; gap: 6px; }
+  .presets-name-row input {
     flex: 1;
     min-width: 0;
     border: 1px solid var(--color-border-hover);
@@ -193,7 +193,7 @@
     color: var(--color-text);
     outline: none;
   }
-  .groups-confirm {
+  .presets-confirm {
     border: 1px solid var(--color-accent);
     background: var(--color-accent);
     color: #fff;
@@ -203,8 +203,8 @@
     font-size: 11px;
     cursor: pointer;
   }
-  .groups-empty { padding: 10px; text-align: center; color: var(--color-subtle); font-size: 11px; }
-  .groups-row {
+  .presets-empty { padding: 10px; text-align: center; color: var(--color-subtle); font-size: 11px; }
+  .presets-row {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -212,10 +212,10 @@
     border-bottom: 1px solid var(--color-border);
     font-size: 12px;
   }
-  .groups-row:last-child { border-bottom: 0; }
-  .groups-name { flex: 1; min-width: 0; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .groups-count { color: var(--color-subtle); font-size: 11px; white-space: nowrap; }
-  .groups-apply {
+  .presets-row:last-child { border-bottom: 0; }
+  .presets-name { flex: 1; min-width: 0; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .presets-count { color: var(--color-subtle); font-size: 11px; white-space: nowrap; }
+  .presets-apply {
     border: 1px solid var(--color-accent);
     background: transparent;
     color: var(--color-accent);
@@ -225,8 +225,8 @@
     font-size: 11px;
     cursor: pointer;
   }
-  .groups-apply:hover { background: var(--color-accent-light); }
-  .groups-del {
+  .presets-apply:hover { background: var(--color-accent-light); }
+  .presets-del {
     border: 0;
     background: transparent;
     color: var(--color-subtle);
@@ -235,5 +235,5 @@
     display: inline-flex;
     align-items: center;
   }
-  .groups-del:hover { color: var(--color-danger); }
+  .presets-del:hover { color: var(--color-danger); }
 </style>

@@ -271,13 +271,13 @@
   "errors.offline": "Sem rede. Reconecte e tente de novo.",
   "history.partialMeta": "parcial",
   "picker.clearFilter": "Clear",
-  "groups.button": "Predefinições",
-  "groups.save": "Salvar seleção ({n}) como predefinição…",
-  "groups.namePlaceholder": "Nome da predefinição…",
-  "groups.confirm": "Save",
-  "groups.apply": "Apply",
-  "groups.delete": "Excluir predefinição",
-  "groups.empty": "Nenhuma predefinição salva ainda",
-  "groups.chats": "{n} chats",
-  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.button": "Predefinições",
+  "presets.save": "Salvar seleção ({n}) como predefinição…",
+  "presets.namePlaceholder": "Nome da predefinição…",
+  "presets.confirm": "Save",
+  "presets.apply": "Apply",
+  "presets.delete": "Excluir predefinição",
+  "presets.empty": "Nenhuma predefinição salva ainda",
+  "presets.chats": "{n} chats",
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

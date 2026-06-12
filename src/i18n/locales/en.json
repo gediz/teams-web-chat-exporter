@@ -271,13 +271,13 @@
   "settings.replayTour.hint": "Walk through the introduction tour again.",
   "settings.replayTour.btn": "Replay tour",
   "picker.clearFilter": "Clear",
-  "groups.button": "Presets",
-  "groups.save": "Save selection ({n}) as preset…",
-  "groups.namePlaceholder": "Preset name…",
-  "groups.confirm": "Save",
-  "groups.apply": "Apply",
-  "groups.delete": "Delete preset",
-  "groups.empty": "No saved presets yet",
-  "groups.chats": "{n} chats",
-  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.button": "Presets",
+  "presets.save": "Save selection ({n}) as preset…",
+  "presets.namePlaceholder": "Preset name…",
+  "presets.confirm": "Save",
+  "presets.apply": "Apply",
+  "presets.delete": "Delete preset",
+  "presets.empty": "No saved presets yet",
+  "presets.chats": "{n} chats",
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

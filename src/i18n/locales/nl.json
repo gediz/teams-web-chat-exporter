@@ -271,13 +271,13 @@
   "errors.offline": "Geen netwerk. Verbind opnieuw en probeer het nog eens.",
   "history.partialMeta": "gedeeltelijk",
   "picker.clearFilter": "Clear",
-  "groups.button": "Presets",
-  "groups.save": "Selectie ({n}) opslaan als preset…",
-  "groups.namePlaceholder": "Presetnaam…",
-  "groups.confirm": "Save",
-  "groups.apply": "Apply",
-  "groups.delete": "Preset verwijderen",
-  "groups.empty": "Nog geen presets opgeslagen",
-  "groups.chats": "{n} chats",
-  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.button": "Presets",
+  "presets.save": "Selectie ({n}) opslaan als preset…",
+  "presets.namePlaceholder": "Presetnaam…",
+  "presets.confirm": "Save",
+  "presets.apply": "Apply",
+  "presets.delete": "Preset verwijderen",
+  "presets.empty": "Nog geen presets opgeslagen",
+  "presets.chats": "{n} chats",
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

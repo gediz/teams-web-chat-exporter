@@ -271,13 +271,13 @@
   "errors.offline": "Brak sieci. Połącz ponownie i spróbuj jeszcze raz.",
   "history.partialMeta": "częściowy",
   "picker.clearFilter": "Clear",
-  "groups.button": "Zestawy",
-  "groups.save": "Zapisz wybór ({n}) jako zestaw…",
-  "groups.namePlaceholder": "Nazwa zestawu…",
-  "groups.confirm": "Save",
-  "groups.apply": "Apply",
-  "groups.delete": "Usuń zestaw",
-  "groups.empty": "Brak zapisanych zestawów",
-  "groups.chats": "{n} chats",
-  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.button": "Zestawy",
+  "presets.save": "Zapisz wybór ({n}) jako zestaw…",
+  "presets.namePlaceholder": "Nazwa zestawu…",
+  "presets.confirm": "Save",
+  "presets.apply": "Apply",
+  "presets.delete": "Usuń zestaw",
+  "presets.empty": "Brak zapisanych zestawów",
+  "presets.chats": "{n} chats",
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

@@ -261,7 +261,7 @@ export type ExportStatusPayload = {
 // A user-saved set of conversation ids for one-click batch re-selection.
 // `convIds` may reference chats not present in the current account/list
 // (resolved best-effort on apply); the picker reports how many matched.
-export type SavedGroup = {
+export type SavedPreset = {
   id: string;          // crypto.randomUUID()
   name: string;
   convIds: string[];

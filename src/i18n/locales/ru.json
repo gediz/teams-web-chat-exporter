@@ -271,13 +271,13 @@
   "errors.offline": "Нет сети. Восстановите соединение и попробуйте снова.",
   "history.partialMeta": "частично",
   "picker.clearFilter": "Clear",
-  "groups.button": "Пресеты",
-  "groups.save": "Сохранить выбор ({n}) как пресет…",
-  "groups.namePlaceholder": "Название пресета…",
-  "groups.confirm": "Save",
-  "groups.apply": "Apply",
-  "groups.delete": "Удалить пресет",
-  "groups.empty": "Сохранённых пресетов пока нет",
-  "groups.chats": "{n} chats",
-  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.button": "Пресеты",
+  "presets.save": "Сохранить выбор ({n}) как пресет…",
+  "presets.namePlaceholder": "Название пресета…",
+  "presets.confirm": "Save",
+  "presets.apply": "Apply",
+  "presets.delete": "Удалить пресет",
+  "presets.empty": "Сохранённых пресетов пока нет",
+  "presets.chats": "{n} chats",
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

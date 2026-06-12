@@ -6,9 +6,9 @@
     ChevronDown, CheckSquare, Square, Repeat, Trash2,
   } from 'lucide-svelte';
   import { t } from '../../../i18n/i18n';
-  import type { ConversationSummary, ConversationKind, FolderSummary, SavedGroup } from '../../../types/shared';
+  import type { ConversationSummary, ConversationKind, FolderSummary, SavedPreset } from '../../../types/shared';
   import { conversationDisplayName, conversationDisplaySubtitle } from '../../../utils/conversation-labels';
-  import SavedGroups from './SavedGroups.svelte';
+  import SavedPresets from './SavedPresets.svelte';
 
   export let lang = 'en';
   export let conversations: ConversationSummary[] = [];
@@ -56,10 +56,9 @@
 
   // Saved selection presets (owned + persisted by App). The picker hosts the
   // Presets menu in its head, forwards save/remove to App, and handles apply
-  // itself. Internal identifiers keep the "group" name (and the storage key is
-  // unchanged) so existing saved data isn't orphaned; only the UI label is
-  // "Presets" to avoid colliding with the rail's "Groups" chat-type filter.
-  export let savedGroups: SavedGroup[] = [];
+  // itself. "Presets" is the UI label chosen to avoid colliding with the rail's
+  // "Groups" chat-type filter.
+  export let savedPresets: SavedPreset[] = [];
 
   const dispatch = createEventDispatcher<{
     change: string[];           // fired whenever the selection set changes
@@ -67,8 +66,8 @@
     kindChange: 'all' | ConversationKind; // fired when the kind tab changes
     collapseChange: boolean;    // fired when the user toggles collapse
     retry: void;
-    saveGroup: string;          // new group name — App persists it from the live selection
-    removeGroup: string;        // saved-group id to delete
+    savePreset: string;          // new preset name — App persists it from the live selection
+    removePreset: string;        // saved-preset id to delete
   }>();
 
   function toggleCollapse() {
@@ -323,26 +322,26 @@
     setSelection([]);
   }
 
-  // Saved-group apply: re-select the group's convIds that still exist in this
-  // account (account-agnostic — a foreign group resolves to 0 matches). Shows
+  // Preset apply: re-select the preset's convIds that still exist in this
+  // account (account-agnostic — a foreign preset resolves to 0 matches). Shows
   // a transient banner only when some ids couldn't be matched.
-  let groupBanner = '';
-  let groupBannerTimer: ReturnType<typeof setTimeout> | undefined;
-  function applyGroup(g: SavedGroup) {
+  let presetBanner = '';
+  let presetBannerTimer: ReturnType<typeof setTimeout> | undefined;
+  function applyPreset(g: SavedPreset) {
     const available = new Set(conversations.map(c => c.id));
     const matched = g.convIds.filter(id => available.has(id));
     const missing = g.convIds.length - matched.length;
     setSelection(matched);
-    if (groupBannerTimer) clearTimeout(groupBannerTimer);
+    if (presetBannerTimer) clearTimeout(presetBannerTimer);
     if (missing > 0) {
-      groupBanner = t('groups.appliedPartial', { found: matched.length, total: g.convIds.length, missing }, lang)
+      presetBanner = t('presets.appliedPartial', { found: matched.length, total: g.convIds.length, missing }, lang)
         || `Applied ${matched.length} of ${g.convIds.length} (${missing} unavailable)`;
-      groupBannerTimer = setTimeout(() => { groupBanner = ''; }, 4000);
+      presetBannerTimer = setTimeout(() => { presetBanner = ''; }, 4000);
     } else {
-      groupBanner = '';
+      presetBanner = '';
     }
   }
-  onDestroy(() => { if (groupBannerTimer) clearTimeout(groupBannerTimer); });
+  onDestroy(() => { if (presetBannerTimer) clearTimeout(presetBannerTimer); });
 
   // Bulk targets: action-bar buttons act on what the user can actually
   // see right now (`filtered`), so the kind/folder/search composes
@@ -671,13 +670,13 @@
                   </button>
                 </div>
               {/if}
-              <SavedGroups
-                groups={savedGroups}
+              <SavedPresets
+                presets={savedPresets}
                 selectionCount={selectedIds.length}
                 {lang}
-                on:save={(e) => dispatch('saveGroup', e.detail)}
-                on:apply={(e) => applyGroup(e.detail)}
-                on:remove={(e) => dispatch('removeGroup', e.detail)}
+                on:save={(e) => dispatch('savePreset', e.detail)}
+                on:apply={(e) => applyPreset(e.detail)}
+                on:remove={(e) => dispatch('removePreset', e.detail)}
               />
             {:else}
               <span
@@ -691,8 +690,8 @@
             {/if}
           </div>
 
-          {#if groupBanner}
-            <div class="picker-group-banner" role="status">{groupBanner}</div>
+          {#if presetBanner}
+            <div class="picker-preset-banner" role="status">{presetBanner}</div>
           {/if}
 
           <div class="picker-search">
@@ -1404,9 +1403,9 @@
 
   :global(.spin) { animation: picker-spin 1s linear infinite; }
   @keyframes picker-spin { to { transform: rotate(360deg); } }
-  /* Transient banner shown when applying a saved group that referenced chats
+  /* Transient banner shown when applying a saved preset that referenced chats
      not present in this account. */
-  .picker-group-banner {
+  .picker-preset-banner {
     padding: 6px 12px;
     font-size: 11px;
     background: #fef3c7;

@@ -271,13 +271,13 @@
   "errors.offline": "Nincs hálózat. Csatlakozz újra, és próbáld meg ismét.",
   "history.partialMeta": "részleges",
   "picker.clearFilter": "Clear",
-  "groups.button": "Előbeállítások",
-  "groups.save": "Kijelölés ({n}) mentése előbeállításként…",
-  "groups.namePlaceholder": "Előbeállítás neve…",
-  "groups.confirm": "Save",
-  "groups.apply": "Apply",
-  "groups.delete": "Előbeállítás törlése",
-  "groups.empty": "Még nincs mentett előbeállítás",
-  "groups.chats": "{n} chats",
-  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.button": "Előbeállítások",
+  "presets.save": "Kijelölés ({n}) mentése előbeállításként…",
+  "presets.namePlaceholder": "Előbeállítás neve…",
+  "presets.confirm": "Save",
+  "presets.apply": "Apply",
+  "presets.delete": "Előbeállítás törlése",
+  "presets.empty": "Még nincs mentett előbeállítás",
+  "presets.chats": "{n} chats",
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

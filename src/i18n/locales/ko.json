@@ -271,13 +271,13 @@
   "errors.offline": "네트워크 없음. 다시 연결한 후 시도하세요.",
   "history.partialMeta": "부분",
   "picker.clearFilter": "Clear",
-  "groups.button": "프리셋",
-  "groups.save": "선택 항목({n}개)을 프리셋으로 저장…",
-  "groups.namePlaceholder": "프리셋 이름…",
-  "groups.confirm": "Save",
-  "groups.apply": "Apply",
-  "groups.delete": "프리셋 삭제",
-  "groups.empty": "저장된 프리셋이 없습니다",
-  "groups.chats": "{n} chats",
-  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.button": "프리셋",
+  "presets.save": "선택 항목({n}개)을 프리셋으로 저장…",
+  "presets.namePlaceholder": "프리셋 이름…",
+  "presets.confirm": "Save",
+  "presets.apply": "Apply",
+  "presets.delete": "프리셋 삭제",
+  "presets.empty": "저장된 프리셋이 없습니다",
+  "presets.chats": "{n} chats",
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

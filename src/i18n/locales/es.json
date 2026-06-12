@@ -271,13 +271,13 @@
   "errors.offline": "Sin red. Vuelve a conectarte e inténtalo.",
   "history.partialMeta": "parcial",
   "picker.clearFilter": "Clear",
-  "groups.button": "Preajustes",
-  "groups.save": "Guardar selección ({n}) como preajuste…",
-  "groups.namePlaceholder": "Nombre del preajuste…",
-  "groups.confirm": "Save",
-  "groups.apply": "Apply",
-  "groups.delete": "Eliminar preajuste",
-  "groups.empty": "Aún no hay preajustes guardados",
-  "groups.chats": "{n} chats",
-  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.button": "Preajustes",
+  "presets.save": "Guardar selección ({n}) como preajuste…",
+  "presets.namePlaceholder": "Nombre del preajuste…",
+  "presets.confirm": "Save",
+  "presets.apply": "Apply",
+  "presets.delete": "Eliminar preajuste",
+  "presets.empty": "Aún no hay preajustes guardados",
+  "presets.chats": "{n} chats",
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

@@ -271,13 +271,13 @@
   "errors.offline": "无网络。请重新连接后再试。",
   "history.partialMeta": "部分",
   "picker.clearFilter": "Clear",
-  "groups.button": "预设",
-  "groups.save": "将所选 ({n}) 保存为预设…",
-  "groups.namePlaceholder": "预设名称…",
-  "groups.confirm": "Save",
-  "groups.apply": "Apply",
-  "groups.delete": "删除预设",
-  "groups.empty": "暂无已保存的预设",
-  "groups.chats": "{n} chats",
-  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.button": "预设",
+  "presets.save": "将所选 ({n}) 保存为预设…",
+  "presets.namePlaceholder": "预设名称…",
+  "presets.confirm": "Save",
+  "presets.apply": "Apply",
+  "presets.delete": "删除预设",
+  "presets.empty": "暂无已保存的预设",
+  "presets.chats": "{n} chats",
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

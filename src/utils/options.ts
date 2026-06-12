@@ -1,5 +1,5 @@
 import { isoToLocalInput, localInputToISO } from './time';
-import type { HistoryEntry, SavedGroup } from '../types/shared';
+import type { HistoryEntry, SavedPreset } from '../types/shared';
 
 export type OptionFormat = 'json' | 'csv' | 'html' | 'txt' | 'pdf';
 export type Theme = 'light' | 'dark';
@@ -163,8 +163,10 @@ export const PICKER_KIND_STORAGE_KEY = 'teamsExporterPickerKind';
 // single Export click works exactly like pre-v1.4.0.
 export const PICKER_COLLAPSED_STORAGE_KEY = 'teamsExporterPickerCollapsed';
 
-// Saved chat groups — named selections the user can re-apply for batch export.
-export const SAVED_GROUPS_STORAGE_KEY = 'teamsExporterSavedGroups';
+// Saved selection presets — named chat selections the user can re-apply for
+// batch export (labelled "Presets" in the UI to avoid colliding with the
+// picker rail's "Groups" chat-type filter).
+export const SAVED_PRESETS_STORAGE_KEY = 'teamsExporterSavedPresets';
 
 export const DEFAULT_OPTIONS: Options = {
   lang: 'en',
@@ -422,14 +424,14 @@ export async function clearHistory(storage: ExtensionStorage): Promise<void> {
 }
 
 // =====================================================================
-// Saved chat groups — array under SAVED_GROUPS_STORAGE_KEY. A named set of
-// conversation ids the user re-applies for batch export. Account-agnostic:
-// a group from another account simply resolves to 0 matches on apply.
+// Saved selection presets — array under SAVED_PRESETS_STORAGE_KEY. A named set
+// of conversation ids the user re-applies for batch export. Account-agnostic:
+// a preset from another account simply resolves to 0 matches on apply.
 // =====================================================================
 
-const isSavedGroup = (raw: unknown): raw is SavedGroup => {
+const isSavedPreset = (raw: unknown): raw is SavedPreset => {
   if (!raw || typeof raw !== 'object') return false;
-  const g = raw as SavedGroup;
+  const g = raw as SavedPreset;
   return typeof g.id === 'string' && g.id.length > 0
       && typeof g.name === 'string'
       && Array.isArray(g.convIds)
@@ -438,35 +440,35 @@ const isSavedGroup = (raw: unknown): raw is SavedGroup => {
       && typeof g.updatedAt === 'number' && Number.isFinite(g.updatedAt);
 };
 
-export async function loadSavedGroups(storage: ExtensionStorage): Promise<SavedGroup[]> {
+export async function loadSavedPresets(storage: ExtensionStorage): Promise<SavedPreset[]> {
   try {
-    const res = await storage.local.get(SAVED_GROUPS_STORAGE_KEY);
-    const raw = res?.[SAVED_GROUPS_STORAGE_KEY];
+    const res = await storage.local.get(SAVED_PRESETS_STORAGE_KEY);
+    const raw = res?.[SAVED_PRESETS_STORAGE_KEY];
     if (!Array.isArray(raw)) return [];
-    return raw.filter(isSavedGroup);
+    return raw.filter(isSavedPreset);
   } catch {
     return [];
   }
 }
 
-// Upsert by id: an existing group with the same id is replaced in place
-// (rename/update); a new group is prepended (newest first).
-export async function saveSavedGroup(storage: ExtensionStorage, group: SavedGroup): Promise<void> {
+// Upsert by id: an existing preset with the same id is replaced in place
+// (rename/update); a new preset is prepended (newest first).
+export async function saveSavedPreset(storage: ExtensionStorage, preset: SavedPreset): Promise<void> {
   try {
-    const current = await loadSavedGroups(storage);
-    const next = current.some(g => g.id === group.id)
-      ? current.map(g => (g.id === group.id ? group : g))
-      : [group, ...current];
-    await storage.local.set({ [SAVED_GROUPS_STORAGE_KEY]: next });
+    const current = await loadSavedPresets(storage);
+    const next = current.some(g => g.id === preset.id)
+      ? current.map(g => (g.id === preset.id ? preset : g))
+      : [preset, ...current];
+    await storage.local.set({ [SAVED_PRESETS_STORAGE_KEY]: next });
   } catch {
-    // best-effort; losing a group on a storage error is acceptable
+    // best-effort; losing a preset on a storage error is acceptable
   }
 }
 
-export async function removeSavedGroup(storage: ExtensionStorage, id: string): Promise<void> {
+export async function removeSavedPreset(storage: ExtensionStorage, id: string): Promise<void> {
   try {
-    const current = await loadSavedGroups(storage);
-    await storage.local.set({ [SAVED_GROUPS_STORAGE_KEY]: current.filter(g => g.id !== id) });
+    const current = await loadSavedPresets(storage);
+    await storage.local.set({ [SAVED_PRESETS_STORAGE_KEY]: current.filter(g => g.id !== id) });
   } catch {
     // best-effort
   }

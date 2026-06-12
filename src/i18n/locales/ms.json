@@ -271,13 +271,13 @@
   "errors.offline": "Tiada rangkaian. Sambung semula dan cuba lagi.",
   "history.partialMeta": "separa",
   "picker.clearFilter": "Clear",
-  "groups.button": "Pratetap",
-  "groups.save": "Simpan pilihan ({n}) sebagai pratetap…",
-  "groups.namePlaceholder": "Nama pratetap…",
-  "groups.confirm": "Save",
-  "groups.apply": "Apply",
-  "groups.delete": "Padam pratetap",
-  "groups.empty": "Belum ada pratetap disimpan",
-  "groups.chats": "{n} chats",
-  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.button": "Pratetap",
+  "presets.save": "Simpan pilihan ({n}) sebagai pratetap…",
+  "presets.namePlaceholder": "Nama pratetap…",
+  "presets.confirm": "Save",
+  "presets.apply": "Apply",
+  "presets.delete": "Padam pratetap",
+  "presets.empty": "Belum ada pratetap disimpan",
+  "presets.chats": "{n} chats",
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

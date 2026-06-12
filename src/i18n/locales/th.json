@@ -271,13 +271,13 @@
   "errors.offline": "ไม่มีเครือข่าย เชื่อมต่อใหม่แล้วลองอีกครั้ง",
   "history.partialMeta": "บางส่วน",
   "picker.clearFilter": "Clear",
-  "groups.button": "พรีเซ็ต",
-  "groups.save": "บันทึกแชทที่เลือก ({n}) เป็นพรีเซ็ต…",
-  "groups.namePlaceholder": "ชื่อพรีเซ็ต…",
-  "groups.confirm": "Save",
-  "groups.apply": "Apply",
-  "groups.delete": "ลบพรีเซ็ต",
-  "groups.empty": "ยังไม่มีพรีเซ็ตที่บันทึกไว้",
-  "groups.chats": "{n} chats",
-  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.button": "พรีเซ็ต",
+  "presets.save": "บันทึกแชทที่เลือก ({n}) เป็นพรีเซ็ต…",
+  "presets.namePlaceholder": "ชื่อพรีเซ็ต…",
+  "presets.confirm": "Save",
+  "presets.apply": "Apply",
+  "presets.delete": "ลบพรีเซ็ต",
+  "presets.empty": "ยังไม่มีพรีเซ็ตที่บันทึกไว้",
+  "presets.chats": "{n} chats",
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

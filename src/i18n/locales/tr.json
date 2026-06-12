@@ -271,13 +271,13 @@
   "errors.offline": "Ağ yok. Tekrar bağlanıp deneyin.",
   "history.partialMeta": "kısmi",
   "picker.clearFilter": "Clear",
-  "groups.button": "Ön ayarlar",
-  "groups.save": "Seçimi ({n}) ön ayar olarak kaydet…",
-  "groups.namePlaceholder": "Ön ayar adı…",
-  "groups.confirm": "Save",
-  "groups.apply": "Apply",
-  "groups.delete": "Ön ayarı sil",
-  "groups.empty": "Henüz kayıtlı ön ayar yok",
-  "groups.chats": "{n} chats",
-  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.button": "Ön ayarlar",
+  "presets.save": "Seçimi ({n}) ön ayar olarak kaydet…",
+  "presets.namePlaceholder": "Ön ayar adı…",
+  "presets.confirm": "Save",
+  "presets.apply": "Apply",
+  "presets.delete": "Ön ayarı sil",
+  "presets.empty": "Henüz kayıtlı ön ayar yok",
+  "presets.chats": "{n} chats",
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

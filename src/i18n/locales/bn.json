@@ -271,13 +271,13 @@
   "errors.offline": "নেটওয়ার্ক নেই। আবার সংযোগ করে চেষ্টা করুন।",
   "history.partialMeta": "আংশিক",
   "picker.clearFilter": "Clear",
-  "groups.button": "প্রিসেট",
-  "groups.save": "নির্বাচন ({n}) প্রিসেট হিসেবে সংরক্ষণ করুন…",
-  "groups.namePlaceholder": "প্রিসেটের নাম…",
-  "groups.confirm": "Save",
-  "groups.apply": "Apply",
-  "groups.delete": "প্রিসেট মুছুন",
-  "groups.empty": "এখনো কোনো সংরক্ষিত প্রিসেট নেই",
-  "groups.chats": "{n} chats",
-  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.button": "প্রিসেট",
+  "presets.save": "নির্বাচন ({n}) প্রিসেট হিসেবে সংরক্ষণ করুন…",
+  "presets.namePlaceholder": "প্রিসেটের নাম…",
+  "presets.confirm": "Save",
+  "presets.apply": "Apply",
+  "presets.delete": "প্রিসেট মুছুন",
+  "presets.empty": "এখনো কোনো সংরক্ষিত প্রিসেট নেই",
+  "presets.chats": "{n} chats",
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }
