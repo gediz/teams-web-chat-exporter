@@ -1595,7 +1595,13 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
             if (diagLogPersistEnabled) {
                 try {
                     bytesUsed = await chrome.storage.local.getBytesInUse(DIAG_LOG_STORAGE_KEY);
-                } catch { /* leave bytesUsed null; UI renders 'unknown size' */ }
+                } catch {
+                    // Firefox only added storage.local.getBytesInUse in v132; on
+                    // older Firefox it rejects with "not supported". Fall back to
+                    // the in-memory byte counter (the same buffer we persist) so
+                    // the size shows on Firefox too instead of "?".
+                    bytesUsed = diagBufferBytes;
+                }
             } else {
                 bytesUsed = 0;
             }
