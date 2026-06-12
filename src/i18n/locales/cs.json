@@ -269,5 +269,15 @@
   "picker.stillLoading": "Teams stále načítá vaše chaty — zkuste obnovit za pár sekund.",
   "picker.stillLoading.retry": "Obnovit",
   "errors.offline": "Žádná síť. Znovu se připojte a zkuste to znovu.",
-  "history.partialMeta": "částečné"
+  "history.partialMeta": "částečné",
+  "picker.clearFilter": "Clear",
+  "groups.button": "Groups",
+  "groups.save": "Save selection ({n}) as group…",
+  "groups.namePlaceholder": "Group name…",
+  "groups.confirm": "Save",
+  "groups.apply": "Apply",
+  "groups.delete": "Delete group",
+  "groups.empty": "No saved groups yet",
+  "groups.chats": "{n} chats",
+  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

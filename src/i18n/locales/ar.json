@@ -269,5 +269,15 @@
   "picker.stillLoading": "لا يزال Teams يحمّل محادثاتك — حاول التحديث بعد بضع ثوانٍ.",
   "picker.stillLoading.retry": "تحديث",
   "errors.offline": "لا توجد شبكة. أعد الاتصال وحاول مرة أخرى.",
-  "history.partialMeta": "جزئي"
+  "history.partialMeta": "جزئي",
+  "picker.clearFilter": "Clear",
+  "groups.button": "Groups",
+  "groups.save": "Save selection ({n}) as group…",
+  "groups.namePlaceholder": "Group name…",
+  "groups.confirm": "Save",
+  "groups.apply": "Apply",
+  "groups.delete": "Delete group",
+  "groups.empty": "No saved groups yet",
+  "groups.chats": "{n} chats",
+  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

@@ -258,6 +258,17 @@ export type ExportStatusPayload = {
 // One row in the export history. Written on phase='complete'|'cancelled'
 // and rendered by the HistoryPage. Metadata only — no message content,
 // no avatars, no file bytes.
+// A user-saved set of conversation ids for one-click batch re-selection.
+// `convIds` may reference chats not present in the current account/list
+// (resolved best-effort on apply); the picker reports how many matched.
+export type SavedGroup = {
+  id: string;          // crypto.randomUUID()
+  name: string;
+  convIds: string[];
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type HistoryEntry = {
   // UUID; used as the React-style key when rendering and as the target
   // when the user removes a single entry.

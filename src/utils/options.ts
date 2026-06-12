@@ -1,5 +1,5 @@
 import { isoToLocalInput, localInputToISO } from './time';
-import type { HistoryEntry } from '../types/shared';
+import type { HistoryEntry, SavedGroup } from '../types/shared';
 
 export type OptionFormat = 'json' | 'csv' | 'html' | 'txt' | 'pdf';
 export type Theme = 'light' | 'dark';
@@ -162,6 +162,9 @@ export const PICKER_KIND_STORAGE_KEY = 'teamsExporterPickerKind';
 // into selectedConversationIds regardless of collapsed state, so a
 // single Export click works exactly like pre-v1.4.0.
 export const PICKER_COLLAPSED_STORAGE_KEY = 'teamsExporterPickerCollapsed';
+
+// Saved chat groups — named selections the user can re-apply for batch export.
+export const SAVED_GROUPS_STORAGE_KEY = 'teamsExporterSavedGroups';
 
 export const DEFAULT_OPTIONS: Options = {
   lang: 'en',
@@ -415,6 +418,57 @@ export async function clearHistory(storage: ExtensionStorage): Promise<void> {
     await storage.local.remove(HISTORY_STORAGE_KEY);
   } catch {
     // ignore
+  }
+}
+
+// =====================================================================
+// Saved chat groups — array under SAVED_GROUPS_STORAGE_KEY. A named set of
+// conversation ids the user re-applies for batch export. Account-agnostic:
+// a group from another account simply resolves to 0 matches on apply.
+// =====================================================================
+
+const isSavedGroup = (raw: unknown): raw is SavedGroup => {
+  if (!raw || typeof raw !== 'object') return false;
+  const g = raw as SavedGroup;
+  return typeof g.id === 'string' && g.id.length > 0
+      && typeof g.name === 'string'
+      && Array.isArray(g.convIds)
+      && g.convIds.every(x => typeof x === 'string')
+      && typeof g.createdAt === 'number' && Number.isFinite(g.createdAt)
+      && typeof g.updatedAt === 'number' && Number.isFinite(g.updatedAt);
+};
+
+export async function loadSavedGroups(storage: ExtensionStorage): Promise<SavedGroup[]> {
+  try {
+    const res = await storage.local.get(SAVED_GROUPS_STORAGE_KEY);
+    const raw = res?.[SAVED_GROUPS_STORAGE_KEY];
+    if (!Array.isArray(raw)) return [];
+    return raw.filter(isSavedGroup);
+  } catch {
+    return [];
+  }
+}
+
+// Upsert by id: an existing group with the same id is replaced in place
+// (rename/update); a new group is prepended (newest first).
+export async function saveSavedGroup(storage: ExtensionStorage, group: SavedGroup): Promise<void> {
+  try {
+    const current = await loadSavedGroups(storage);
+    const next = current.some(g => g.id === group.id)
+      ? current.map(g => (g.id === group.id ? group : g))
+      : [group, ...current];
+    await storage.local.set({ [SAVED_GROUPS_STORAGE_KEY]: next });
+  } catch {
+    // best-effort; losing a group on a storage error is acceptable
+  }
+}
+
+export async function removeSavedGroup(storage: ExtensionStorage, id: string): Promise<void> {
+  try {
+    const current = await loadSavedGroups(storage);
+    await storage.local.set({ [SAVED_GROUPS_STORAGE_KEY]: current.filter(g => g.id !== id) });
+  } catch {
+    // best-effort
   }
 }
 

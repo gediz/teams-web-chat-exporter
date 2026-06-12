@@ -269,5 +269,15 @@
   "picker.stillLoading": "Teams hâlâ sohbetlerini yüklüyor — birkaç saniye sonra yenilemeyi deneyin.",
   "picker.stillLoading.retry": "Yenile",
   "errors.offline": "Ağ yok. Tekrar bağlanıp deneyin.",
-  "history.partialMeta": "kısmi"
+  "history.partialMeta": "kısmi",
+  "picker.clearFilter": "Clear",
+  "groups.button": "Groups",
+  "groups.save": "Save selection ({n}) as group…",
+  "groups.namePlaceholder": "Group name…",
+  "groups.confirm": "Save",
+  "groups.apply": "Apply",
+  "groups.delete": "Delete group",
+  "groups.empty": "No saved groups yet",
+  "groups.chats": "{n} chats",
+  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

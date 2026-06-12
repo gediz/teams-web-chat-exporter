@@ -269,5 +269,15 @@
   "picker.stillLoading": "Teams กำลังโหลดแชทของคุณอยู่ — ลองรีเฟรชอีกครั้งในไม่กี่วินาที",
   "picker.stillLoading.retry": "รีเฟรช",
   "errors.offline": "ไม่มีเครือข่าย เชื่อมต่อใหม่แล้วลองอีกครั้ง",
-  "history.partialMeta": "บางส่วน"
+  "history.partialMeta": "บางส่วน",
+  "picker.clearFilter": "Clear",
+  "groups.button": "Groups",
+  "groups.save": "Save selection ({n}) as group…",
+  "groups.namePlaceholder": "Group name…",
+  "groups.confirm": "Save",
+  "groups.apply": "Apply",
+  "groups.delete": "Delete group",
+  "groups.empty": "No saved groups yet",
+  "groups.chats": "{n} chats",
+  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

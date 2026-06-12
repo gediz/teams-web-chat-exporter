@@ -269,5 +269,15 @@
   "picker.stillLoading": "Teams はまだチャットを読み込んでいます — 数秒後に更新してみてください。",
   "picker.stillLoading.retry": "更新",
   "errors.offline": "ネットワークなし。再接続してやり直してください。",
-  "history.partialMeta": "部分的"
+  "history.partialMeta": "部分的",
+  "picker.clearFilter": "Clear",
+  "groups.button": "Groups",
+  "groups.save": "Save selection ({n}) as group…",
+  "groups.namePlaceholder": "Group name…",
+  "groups.confirm": "Save",
+  "groups.apply": "Apply",
+  "groups.delete": "Delete group",
+  "groups.empty": "No saved groups yet",
+  "groups.chats": "{n} chats",
+  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

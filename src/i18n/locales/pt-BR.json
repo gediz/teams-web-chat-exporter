@@ -269,5 +269,15 @@
   "picker.stillLoading": "O Teams ainda está carregando suas conversas — tente atualizar em alguns segundos.",
   "picker.stillLoading.retry": "Atualizar",
   "errors.offline": "Sem rede. Reconecte e tente de novo.",
-  "history.partialMeta": "parcial"
+  "history.partialMeta": "parcial",
+  "picker.clearFilter": "Clear",
+  "groups.button": "Groups",
+  "groups.save": "Save selection ({n}) as group…",
+  "groups.namePlaceholder": "Group name…",
+  "groups.confirm": "Save",
+  "groups.apply": "Apply",
+  "groups.delete": "Delete group",
+  "groups.empty": "No saved groups yet",
+  "groups.chats": "{n} chats",
+  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

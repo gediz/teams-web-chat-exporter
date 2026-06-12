@@ -269,5 +269,15 @@
   "picker.stillLoading": "Teams все още зарежда вашите чатове — опитайте да опресните след няколко секунди.",
   "picker.stillLoading.retry": "Опресни",
   "errors.offline": "Няма мрежа. Свържете се отново и опитайте.",
-  "history.partialMeta": "частично"
+  "history.partialMeta": "частично",
+  "picker.clearFilter": "Clear",
+  "groups.button": "Groups",
+  "groups.save": "Save selection ({n}) as group…",
+  "groups.namePlaceholder": "Group name…",
+  "groups.confirm": "Save",
+  "groups.apply": "Apply",
+  "groups.delete": "Delete group",
+  "groups.empty": "No saved groups yet",
+  "groups.chats": "{n} chats",
+  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

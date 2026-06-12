@@ -269,5 +269,15 @@
   "picker.stillLoading": "Teams এখনও আপনার চ্যাটগুলি লোড করছে — কয়েক সেকেন্ড পরে রিফ্রেশ করার চেষ্টা করুন।",
   "picker.stillLoading.retry": "রিফ্রেশ",
   "errors.offline": "নেটওয়ার্ক নেই। আবার সংযোগ করে চেষ্টা করুন।",
-  "history.partialMeta": "আংশিক"
+  "history.partialMeta": "আংশিক",
+  "picker.clearFilter": "Clear",
+  "groups.button": "Groups",
+  "groups.save": "Save selection ({n}) as group…",
+  "groups.namePlaceholder": "Group name…",
+  "groups.confirm": "Save",
+  "groups.apply": "Apply",
+  "groups.delete": "Delete group",
+  "groups.empty": "No saved groups yet",
+  "groups.chats": "{n} chats",
+  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

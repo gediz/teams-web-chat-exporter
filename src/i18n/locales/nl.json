@@ -269,5 +269,15 @@
   "picker.stillLoading": "Teams laadt je chats nog — probeer het over een paar seconden te vernieuwen.",
   "picker.stillLoading.retry": "Vernieuwen",
   "errors.offline": "Geen netwerk. Verbind opnieuw en probeer het nog eens.",
-  "history.partialMeta": "gedeeltelijk"
+  "history.partialMeta": "gedeeltelijk",
+  "picker.clearFilter": "Clear",
+  "groups.button": "Groups",
+  "groups.save": "Save selection ({n}) as group…",
+  "groups.namePlaceholder": "Group name…",
+  "groups.confirm": "Save",
+  "groups.apply": "Apply",
+  "groups.delete": "Delete group",
+  "groups.empty": "No saved groups yet",
+  "groups.chats": "{n} chats",
+  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

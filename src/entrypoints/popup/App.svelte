@@ -18,6 +18,9 @@
     persistErrorMessage,
     removeHistoryEntry as removeHistoryEntryFromStorage,
     clearHistory as clearHistoryStorage,
+    loadSavedGroups,
+    saveSavedGroup,
+    removeSavedGroup,
     saveOptions,
     updateHistoryEntry,
     validateRange,
@@ -55,7 +58,7 @@
     StartBundleExportResponse,
     StopExportRequest,
   } from "../../types/messaging";
-  import type { ConversationKind, ConversationSummary, ExportStatusPayload, FolderSummary, HistoryEntry } from "../../types/shared";
+  import type { ConversationKind, ConversationSummary, ExportStatusPayload, FolderSummary, HistoryEntry, SavedGroup } from "../../types/shared";
   import type {
     ListConversationsRequest, ListConversationsResponse,
     ListConversationsQuickRequest, ListConversationsQuickResponse,
@@ -561,6 +564,31 @@
   // (popup hears phase=complete or phase=cancelled), and after the user opens
   // the History page (which marks them all as seen).
   let historyEntries: HistoryEntry[] = [];
+  let savedGroups: SavedGroup[] = [];
+
+  // Saved chat groups: loaded on mount; mutated via the picker's Groups menu.
+  // Apply is handled inside the picker (re-selects); save/remove come here so
+  // persistence stays in App alongside the other storage writes.
+  const refreshSavedGroups = async () => {
+    if (!alive) return;
+    savedGroups = await loadSavedGroups(storage);
+  };
+  async function onSaveGroup(name: string) {
+    const now = Date.now();
+    const group: SavedGroup = {
+      id: crypto.randomUUID(),
+      name,
+      convIds: [...selectedConversationIds],
+      createdAt: now,
+      updatedAt: now,
+    };
+    await saveSavedGroup(storage, group);
+    await refreshSavedGroups();
+  }
+  async function onRemoveGroup(id: string) {
+    await removeSavedGroup(storage, id);
+    await refreshSavedGroups();
+  }
   let lastHistoryViewedAt = 0;
   // Number of entries added since the last visit to the History page.
   // Drives the count badge on the history icon (capped to "9+" in
@@ -1498,6 +1526,7 @@
       if (!alive) return;
       options = loaded;
       __popupTrace('options-loaded');
+      void refreshSavedGroups();
       // Reconcile imageFetchFallback with the live <all_urls>
       // permission state on every popup open. Both Firefox and Chrome
       // can close the popup mid-await on focus-loss when the permission
@@ -1815,6 +1844,9 @@
         on:folderChange={(e) => persistFolderChoice(e.detail)}
         on:kindChange={(e) => persistKindChoice(e.detail)}
         on:collapseChange={(e) => persistPickerCollapsed(e.detail)}
+        {savedGroups}
+        on:saveGroup={(e) => onSaveGroup(e.detail)}
+        on:removeGroup={(e) => onRemoveGroup(e.detail)}
       />
 
       <!-- Export button — plain in every state. Outcomes live in History page. -->

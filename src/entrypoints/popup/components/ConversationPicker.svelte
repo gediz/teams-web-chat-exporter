@@ -1,13 +1,14 @@
 <script lang="ts">
-  import { createEventDispatcher, tick } from 'svelte';
+  import { createEventDispatcher, tick, onDestroy } from 'svelte';
   import {
     MessageSquare, Users, Calendar, Hash,
     Search, RefreshCw, AlertCircle, List, Check, Folder, Star,
     ChevronDown, CheckSquare, Square, Repeat, Trash2,
   } from 'lucide-svelte';
   import { t } from '../../../i18n/i18n';
-  import type { ConversationSummary, ConversationKind, FolderSummary } from '../../../types/shared';
+  import type { ConversationSummary, ConversationKind, FolderSummary, SavedGroup } from '../../../types/shared';
   import { conversationDisplayName, conversationDisplaySubtitle } from '../../../utils/conversation-labels';
+  import SavedGroups from './SavedGroups.svelte';
 
   export let lang = 'en';
   export let conversations: ConversationSummary[] = [];
@@ -53,12 +54,18 @@
   // current chat (matches the pre-v1.4.0 habit).
   export let collapsed = false;
 
+  // Saved chat groups (owned + persisted by App). The picker hosts the Groups
+  // menu in its head, forwards save/remove to App, and handles apply itself.
+  export let savedGroups: SavedGroup[] = [];
+
   const dispatch = createEventDispatcher<{
     change: string[];           // fired whenever the selection set changes
     folderChange: string;       // fired when the selected folder changes
     kindChange: 'all' | ConversationKind; // fired when the kind tab changes
     collapseChange: boolean;    // fired when the user toggles collapse
     retry: void;
+    saveGroup: string;          // new group name — App persists it from the live selection
+    removeGroup: string;        // saved-group id to delete
   }>();
 
   function toggleCollapse() {
@@ -135,6 +142,11 @@
   // the rail-seeding block as having "owned" the value.
   $: currentKind = selectedKind;
   let query = '';
+  let searchInputEl: HTMLInputElement | undefined;
+  function clearQuery() {
+    query = '';
+    tick().then(() => searchInputEl?.focus());
+  }
 
   // After the picker has fully hydrated, slide the currently-selected
   // row into view so the user doesn't have to scroll to find what's
@@ -307,6 +319,27 @@
     if (selectedIds.length === 0) return;
     setSelection([]);
   }
+
+  // Saved-group apply: re-select the group's convIds that still exist in this
+  // account (account-agnostic — a foreign group resolves to 0 matches). Shows
+  // a transient banner only when some ids couldn't be matched.
+  let groupBanner = '';
+  let groupBannerTimer: ReturnType<typeof setTimeout> | undefined;
+  function applyGroup(g: SavedGroup) {
+    const available = new Set(conversations.map(c => c.id));
+    const matched = g.convIds.filter(id => available.has(id));
+    const missing = g.convIds.length - matched.length;
+    setSelection(matched);
+    if (groupBannerTimer) clearTimeout(groupBannerTimer);
+    if (missing > 0) {
+      groupBanner = t('groups.appliedPartial', { found: matched.length, total: g.convIds.length, missing }, lang)
+        || `Applied ${matched.length} of ${g.convIds.length} (${missing} unavailable)`;
+      groupBannerTimer = setTimeout(() => { groupBanner = ''; }, 4000);
+    } else {
+      groupBanner = '';
+    }
+  }
+  onDestroy(() => { if (groupBannerTimer) clearTimeout(groupBannerTimer); });
 
   // Bulk targets: action-bar buttons act on what the user can actually
   // see right now (`filtered`), so the kind/folder/search composes
@@ -635,6 +668,14 @@
                   </button>
                 </div>
               {/if}
+              <SavedGroups
+                groups={savedGroups}
+                selectionCount={selectedIds.length}
+                {lang}
+                on:save={(e) => dispatch('saveGroup', e.detail)}
+                on:apply={(e) => applyGroup(e.detail)}
+                on:remove={(e) => dispatch('removeGroup', e.detail)}
+              />
             {:else}
               <span
                 class="picker-head-pill"
@@ -647,13 +688,27 @@
             {/if}
           </div>
 
+          {#if groupBanner}
+            <div class="picker-group-banner" role="status">{groupBanner}</div>
+          {/if}
+
           <div class="picker-search">
             <Search size={12} />
             <input
               type="text"
               placeholder={t('picker.filter', {}, lang) || 'Filter…'}
               bind:value={query}
+              bind:this={searchInputEl}
             />
+            <button
+              type="button"
+              class="picker-search-clear"
+              disabled={!query}
+              title={t('picker.clearFilter', {}, lang) || 'Clear'}
+              on:click={clearQuery}
+            >
+              {t('picker.clearFilter', {}, lang) || 'Clear'}
+            </button>
           </div>
 
           {#if mode === 'multi' && filtered.length > 0}
@@ -1047,6 +1102,11 @@
     font-size: 13px;
     font-weight: 600;
     color: var(--color-text);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .picker-head-pill {
     font-size: 10px;
@@ -1341,4 +1401,31 @@
 
   :global(.spin) { animation: picker-spin 1s linear infinite; }
   @keyframes picker-spin { to { transform: rotate(360deg); } }
+  /* Transient banner shown when applying a saved group that referenced chats
+     not present in this account. */
+  .picker-group-banner {
+    padding: 6px 12px;
+    font-size: 11px;
+    background: #fef3c7;
+    color: #92400e;
+    border-bottom: 1px solid var(--color-border);
+  }
+  /* Search filter clear: always visible, grayed (disabled) until there's text. */
+  .picker-search-clear {
+    border: 0;
+    background: transparent;
+    color: var(--color-accent);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 2px 4px;
+    flex: 0 0 auto;
+    transition: opacity 0.15s ease;
+  }
+  .picker-search-clear:disabled {
+    opacity: 0.4;
+    cursor: default;
+    color: var(--color-subtle);
+  }
 </style>

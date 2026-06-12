@@ -269,5 +269,15 @@
   "picker.stillLoading": "Teams lädt noch deine Chats – versuche es in ein paar Sekunden erneut.",
   "picker.stillLoading.retry": "Aktualisieren",
   "errors.offline": "Kein Netzwerk. Bitte erneut verbinden.",
-  "history.partialMeta": "unvollständig"
+  "history.partialMeta": "unvollständig",
+  "picker.clearFilter": "Clear",
+  "groups.button": "Groups",
+  "groups.save": "Save selection ({n}) as group…",
+  "groups.namePlaceholder": "Group name…",
+  "groups.confirm": "Save",
+  "groups.apply": "Apply",
+  "groups.delete": "Delete group",
+  "groups.empty": "No saved groups yet",
+  "groups.chats": "{n} chats",
+  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

@@ -269,5 +269,15 @@
   "picker.stillLoading": "Teams가 아직 채팅을 불러오는 중입니다 — 몇 초 후에 새로 고침해 보세요.",
   "picker.stillLoading.retry": "새로 고침",
   "errors.offline": "네트워크 없음. 다시 연결한 후 시도하세요.",
-  "history.partialMeta": "부분"
+  "history.partialMeta": "부분",
+  "picker.clearFilter": "Clear",
+  "groups.button": "Groups",
+  "groups.save": "Save selection ({n}) as group…",
+  "groups.namePlaceholder": "Group name…",
+  "groups.confirm": "Save",
+  "groups.apply": "Apply",
+  "groups.delete": "Delete group",
+  "groups.empty": "No saved groups yet",
+  "groups.chats": "{n} chats",
+  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }

@@ -269,5 +269,15 @@
   "onboarding.stop.body": "Click Export to begin. During an export the button turns red — click it again any time to stop. The thin bar at the bottom shows progress.",
   "settings.replayTour": "Replay tour",
   "settings.replayTour.hint": "Walk through the introduction tour again.",
-  "settings.replayTour.btn": "Replay tour"
+  "settings.replayTour.btn": "Replay tour",
+  "picker.clearFilter": "Clear",
+  "groups.button": "Groups",
+  "groups.save": "Save selection ({n}) as group…",
+  "groups.namePlaceholder": "Group name…",
+  "groups.confirm": "Save",
+  "groups.apply": "Apply",
+  "groups.delete": "Delete group",
+  "groups.empty": "No saved groups yet",
+  "groups.chats": "{n} chats",
+  "groups.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
 }
