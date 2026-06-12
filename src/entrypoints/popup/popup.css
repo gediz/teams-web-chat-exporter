@@ -51,7 +51,11 @@ body {
 .popup {
   display: flex;
   flex-direction: column;
-  height: 640px;
+  /* Chrome AND Firefox hard-cap an extension popup at 600px tall. A taller
+     value (was 640px) makes the browser window scroll the overflow ON TOP OF
+     .popup-content's own scroll, so two scrollbars appear on every page. Stay
+     at the cap so .popup-content is the only scroller. */
+  height: 600px;
   overflow: hidden;
 }
 
