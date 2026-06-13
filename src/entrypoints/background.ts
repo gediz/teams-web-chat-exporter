@@ -8,11 +8,11 @@ import {
   buildAndDownloadZip,
   buildOneChatForBundle,
   pickBundleFolderName,
-  type BundleEntry,
   type BundleEmpty,
   type BundleFailure,
 } from '../background/download';
 import { revokeDownloadUrl, textToDownloadUrl } from '../background/builders';
+import { createZipStream, type ZipStream } from '../background/zip';
 import { beginExportStats, endExportStats, getExportStats } from '../background/export-stats';
 import { clearTransferBlobs } from '../utils/blob-transfer';
 import { ACTIVE_EXPORTS_STORAGE_KEY, FIRST_INSTALL_STORAGE_KEY, appendHistoryEntry } from '../utils/options';
@@ -926,7 +926,16 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
 
         const totalChats = list.length;
         const usedFolderNames = new Set<string>();
-        const entries: BundleEntry[] = [];
+        // Successful chats are streamed straight into bundleZip as they build
+        // (so their uncompressed bytes are freed immediately); `entries` keeps
+        // only the folder name for the success count / history. bundleZip is
+        // created lazily on the first successful chat, so the empty / all-empty
+        // / all-fail paths (which never zip) never allocate one.
+        const entries: { folderName: string }[] = [];
+        let bundleZip: ZipStream | null = null;
+        // Set if streaming a chat into the zip throws: a zip-stream error poisons
+        // the whole archive, so it is a fatal bundle error, not one chat's failure.
+        let bundleZipFatal: unknown = null;
         const failures: BundleFailure[] = [];
         const noHistory: BundleEmpty[] = [];
         // Bundle-level partial accumulator. Each entry tracks a chat
@@ -940,17 +949,63 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
         // label the outcome without threading it through every return.
         let bundleCancelled = false;
 
+        // Precompute every chat's folder name up front, IN ORDER, so the dedup
+        // numbering is byte-identical to the serial version regardless of when
+        // each chat is actually processed. The prefetch pipeline below can have
+        // chat i+1's scrape running while chat i builds, so the names must not
+        // depend on processing timing.
+        const plan = list.map((conv) => ({
+            conv,
+            folderName: pickBundleFolderName(conv.title || conv.id, usedFolderNames),
+        }));
+
+        // Launch the scrape for plan[idx], returning the in-flight promise plus
+        // its real start time, or null past the end. Errors are deliberately
+        // NOT caught here — the awaiting site associates them with the right
+        // chat. SAFETY: requestScrape sends exactly one SCRAPE_TEAMS, and we
+        // only ever start the next scrape after the previous one has fully
+        // resolved (its results streamed, its run-state reset). So the content
+        // script — which has no concurrent-run guard — never runs two scrapes
+        // at once; only the build (worker context) overlaps a scrape (page
+        // context), and those don't compete.
+        const launchScrape = (idx: number): { promise: Promise<ScrapeResult>; startedAt: number } | null => {
+            if (idx < 0 || idx >= plan.length) return null;
+            const promise = requestScrape(tabId, {
+                ...baseScrapeOptions,
+                conversationId: plan[idx].conv.id,
+                conversationTitle: plan[idx].conv.title || null,
+                noDomFallback: true,
+            });
+            // Mark the OUTER promise handled at the instant it is created. A
+            // prefetched scrape sits un-awaited across the next chat's build
+            // (the 1-deep window); if STOP rejects it there, this no-op catch
+            // stops an "Uncaught (in promise) cancelled" in the worker console.
+            // Attaching a catch does NOT consume the rejection for the real
+            // await site below — that still observes the value or the error.
+            // (requestScrape's own catch at the streamPromise guards a
+            // different promise object than the async-fn promise stored here.)
+            promise.catch(() => { /* may be abandoned by a mid-build cancel */ });
+            return { promise, startedAt: Date.now() };
+        };
+
+        // Prefetch the first chat. From then on each iteration starts the NEXT
+        // chat's scrape before building the current one, so paging (network,
+        // 429-limited) overlaps building (CPU). Only one scrape is ever in
+        // flight (1-deep), bounding the extra peak memory to a single chat's
+        // data. Same request cadence as the serial version, so no extra 429
+        // pressure.
+        let pending = launchScrape(0);
+
         // Outer try/finally: the bundle has many terminal returns (cancelled,
         // empty, all-fail, success). Wrapping from here lets ONE finally emit
         // the console-only stats block and clear the collector for every path.
         // The accumulators above stay in scope so the outcome is derived, not
         // threaded.
         try {
-        for (let i = 0; i < list.length; i++) {
+        for (let i = 0; i < plan.length; i++) {
             if (bundleStops.has(tabId)) break;
 
-            const conv = list[i];
-            const folderName = pickBundleFolderName(conv.title || conv.id, usedFolderNames);
+            const { conv, folderName } = plan[i];
             const currentChat = i + 1;
 
             const bundleCtx = {
@@ -963,27 +1018,42 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
 
             broadcastStatus({ tabId, phase: 'scrape:start', ...bundleCtx });
 
-            const perChatScrape: ScrapeOptions = {
-                ...baseScrapeOptions,
-                conversationId: conv.id,
-                conversationTitle: conv.title || null,
-                noDomFallback: true,
-            };
+            // `pending` holds chat i's scrape, prefetched last iteration (or
+            // before the loop for i=0). startedAt is the real launch time, which
+            // may predate this iteration because it overlapped chat i-1's build.
+            // The `pending ? … : requestScrape(…)` fallback is defensive — at
+            // i=0 the list is non-empty so launchScrape(0) is non-null, and
+            // every later iteration sets `pending` before reaching here.
+            const chatScrapeStartedAt = pending ? pending.startedAt : Date.now();
+            getExportStats(tabId)?.beginChat(chatScrapeStartedAt);
 
             let scrapeRes: ScrapeResult;
-            const chatScrapeStartedAt = Date.now();
-            getExportStats(tabId)?.beginChat(chatScrapeStartedAt);
             try {
-                scrapeRes = await requestScrape(tabId, perChatScrape);
+                scrapeRes = await (pending
+                    ? pending.promise
+                    : requestScrape(tabId, {
+                        ...baseScrapeOptions,
+                        conversationId: conv.id,
+                        conversationTitle: conv.title || null,
+                        noDomFallback: true,
+                    }));
             } catch (e: any) {
                 const reason = e?.message || String(e);
                 if (reason === 'cancelled') {
                     bundleStops.add(tabId);
+                    pending = null;
                     break;
                 }
                 failures.push({ folderName, conversationId: conv.id, reason });
+                // Keep the pipeline full: start the next chat's scrape before
+                // moving on, unless a stop arrived while we were awaiting.
+                pending = bundleStops.has(tabId) ? null : launchScrape(i + 1);
                 continue;
             }
+
+            // Chat i scraped OK. Start chat i+1's scrape NOW so it pages while
+            // we build chat i. Skip if a stop landed between the await and here.
+            pending = bundleStops.has(tabId) ? null : launchScrape(i + 1);
 
             const totalMessages = Array.isArray(scrapeRes.messages) ? scrapeRes.messages.length : 0;
             broadcastStatus({ tabId, phase: 'scrape:complete', messages: totalMessages, ...bundleCtx });
@@ -1056,7 +1126,26 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                 // FAILURES.txt so the gap is visible.
                 const hasContent = files.some(f => f.relativePath.startsWith('messages.'));
                 if (hasContent) {
-                    entries.push({ folderName, files });
+                    // Stream this chat's files straight into the outer zip and
+                    // let `files` go out of scope, instead of accumulating every
+                    // chat's bytes in entries[] until the end. This drops the
+                    // separate entries[] copy (the old ~GB held at ~300 chats);
+                    // images/PDF then retain nothing (ZipPassThrough), though the
+                    // deflated text formats stay in fflate's buffers until finish.
+                    // Created lazily on the first success.
+                    bundleZip = bundleZip ?? createZipStream('zip-outer-bundle');
+                    try {
+                        for (const f of files) {
+                            await bundleZip.add(`${folderName}/${f.relativePath}`, f.data);
+                        }
+                    } catch (zipErr) {
+                        // A zip-stream error poisons the archive — fatal for the
+                        // whole bundle, not this one chat. Stop and surface it
+                        // instead of silently downgrading to a no-zip FAILURES.txt.
+                        bundleZipFatal = zipErr;
+                        break;
+                    }
+                    entries.push({ folderName });
                 }
                 for (const ff of formatFailures) {
                     failures.push({ folderName, conversationId: conv.id, reason: ff.error });
@@ -1073,6 +1162,16 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
             } catch (e: any) {
                 failures.push({ folderName, conversationId: conv.id, reason: e?.message || String(e) });
             }
+        }
+
+        // A zip-stream error during the loop is fatal for the whole bundle (the
+        // archive is unusable). Surface it as an error rather than a partial save.
+        if (bundleZipFatal) {
+            const message = `bundle zip failed: ${(bundleZipFatal as Error)?.message || String(bundleZipFatal)}`;
+            broadcastStatus({ tabId, phase: 'error', error: message });
+            sendResponse({ error: message });
+            activeExports.delete(tabId); void persistActiveExports();
+            return;
         }
 
         const cancelled = bundleStops.has(tabId);
@@ -1250,7 +1349,11 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                 bundleSuccessCount: entries.length,
                 bundleFailedCount: failures.length,
             });
-            const buildRes = await buildAndDownloadBundlesZip({ downloads, isFirefox }, entries, failures, noHistory, partials);
+            // entries.length > 0 here (the entries===0 cases returned above),
+            // and every entries.push is preceded by creating bundleZip, so it
+            // is non-null. Guard defensively anyway.
+            if (!bundleZip) throw new Error('bundle zip stream missing despite built chats');
+            const buildRes = await buildAndDownloadBundlesZip({ downloads, isFirefox }, bundleZip, entries.length, failures, noHistory, partials);
             const downloadOk = buildRes.id != null
                 ? await waitForDownloadComplete(buildRes.id, 60_000)
                 : true;
