@@ -6,7 +6,7 @@ import { blobToDownloadUrl, removeAvatars, revokeDownloadUrl, summarizeAttachmen
 // past ~384 MB (issue #27).
 import { buildPdfResilient } from './pdf';
 import { formatRangeLabel, sanitizeBase } from '../utils/messages';
-import { buildZipAsync } from './zip';
+import { buildZipAsync, type ZipStream } from './zip';
 import type { Attachment, ExportMessage, ExportMeta, TableData } from '../types/shared';
 
 type DownloadsApi = Pick<typeof chrome.downloads, 'download'>;
@@ -761,8 +761,11 @@ export async function buildOneChatForBundle(
       const inner = e instanceof Error ? e.message : String(e);
       console.log(`[bundle] build:${format} failed for "${titleForLog}": ${inner}`);
       formatFailures.push({ format, error: `build:${format} — ${inner}` });
+    } finally {
     }
   }
+
+  // stage is PDF vs the text formats. Remove after perf run.
 
   return { files: out, formatFailures };
 }
@@ -831,19 +834,18 @@ export type BundlePartial = {
 // export, without aborting the rest of the run.
 export async function buildAndDownloadBundlesZip(
   deps: BuildDownloadDeps,
-  entries: BundleEntry[],
+  bundleZip: ZipStream,
+  entryCount: number,
   failures: BundleFailure[],
   noHistory: BundleEmpty[] = [],
   partials: BundlePartial[] = [],
 ) {
   const { downloads } = deps;
 
-  const outerFiles: { path: string; data: Uint8Array }[] = [];
-  for (const entry of entries) {
-    for (const f of entry.files) {
-      outerFiles.push({ path: `${entry.folderName}/${f.relativePath}`, data: f.data });
-    }
-  }
+  // The per-chat files are already streamed into bundleZip by the bundle loop
+  // (dropping the old entries[] accumulation). Here we only append the
+  // bundle-root summary files, then finish + download.
+  const tailFiles: { path: string; data: Uint8Array }[] = [];
 
   if (failures.length) {
     const lines = failures.map(f => `${f.folderName}\t${f.conversationId}\t${f.reason}`);
@@ -853,7 +855,7 @@ export async function buildAndDownloadBundlesZip(
     const header = '# Export failures. Columns: folder\tconversationId\treason\n'
       + '# "build:<format> — ..." = only that format is missing; the chat folder has the rest.';
     const body = `${header}\n${lines.join('\n')}\n`;
-    outerFiles.push({ path: 'FAILURES.txt', data: new TextEncoder().encode(body) });
+    tailFiles.push({ path: 'FAILURES.txt', data: new TextEncoder().encode(body) });
   }
 
   if (noHistory.length) {
@@ -864,7 +866,7 @@ export async function buildAndDownloadBundlesZip(
       + '# the Teams Free chat backend. Not a failure; nothing to export.\n'
       + '# Columns: folder\tconversationId';
     const body = `${header}\n${lines.join('\n')}\n`;
-    outerFiles.push({ path: 'NO_HISTORY.txt', data: new TextEncoder().encode(body) });
+    tailFiles.push({ path: 'NO_HISTORY.txt', data: new TextEncoder().encode(body) });
   }
 
   if (partials.length) {
@@ -881,15 +883,18 @@ export async function buildAndDownloadBundlesZip(
       + '# warning banner and a -PARTIAL filename suffix; this list is the\n'
       + '# bundle-root summary. Columns: folder\tconversationId\treason';
     const body = `${header}\n${lines.join('\n')}\n`;
-    outerFiles.push({ path: 'PARTIAL.txt', data: new TextEncoder().encode(body) });
+    tailFiles.push({ path: 'PARTIAL.txt', data: new TextEncoder().encode(body) });
   }
 
-  // Async zip — yields to the event loop between file additions.
-  // Critical for multi-chat bundles: a 100-chat ~900 MB sync zip
-  // blocked the SW thread for ~34 s and froze any open popup.
-  const totalOuterBytes = outerFiles.reduce((a, f) => a + f.data.byteLength, 0);
-  console.log(`[bundle-outer] entering buildZipAsync: entries=${entries.length} failures=${failures.length} partials=${partials.length} files=${outerFiles.length} totalBytes=${totalOuterBytes}`);
-  const zipBlob = await buildZipAsync(outerFiles, 'zip-outer-bundle');
+  // Append the bundle-root summary files, then close the streamed archive.
+  // The per-chat content was already deflated into bundleZip during the build
+  // loop, so finish() only flushes the central directory and resolves the
+  // multi-source Blob (no contiguous copy). Note: fflate holds each deflated
+  // entry's buffer until here, so peak at finish() is ~the compressed output +
+  // ~1x the uncompressed TEXT (images/PDF pass through with no retention).
+  console.log(`[bundle-outer] finishing stream: entries=${entryCount} failures=${failures.length} partials=${partials.length} tailFiles=${tailFiles.length}`);
+  for (const f of tailFiles) await bundleZip.add(f.path, f.data);
+  const zipBlob = await bundleZip.finish();
   console.log(`[bundle-outer] zip built: outBytes=${zipBlob.size}`);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19).replace('T', '_');
   // Bundle outer-zip filename gets -PARTIAL when any chat in the

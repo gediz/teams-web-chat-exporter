@@ -1,17 +1,75 @@
-import { Zip, ZipDeflate } from 'fflate';
+import { Zip, ZipPassThrough, deflateSync } from 'fflate';
 
 type ZipFile = { path: string; data: Uint8Array };
 
-// Files whose bytes are already compressed (PDF streams, JPEG/PNG/WebP,
-// nested zips, MP3/MP4/WebM audio-video, gzipped archives). Re-deflating
-// them at level 6 burns CPU + holds 32 KB sliding-window buffers per
-// stream while producing output the same size or marginally larger.
-// Storing them verbatim (level 0) is faster, lower-memory, and yields
-// the same final zip size to within rounding.
+// CRC-32 (fflate doesn't export one). Used to stamp pre-deflated entries.
+const CRC_T = (() => {
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    t[i] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(d: Uint8Array): number {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < d.length; i++) c = CRC_T[(c ^ d[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+// A pre-deflated ZIP entry: the pushed bytes are ALREADY raw DEFLATE; crc/size
+// are of the ORIGINAL data. This is byte-identical to what fflate's ZipDeflate
+// emits (verified), but holds NO deflate state — so it does not pin the V8
+// allocation generation (see the comment on makeZipItem below). It implements
+// just the minimal fflate Zip-entry surface (filename/compression/crc/size +
+// ondata/push) that Zip.add reads for the local header + data descriptor.
+class PreDeflatedEntry {
+  filename: string;
+  compression = 8;
+  crc: number;
+  size: number;
+  ondata!: (err: unknown, dat: Uint8Array, final: boolean) => void;
+  constructor(filename: string, crc: number, size: number) {
+    this.filename = filename;
+    this.crc = crc;
+    this.size = size;
+  }
+  push(data: Uint8Array, final: boolean) { this.ondata(null, data, final); }
+}
+
+// Files whose bytes are already compressed (PDF streams, JPEG/PNG/WebP, nested
+// zips, MP3/MP4/WebM audio-video, gzipped archives) are STORED via ZipPassThrough
+// (compression 0): bytes pass straight to output, no retained buffer. Everything
+// else is DEFLATED — but one-shot, not via fflate's streaming ZipDeflate.
+//
+// Why one-shot: fflate's streaming Zip keeps every ZipDeflate's Deflate object
+// alive in Zip.u until end(). Each Deflate retains its input buffer (this.d.b)
+// AND a hash table (state .h/.p, Uint16Array), and — worse — keeping ~1000+
+// long-lived Deflate objects pins a V8 allocation generation so the per-push
+// deflate CHURN never gets swept until finish(). Measured: a 294-chat-shaped
+// workload held ~1.5 GB of unreclaimable churn this way (heap-retainers on a peak
+// snapshot showed 925 MB Uint16Array + 782 MB Uint8Array of fflate state).
+// Deflating each file with deflateSync (working memory freed on return) and
+// adding the result as a PreDeflatedEntry drops that to ~the live set: the same
+// workload fell 1777 MB -> 290 MB. Output is byte-identical to ZipDeflate.
+//
+// (The download-size trade for STORING media still stands: deflating media would
+// only shrink ~7% but would re-introduce per-entry deflate buffers, so media
+// stays stored.)
 const ALREADY_COMPRESSED_RE = /\.(zip|pdf|jpe?g|png|gif|webp|mp[34]|webm|gz|7z|rar|bz2|xz)$/i;
 
-function pickLevel(path: string): 0 | 6 {
-  return ALREADY_COMPRESSED_RE.test(path) ? 0 : 6;
+function addEntry(zip: Zip, path: string, data: Uint8Array): void {
+  if (ALREADY_COMPRESSED_RE.test(path)) {
+    const item = new ZipPassThrough(path);
+    zip.add(item);
+    item.push(data, true);
+  } else {
+    const compressed = deflateSync(data, { level: 6 });   // one-shot; working mem freed on return
+    const item = new PreDeflatedEntry(path, crc32(data), data.length) as unknown as ZipPassThrough;
+    zip.add(item);
+    item.push(compressed, true);
+  }
 }
 
 /**
@@ -46,54 +104,84 @@ function pickLevel(path: string): 0 | 6 {
  * further; saves ~4× CPU on the outer-zip step (bench-confirmed).
  */
 export function buildZipAsync(files: ZipFile[], label = 'zip'): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const chunks: Uint8Array[] = [];
-    let zipError: unknown = null;
+  const totalInputBytes = files.reduce((a, f) => a + f.data.byteLength, 0);
+  console.log(`[${label}] start: files=${files.length} inputBytes=${totalInputBytes}`);
+  const stream = createZipStream(label);
+  return (async () => {
+    for (const file of files) await stream.add(file.path, file.data);
+    return stream.finish();
+  })();
+}
 
-    const totalInputBytes = files.reduce((a, f) => a + f.data.byteLength, 0);
-    const tStart = performance.now();
-    console.log(`[${label}] start: files=${files.length} inputBytes=${totalInputBytes}`);
+// An incrementally-fed version of buildZipAsync. Same streaming Zip + per-file
+// yield + multi-source Blob (no contiguous copy), but the caller pushes files
+// one at a time and finishes when done, instead of handing over the whole
+// files[] array up front.
+//
+// Why it exists: a multi-chat bundle used to accumulate EVERY chat's built bytes
+// in an entries[] array AND then build all the fflate buffers at the end, so peak
+// was ~2x the uncompressed bundle (~2.8 GB off-heap for a ~300-chat run, invisible
+// to JSHeapUsedSize, near Firefox's single-allocation ceiling). Streaming drops
+// the separate entries[] copy. It does NOT make peak "output plus one chat":
+// fflate's streaming Zip has no API to release a finished entry, so every
+// ZipDeflate keeps its internal input buffer (~1x that file) alive until finish().
+// The mitigation is makeZipItem — already-compressed files (images/PDF, usually the
+// bulk) use ZipPassThrough and retain NOTHING, so only the compressible text
+// formats (json/csv/html/txt) hold a ~1x Deflate buffer to finish(). Net at
+// finish(): ~the compressed output + ~1x the uncompressed TEXT, roughly half the
+// old peak and far less for media-heavy exports — but not zero.
+export interface ZipStream {
+  /** Compress + append one file. Yields to the event loop first (popup tick). */
+  add(path: string, data: Uint8Array): Promise<void>;
+  /** Close the archive and resolve the final multi-source Blob. */
+  finish(): Promise<Blob>;
+}
 
-    const zip = new Zip((err, chunk, final) => {
-      if (err) { zipError = err; return; }
-      if (chunk && chunk.length) chunks.push(chunk);
-      if (final) {
-        if (zipError) { reject(zipError as Error); return; }
-        let total = 0;
-        for (const c of chunks) total += c.length;
-        const tDone = performance.now();
-        console.log(`[${label}] streaming-done: chunks=${chunks.length} chunkSumBytes=${total} streamMs=${Math.round(tDone - tStart)}`);
-        // Multi-source Blob constructor: takes the chunks array as-is,
-        // no contiguous copy. The browser may keep chunk references or
-        // page to disk; either way, peak memory does NOT double.
-        resolve(new Blob(chunks as BlobPart[], { type: 'application/zip' }));
-      }
-    });
+export function createZipStream(label = 'zip'): ZipStream {
+  const chunks: Uint8Array[] = [];
+  let zipError: unknown = null;
+  let fileCount = 0;
+  let inputBytes = 0;
+  const tStart = performance.now();
+  let resolveFinal!: (b: Blob) => void;
+  let rejectFinal!: (e: unknown) => void;
+  const finalPromise = new Promise<Blob>((res, rej) => { resolveFinal = res; rejectFinal = rej; });
+  // Guard: if the archive errors before finish() is awaited, this keeps the
+  // rejection from surfacing as an unhandled promise rejection in the worker.
+  finalPromise.catch(() => { /* observed via finish() */ });
 
-    (async () => {
-      try {
-        for (let i = 0; i < files.length; i++) {
-          // Yield BEFORE each file so the popup mount / message handlers
-          // get a tick. Per-file compression is still synchronous (one
-          // call to ZipDeflate.push), but per-file is much shorter than
-          // the whole bundle — for a 50 MB JSON file it's about 1 s,
-          // and most files in a per-chat folder are much smaller.
-          await new Promise<void>(r => setTimeout(r, 0));
-          if (zipError) throw zipError;
-          const file = files[i];
-          const path = file.path.replace(/\\/g, '/');
-          const item = new ZipDeflate(path, { level: pickLevel(path) });
-          zip.add(item);
-          item.push(file.data, true);
-          if ((i + 1) % 50 === 0 || i + 1 === files.length) {
-            console.log(`[${label}] progress: ${i + 1}/${files.length} elapsedMs=${Math.round(performance.now() - tStart)}`);
-          }
-        }
-        zip.end();
-      } catch (e) {
-        console.log(`[${label}] error during add-loop: ${e instanceof Error ? e.message : String(e)}`);
-        reject(e instanceof Error ? e : new Error(String(e)));
-      }
-    })();
+  const zip = new Zip((err, chunk, final) => {
+    if (err) { zipError = err; rejectFinal(err); return; }
+    if (chunk && chunk.length) chunks.push(chunk);
+    if (final) {
+      if (zipError) { rejectFinal(zipError); return; }
+      let total = 0;
+      for (const c of chunks) total += c.length;
+      console.log(`[${label}] streaming-done: files=${fileCount} chunks=${chunks.length} chunkSumBytes=${total} inputBytes=${inputBytes} streamMs=${Math.round(performance.now() - tStart)}`);
+      // Multi-source Blob constructor: takes the chunks array as-is, no
+      // contiguous copy. The browser may keep chunk references or page to disk;
+      // either way, peak memory does NOT double.
+      resolveFinal(new Blob(chunks as BlobPart[], { type: 'application/zip' }));
+    }
   });
+
+  return {
+    async add(path: string, data: Uint8Array): Promise<void> {
+      if (zipError) throw zipError;
+      // Yield BEFORE compressing so the popup mount / message handlers get a
+      // tick. Per-file compression (deflateSync) is still synchronous.
+      await new Promise<void>(r => setTimeout(r, 0));
+      if (zipError) throw zipError;
+      addEntry(zip, path.replace(/\\/g, '/'), data);
+      fileCount += 1;
+      inputBytes += data.byteLength;
+      if (fileCount % 50 === 0) {
+        console.log(`[${label}] progress: ${fileCount} files, elapsedMs=${Math.round(performance.now() - tStart)}`);
+      }
+    },
+    finish(): Promise<Blob> {
+      try { zip.end(); } catch (e) { rejectFinal(e); }
+      return finalPromise;
+    },
+  };
 }
