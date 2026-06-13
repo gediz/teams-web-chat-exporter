@@ -187,6 +187,14 @@ type TextCtx = {
   emojiManifest: Set<string>;
   emojiFont: EmojiFontResult | null;
   layout: Layout;
+  // Per-document memo for safeWidthOf: `${weight}|${size}|${text}` -> width.
+  // wrapText measures every word-and-whitespace token of every paragraph, and
+  // those tokens repeat heavily across a chat (spaces, common words, names).
+  // _runWidthCache only caches AFTER segmentText splits a string into runs, so
+  // it never saved the segmentation pass itself; this caches at the whole-token
+  // level, skipping segmentText + readEmojiSequence for a repeated token. Fresh
+  // per buildPdf, so it is collected with the document and never accumulates.
+  swCache: Map<string, number>;
 };
 
 // Embedded-asset caches, scoped to one buildPdf call. Key = source data
@@ -342,7 +350,7 @@ export async function buildPdf(
   // glyphs by index in the font's content stream operators.
   await prewarmType3EmojiFont(doc, cache, scan.emojiKeys);
 
-  const ctx: TextCtx = { fonts, emojiManifest, emojiFont: cache.emojiFont, layout };
+  const ctx: TextCtx = { fonts, emojiManifest, emojiFont: cache.emojiFont, layout, swCache: new Map() };
 
   const metaWithCount: ExportMeta = { ...meta, count: messages.length } as ExportMeta;
   renderHeader(cursor, metaWithCount, ctx);
@@ -372,9 +380,11 @@ export async function buildPdf(
       try { textW = fonts.regular.widthOfTextAtSize(label, fsize); } catch { textW = label.length * fsize * 0.5; }
       const x = (layout.pageW - textW) / 2;
       const y = MARGIN / 2;
-      try {
-        page.drawText(label, { x, y, size: fsize, font: fonts.regular, color: COLOR_META });
-      } catch { /* ignore — extremely unlikely */ }
+      // Draw via the shared manual-operator path (stable /FT name) rather than
+      // page.drawText, which would re-register the font into each page's
+      // resource dict under a fresh uniqueKey (1001 redundant entries on a big
+      // chat). drawMixed swallows its own draw errors.
+      drawMixed(page, label, x, y, fsize, 'regular', ctx, COLOR_META);
     }
   }
 
@@ -385,7 +395,8 @@ export async function buildPdf(
   // be found.
   registerFontsOnPages(doc, fonts, cache.emojiFont);
 
-  return doc.save();
+  const out = await doc.save();
+  return out;
 }
 
 // Build a PDF, retrying once with subsetting disabled if the subset build
@@ -469,7 +480,36 @@ async function loadFonts(doc: PDFDocument, codepoints: Set<number>, disableSubse
   const bold = await embedSubsetOrFull(doc, boldBytes, codepoints, 'bold', disableSubset);
   const cjk = cjkBytes ? await embedSubsetOrFull(doc, cjkBytes, codepoints, 'cjk', disableSubset) : null;
   const kr = krBytes ? await embedSubsetOrFull(doc, krBytes, codepoints, 'kr', disableSubset) : null;
-  return { regular, bold, cjk, kr };
+  return {
+    regular: memoizeEncodeText(regular),
+    bold: memoizeEncodeText(bold),
+    cjk: cjk ? memoizeEncodeText(cjk) : null,
+    kr: kr ? memoizeEncodeText(kr) : null,
+  };
+}
+
+// Memoize a font's encodeText so the DRAW path stops re-shaping. pdf-lib's
+// drawText -> encodeText runs a full fontkit layout() pass on every call, even
+// for identical strings, and the subset embedder's encodeText also re-includes
+// each glyph (includeGlyph is idempotent: same glyph -> same subset id). Chat
+// text repeats words, sender names and timestamps heavily, so the same run
+// string is drawn many times. Caching the returned PDFHexString collapses those
+// repeats to one layout pass. This is the draw-side twin of _runWidthCache,
+// which only covered measurement. Output is byte-identical: encodeText is
+// deterministic, glyph-registration order is unchanged (a first occurrence is a
+// cache miss = real call in document order; a repeat would only ever have
+// re-returned an already-assigned subset id), and we hand back the same hex
+// object. The cache lives on the per-document PDFFont, so it is collected with
+// the document and never accumulates across chats.
+function memoizeEncodeText(font: PDFFont): PDFFont {
+  const cache = new Map<string, PDFHexString>();
+  const orig = font.encodeText.bind(font);
+  font.encodeText = (text: string): PDFHexString => {
+    let hex = cache.get(text);
+    if (hex === undefined) { hex = orig(text); cache.set(text, hex); }
+    return hex;
+  };
+  return font;
 }
 
 async function embedSubsetOrFull(
@@ -1123,10 +1163,14 @@ function hardBreak(word: string, weight: PreferredWeight, ctx: TextCtx, size: nu
 // size `size` (1em). Characters no font can render stay 0-width so
 // wrap calculations don't explode.
 function safeWidthOf(text: string, weight: PreferredWeight, ctx: TextCtx, size: number): number {
+  const key = `${weight}|${size}|${text}`;
+  const cached = ctx.swCache.get(key);
+  if (cached !== undefined) return cached;
   let w = 0;
   for (const run of segmentText(text, weight, ctx.fonts, ctx.emojiFont, ctx.emojiManifest)) {
     w += runWidth(run, size);
   }
+  ctx.swCache.set(key, w);
   return w;
 }
 
@@ -1256,24 +1300,24 @@ function drawMixed(
   color: Color,
 ) {
   const runs = segmentText(text, weight, ctx.fonts, ctx.emojiFont, ctx.emojiManifest);
-  const hasEmoji = runs.some(r => r.type === 'emoji');
+  // Nothing to draw (empty or whitespace-that-segments-to-nothing line). The
+  // old per-run fast path iterated zero times and emitted nothing here; return
+  // early so a blank line does not push an empty q/BT/ET/Q text object.
+  if (!runs.length) return;
 
-  if (!hasEmoji) {
-    // Text-only fast path.
-    let cx = x;
-    for (const run of runs) {
-      if (run.type !== 'text') continue;
-      try {
-        page.drawText(run.text, { x: cx, y, size, font: run.font, color });
-      } catch { /* skip */ }
-      cx += runWidth(run, size);
-    }
-    return;
-  }
-
-  // Mixed line: build one BT/ET block with all runs sharing the same
-  // text-matrix origin. Tj operators auto-advance the text position
-  // within the block, so no Td is needed per run.
+  // One BT/ET block with all runs sharing the same text-matrix origin. Tj
+  // operators auto-advance the text position within the block, so no Td is
+  // needed per run. This single path serves both text-only and emoji lines.
+  // The previous text-only fast path called page.drawText per run, and EVERY
+  // such call ran setOrEmbedFont -> newFontDictionary -> uniqueKey, registering
+  // the same font into the page's resource dict under a fresh random key on
+  // each line (hundreds of thousands of redundant /F.. entries, the build's #1
+  // allocation source and a major GC driver) plus pdf-lib's ~14 per-call type
+  // assertions. Emitting our own operators against the stable /FT../FE names
+  // (registered once per page by registerFontsOnPages) skips both. Glyph
+  // positions are unchanged: Tj advances by the same per-glyph widths the old
+  // `cx += runWidth(run)` summed (run widths are additive, no kerning here),
+  // so the rendered output is visually identical.
   const ops: PDFOperator[] = [];
   // Save state + set fill color, then restore on exit. Scoping the
   // color change avoids leaking it into subsequent operators emitted
@@ -1294,13 +1338,23 @@ function drawMixed(
         PDFName.of(fontName),
         PDFNumber.of(size),
       ]));
-      let encoded: PDFHexString;
       try {
-        encoded = run.font.encodeText(run.text);
+        ops.push(PDFOperator.of(PDFOperatorNames.ShowText, [run.font.encodeText(run.text)]));
       } catch {
-        continue;
+        // Whole-run encode failed (a glyph fontkit can't lay out). Fall back to
+        // per-character encoding so every character that DOES encode is still
+        // drawn and advances the pen, mirroring runWidth's per-char fallback.
+        // A character that still fails contributes no glyph and no advance,
+        // exactly as the old per-run drawText path did (its runWidth sum also
+        // skipped unmeasurable chars), so later runs on the line never shift.
+        // In practice this is unreachable: fonts embed subset:false, so pdf-lib
+        // uses the pure CustomFontEmbedder, whose encodeText does not throw for
+        // the in-coverage runs segmentText produces. It is defence-in-depth.
+        for (const ch of run.text) {
+          try { ops.push(PDFOperator.of(PDFOperatorNames.ShowText, [run.font.encodeText(ch)])); }
+          catch { /* unmappable character: skip, as the old path did */ }
+        }
       }
-      ops.push(PDFOperator.of(PDFOperatorNames.ShowText, [encoded]));
     } else {
       ops.push(PDFOperator.of(PDFOperatorNames.SetFontAndSize, [
         PDFName.of(EMOJI_FONT_RESOURCE_NAME),
