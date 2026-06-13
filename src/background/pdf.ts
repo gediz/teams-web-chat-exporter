@@ -1024,11 +1024,26 @@ async function getAttachmentImage(doc: PDFDocument, cache: AssetCache, dataUrl: 
 
 // ----- word wrap ------------------------------------------------------
 
+// Per-font width cache: (font, size, text) -> width. The same run text is
+// measured up to three times for one line (wrapText's per-word measure, then
+// drawMixed's cursor-advance measure, then pdf-lib's own encode when drawing),
+// and chat text repeats words heavily. Each measure is a fontkit layout pass,
+// so caching collapses the repeats to one. Keyed by the PDFFont object via a
+// WeakMap, so it clears automatically when a document's fonts are collected
+// (bounds memory to one document's unique runs). The width for a given (font,
+// size, text) is deterministic, so the cache is output-identical.
+const _runWidthCache = new WeakMap<PDFFont, Map<string, number>>();
+
 // Measure a run's width. Emoji runs render at the font em-size (1em
 // square) so we return `size` as the width. Text runs sum each
 // character's measured width in its font.
 function runWidth(run: Run, size: number): number {
   if (run.type === 'emoji') return size;
+  let perFont = _runWidthCache.get(run.font);
+  if (!perFont) { perFont = new Map(); _runWidthCache.set(run.font, perFont); }
+  const key = `${size}|${run.text}`;
+  const cached = perFont.get(key);
+  if (cached !== undefined) return cached;
   // Measure the whole run in one fontkit layout pass. The old code summed
   // widthOfTextAtSize per character, which made one layout call per character
   // and showed up as ~40% of PDF-build CPU in a profile. For our subset fonts
@@ -1036,16 +1051,18 @@ function runWidth(run: Run, size: number): number {
   // whole-string width also matches how the run is actually drawn. Fall back to
   // the per-character sum only when the whole-string measure throws on an
   // unmappable character, preserving the old graceful-degradation behaviour.
+  let w: number;
   try {
-    return run.font.widthOfTextAtSize(run.text, size);
+    w = run.font.widthOfTextAtSize(run.text, size);
   } catch {
-    let w = 0;
+    w = 0;
     for (const ch of run.text) {
       try { w += run.font.widthOfTextAtSize(ch, size); }
       catch { /* skip unmeasurable */ }
     }
-    return w;
   }
+  perFont.set(key, w);
+  return w;
 }
 
 function wrapText(text: string, weight: PreferredWeight, ctx: TextCtx, size: number, maxWidth: number): string[] {
