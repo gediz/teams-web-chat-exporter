@@ -251,6 +251,49 @@ function extractUuid(mri: string): string | null {
 // we don't keep firing the same 404s. Cache lifetime is the content-
 // script process — a Teams tab reload flushes it.
 const _graphUserCache = new Map<string, string | null>(); // uuid → name | null (404)
+// Set once if the Graph JSON $batch endpoint turns out to be unusable in this
+// context (a definitive 4xx on the /$batch envelope, not a transient 429). From
+// then on we use individual /users/{id} GETs — the proven pre-$batch path, just
+// noisier — so this is never worse than before even if $batch is blocked.
+let _graphBatchUnavailable = false;
+
+// Fallback resolver: one /users/{id} GET per user at bounded concurrency. This
+// is the original pre-$batch path, kept for when /$batch is unavailable. It
+// mutates `result` + _graphUserCache exactly as the batch path does.
+async function resolveUsersIndividually(
+  entries: [string, string[]][],
+  graphToken: string,
+  result: Map<string, string>,
+  errors: string[],
+): Promise<void> {
+  const CONCURRENCY = 10;
+  for (let i = 0; i < entries.length; i += CONCURRENCY) {
+    await Promise.all(entries.slice(i, i + CONCURRENCY).map(async ([uuid, originalMris]) => {
+      try {
+        const resp = await fetch(
+          `https://graph.microsoft.com/v1.0/users/${uuid}?$select=displayName`,
+          { headers: { 'Authorization': `Bearer ${graphToken}` }, signal: AbortSignal.timeout(5_000) },
+        );
+        if (!resp.ok) {
+          if (resp.status === 404) _graphUserCache.set(uuid, null);
+          if (errors.length < 3) errors.push(`HTTP ${resp.status} for ${uuid.slice(0, 8)}`);
+          return;
+        }
+        const name = (await resp.json()).displayName;
+        if (name) {
+          _graphUserCache.set(uuid, name);
+          for (const mri of originalMris) result.set(mri, name);
+          result.set(`8:orgid:${uuid}`, name);
+          result.set(`gid:${uuid}`, name);
+        } else {
+          _graphUserCache.set(uuid, null);
+        }
+      } catch (e) {
+        if (errors.length < 3) errors.push(String(e));
+      }
+    }));
+  }
+}
 
 export async function resolveUserNames(
   mris: string[],
@@ -285,46 +328,96 @@ export async function resolveUserNames(
   }
   if (toFetch.size === 0) return result;
 
-  // Resolve each UUID via Graph. Sequential resolution made the picker
-  // wait 100s on accounts with lots of 1:1 chats — IDB-source surfaces
-  // ~3× more conversations than the API list did, and most are 1:1s
-  // needing a name. Bounded-concurrency parallelism keeps wall-time
-  // down to ceil(N/CONCURRENCY) * RTT instead of N * RTT.
-  const CONCURRENCY = 10;
+  // Resolve via Graph's JSON batch endpoint: up to 20 /users/{id} lookups per
+  // POST /$batch, a few batches in flight. Two reasons over individual GETs:
+  //   1. No console spam. A /users/{id} that 404s as its own fetch() makes the
+  //      browser log "GET …/users/… 404 (Not Found)" — a line we can't suppress
+  //      from JS. In consumer Teams (no AAD directory) and for cross-tenant
+  //      guests EVERY lookup 404s, so a big bundle floods the console with
+  //      hundreds of them. Inside $batch each sub-request's 404 is just a
+  //      `status` field in the single 200 response body, which the browser does
+  //      not log. So we resolve everyone we can, quietly — no need to guess when
+  //      "everything will 404" and give up (we can't know that anyway: a tenant
+  //      whose first N users are guests still has resolvable internal users
+  //      after them).
+  //   2. ~20× fewer round-trips.
+  // Cache semantics are unchanged: a 200 with a name caches the name; a 404
+  // caches a null miss (so we don't retry it next popup); any other status
+  // (429/5xx) is left uncached so a later call can retry.
+  const BATCH = 20;        // Graph v1.0 $batch hard limit
+  const IN_FLIGHT = 4;     // up to 80 users resolving at once
   const errors: string[] = [];
   const entries = [...toFetch.entries()];
-  for (let i = 0; i < entries.length; i += CONCURRENCY) {
-    const batch = entries.slice(i, i + CONCURRENCY);
-    await Promise.all(batch.map(async ([uuid, originalMris]) => {
+
+  // $batch proven unusable earlier this session: go straight to individual GETs
+  // (no point re-probing /$batch every chat of a bundle).
+  if (_graphBatchUnavailable) {
+    await resolveUsersIndividually(entries, graphToken, result, errors);
+  } else {
+    const subBatches: [string, string[]][][] = [];
+    for (let i = 0; i < entries.length; i += BATCH) subBatches.push(entries.slice(i, i + BATCH));
+
+    // Run one $batch. Returns true only if the ENVELOPE was definitively
+    // rejected (a 4xx that is not a transient 429) — meaning /$batch is unusable
+    // here and we should fall back to individual GETs. Per-sub-request 404s are
+    // normal and handled inline; transient 429/5xx and network throws return
+    // false (leave those UUIDs uncached for a later retry, keep using $batch).
+    const runBatch = async (sub: [string, string[]][]): Promise<boolean> => {
+      const requests = sub.map(([uuid], idx) => ({
+        id: String(idx), method: 'GET', url: `/users/${uuid}?$select=displayName`,
+      }));
       try {
-        const resp = await fetch(
-          `https://graph.microsoft.com/v1.0/users/${uuid}?$select=displayName`,
-          {
-            headers: { 'Authorization': `Bearer ${graphToken}` },
-            signal: AbortSignal.timeout(5_000),
-          },
-        );
+        const resp = await fetch('https://graph.microsoft.com/v1.0/$batch', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${graphToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requests }),
+          signal: AbortSignal.timeout(20_000),
+        });
         if (!resp.ok) {
-          // 404 = federated user not in this tenant. Remember the
-          // miss so we don't refetch on the next popup open.
-          if (resp.status === 404) _graphUserCache.set(uuid, null);
-          if (errors.length < 3) errors.push(`HTTP ${resp.status} for ${uuid.slice(0,8)}`);
-          return;
+          if (errors.length < 3) errors.push(`$batch HTTP ${resp.status}`);
+          return resp.status !== 429 && resp.status < 500;
         }
         const data = await resp.json();
-        const name = data.displayName;
-        if (name) {
-          _graphUserCache.set(uuid, name);
-          for (const mri of originalMris) result.set(mri, name);
-          result.set(`8:orgid:${uuid}`, name);
-          result.set(`gid:${uuid}`, name);
-        } else {
-          _graphUserCache.set(uuid, null);
+        if (!Array.isArray(data.responses)) {
+          if (errors.length < 3) errors.push('$batch: missing responses array');
+          return true;
         }
+        for (const r of data.responses) {
+          const pair = sub[Number(r.id)];
+          if (!pair) continue;
+          const [uuid, originalMris] = pair;
+          const name = r.status === 200 && r.body ? r.body.displayName : null;
+          if (name) {
+            _graphUserCache.set(uuid, name);
+            for (const mri of originalMris) result.set(mri, name);
+            result.set(`8:orgid:${uuid}`, name);
+            result.set(`gid:${uuid}`, name);
+          } else if (r.status === 404) {
+            _graphUserCache.set(uuid, null); // genuine miss (guest/federated/no directory)
+          } else if (errors.length < 3) {
+            errors.push(`sub HTTP ${r.status}`); // transient — leave uncached
+          }
+        }
+        return false;
       } catch (e) {
         if (errors.length < 3) errors.push(String(e));
+        return false; // network throw: transient, don't condemn $batch
       }
-    }));
+    };
+
+    for (let i = 0; i < subBatches.length; i += IN_FLIGHT) {
+      const rejected = await Promise.all(subBatches.slice(i, i + IN_FLIGHT).map(runBatch));
+      if (rejected.some(Boolean)) {
+        // /$batch is unusable in this context. Fall back to individual GETs for
+        // every UUID not yet resolved (this group's rejected ones + all later
+        // batches), and remember so the rest of the bundle skips the probe.
+        _graphBatchUnavailable = true;
+        const remaining = entries.filter(([uuid]) => !_graphUserCache.has(uuid));
+        console.info(`[API] Graph $batch unavailable — falling back to individual /users lookups for ${remaining.length} user(s)`);
+        await resolveUsersIndividually(remaining, graphToken, result, errors);
+        break;
+      }
+    }
   }
   if (errors.length > 0 && result.size === 0) {
     // Logged at info, not warn: a 404 here just means the user is
@@ -335,6 +428,83 @@ export async function resolveUserNames(
     console.info(`[API] Graph name resolution: ${uuidToMris.size} user(s) unresolved (often federated/guest 404s, expected) — ${errors.join('; ')}`);
   }
 
+  return result;
+}
+
+// Resolve profile photos via Graph $batch. Graph base64-encodes a binary
+// sub-response body inside the JSON envelope, so a /users/{id}/photo/$value
+// sub-request comes back as { status:200, headers:{Content-Type}, body:"<b64>" },
+// which we turn straight into a data: URL — no per-photo round trip and no
+// per-request 404 in the console. Same fallback discipline as resolveUserNames:
+// 20 photos per POST, 4 in flight, and a one-time give-up if /$batch is unusable
+// for photos here (definitive non-429 4xx envelope or a missing responses array),
+// after which callers use their existing per-UUID FETCH_BLOB path.
+//
+// Returns: uuid -> dataURL for a resolved photo; uuid -> null for a definitive
+// miss (404 = no photo, or a body over `maxBytes`). A uuid ABSENT from the map
+// was not processed (batch envelope failure / unavailable) and the caller should
+// fetch it individually.
+let _graphPhotoBatchUnavailable = false;
+export async function resolveAvatarPhotos(
+  uuids: string[],
+  graphToken: string,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<Map<string, string | null>> {
+  const result = new Map<string, string | null>();
+  if (!uuids.length || !graphToken || _graphPhotoBatchUnavailable) return result;
+
+  const uniq = [...new Set(uuids)];
+  const BATCH = 20, IN_FLIGHT = 4;
+  const subBatches: string[][] = [];
+  for (let i = 0; i < uniq.length; i += BATCH) subBatches.push(uniq.slice(i, i + BATCH));
+
+  // Returns true only if the $batch envelope is definitively rejected (a 4xx
+  // that is not a transient 429) — i.e. /$batch is unusable for photos here.
+  const runBatch = async (sub: string[]): Promise<boolean> => {
+    const requests = sub.map((uuid, idx) => ({ id: String(idx), method: 'GET', url: `/users/${uuid}/photo/$value` }));
+    try {
+      const resp = await fetch('https://graph.microsoft.com/v1.0/$batch', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${graphToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requests }),
+        // Honor the scrape's abort (STOP_EXPORT) AND a 30s timeout, so a cancel
+        // mid-batch is not stuck waiting for the POST to return.
+        signal: combineAbortSignals(signal, AbortSignal.timeout(30_000)),
+      });
+      if (!resp.ok) return resp.status !== 429 && resp.status < 500;
+      const data = await resp.json();
+      if (!Array.isArray(data.responses)) return true;
+      for (const r of data.responses) {
+        const uuid = sub[Number(r.id)];
+        if (uuid === undefined) continue;
+        if (r.status === 200 && typeof r.body === 'string' && r.body) {
+          const ct = (r.headers && (r.headers['Content-Type'] || r.headers['content-type'])) || 'image/jpeg';
+          const approxBytes = Math.floor(r.body.length * 3 / 4); // base64 -> bytes
+          // Within size -> resolved. OVER size -> leave ABSENT (not null), so the
+          // caller's per-UUID path classifies it exactly like the legacy code
+          // (a non-404 failure, not cached as a permanent no-photo).
+          if (approxBytes <= maxBytes) result.set(uuid, `data:${ct};base64,${r.body}`);
+        } else if (r.status === 404) {
+          result.set(uuid, null); // genuine no-photo
+        }
+        // 429 / 5xx / other: leave ABSENT so the caller fetches it individually.
+      }
+      return false;
+    } catch {
+      return false; // network throw / abort: caller falls back for these
+    }
+  };
+
+  for (let i = 0; i < subBatches.length; i += IN_FLIGHT) {
+    if (signal?.aborted) break;
+    const rejected = await Promise.all(subBatches.slice(i, i + IN_FLIGHT).map(runBatch));
+    if (rejected.some(Boolean)) {
+      _graphPhotoBatchUnavailable = true;
+      console.info('[API] Graph photo $batch unavailable — falling back to per-photo fetch');
+      break;
+    }
+  }
   return result;
 }
 
@@ -1587,7 +1757,7 @@ export async function extractConversationId(): Promise<string | null> {
 
 // ── Paginated Message Fetcher ──────────────────────────────────────────
 
-const INITIAL_DELAY_MS = 150;
+const INITIAL_DELAY_MS = 150; // reverted: 40ms tripped 429 on the chatsvc messages endpoint
 const MAX_PAGES = 500; // safety limit (~100k messages)
 const MAX_RETRIES = 5;
 
@@ -1837,6 +2007,7 @@ export async function fetchAllMessages(
     }
   }
 
+  // this loop (server RTTs + sleeps); slowestPageMs isolates single-page stalls.
   return allMessages;
 }
 

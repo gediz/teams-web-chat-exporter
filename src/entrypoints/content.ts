@@ -1,6 +1,7 @@
 /* eslint-disable no-console */
 import { defineContentScript } from 'wxt/sandbox';
 import { $ } from '../utils/dom';
+import { uint8ToBase64 } from '../utils/base64';
 import { makeDayDivider as buildDayDivider } from '../utils/messages';
 import { cssEscape, isPlaceholderText, textFrom } from '../utils/text';
 import { formatElapsed, parseTimeStamp } from '../utils/time';
@@ -12,7 +13,7 @@ import { autoScrollAggregate as autoScrollAggregateHelper } from '../content/scr
 import { extractChatTitle, extractChannelTitle } from '../content/title';
 import { extractAvatarId } from '../utils/avatars';
 import { TEAMS_MATCH_PATTERNS } from '../utils/teams-urls';
-import { apiScrape, discover, ensureSkypeTokenCookies, extractConversationId, fetchSharePointFile, getGraphToken, getIc3Token, getLastApiScrapeFailure, getSkypeToken, listConversationsFromIdb, listConversationsFromIdbQuick } from '../content/api-client';
+import { apiScrape, discover, ensureSkypeTokenCookies, extractConversationId, fetchSharePointFile, getGraphToken, getIc3Token, getLastApiScrapeFailure, getSkypeToken, listConversationsFromIdb, listConversationsFromIdbQuick, resolveAvatarPhotos } from '../content/api-client';
 import { convertApiMessages } from '../content/api-converter';
 import { runStandaloneProbes } from '../content/probes';
 import type { ProbeResult } from '../utils/diagnostics';
@@ -702,12 +703,12 @@ export default defineContentScript({
 
         // ── Inline Image Fetching (API mode) ──────────────────────
         const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
-        const MAX_CONCURRENT_FETCHES = 6;
+        const MAX_CONCURRENT_FETCHES = 12; // [limit-test] was 6; raise to probe the ceiling
         // When Teams' urlp proxy starts returning HTTP 429 we drop
         // concurrency for the rest of the export to give the rate
         // limit a chance to clear. 4 is empirical: low enough to
         // unblock most retries, high enough not to halve throughput.
-        const MAX_CONCURRENT_FETCHES_THROTTLED = 4;
+        const MAX_CONCURRENT_FETCHES_THROTTLED = 8; // [limit-test] was 4
 
         // Verbose image-fetch debugging. Two ways to enable:
         //   1. Build-time:  WXT_DEBUG_IMAGE_FETCH=1 pnpm build
@@ -926,18 +927,24 @@ export default defineContentScript({
                             : `ok=false, status=${d.status ?? '-'} ${d.statusText ?? ''}, error=${d.error ?? ''}`;
                         console.log(`[Teams Exporter DEBUG] fetchUrlpDirect first response — ${dump}`);
                     }
-                    if (d.ok && d.bytes) {
-                        const buf = d.bytes;
-                        if (buf.byteLength > MAX_IMAGE_BYTES || buf.byteLength < 100) {
-                            resolve({ ok: false, sizeReason: buf.byteLength });
-                            return;
+                    // The 30s timeout above is already cleared, so anything that
+                    // throws here (e.g. a cross-compartment access on the
+                    // page-world bytes) would leave this Promise unresolved and
+                    // hang the whole image batch. Always resolve.
+                    try {
+                        if (d.ok && d.bytes) {
+                            const buf = d.bytes;
+                            if (buf.byteLength > MAX_IMAGE_BYTES || buf.byteLength < 100) {
+                                resolve({ ok: false, sizeReason: buf.byteLength });
+                                return;
+                            }
+                            const bytes = new Uint8Array(buf);
+                            resolve({ ok: true, dataUrl: `data:${d.mime};base64,${uint8ToBase64(bytes)}` });
+                        } else {
+                            resolve({ ok: false, status: d.status, statusText: d.statusText, error: d.error });
                         }
-                        const bytes = new Uint8Array(buf);
-                        let bin = '';
-                        for (let k = 0; k < bytes.length; k++) bin += String.fromCharCode(bytes[k]);
-                        resolve({ ok: true, dataUrl: `data:${d.mime};base64,${btoa(bin)}` });
-                    } else {
-                        resolve({ ok: false, status: d.status, statusText: d.statusText, error: d.error });
+                    } catch (err) {
+                        resolve({ ok: false, error: `urlp-decode failed: ${String((err as Error)?.message || err).slice(0, 80)}` });
                     }
                 }
                 window.addEventListener('message', listener);
@@ -1418,9 +1425,7 @@ export default defineContentScript({
                 if (buf.byteLength < 100) { imgFetchStats.tooSmall++; return null; }
                 const mime = resp.headers.get('content-type')?.split(';')[0]?.trim() || 'image/jpeg';
                 const bytes = new Uint8Array(buf);
-                let bin = '';
-                for (let k = 0; k < bytes.length; k++) bin += String.fromCharCode(bytes[k]);
-                return `data:${mime};base64,${btoa(bin)}`;
+                return `data:${mime};base64,${uint8ToBase64(bytes)}`;
             } catch (e: any) {
                 imgFetchStats.threwError++;
                 if (!imgFetchStats.firstThrow) imgFetchStats.firstThrow = `tfl-ams ${String(e?.message || e).slice(0, 80)}`;
@@ -1434,6 +1439,10 @@ export default defineContentScript({
             auth?: { userId: string | null; userRegion: string; ic3Token: string },
         ): Promise<void> {
             resetImgFetchStats();
+            // Per-export image dedup: the same hosted image can appear in
+            // several messages; fetch each URL once and reuse the result. Stores
+            // successes only (failures stay retryable). Cleared per export.
+            const imageUrlCache = new Map<string, string>();
             // Resolve the image-fetch-fallback feature state for this
             // export by asking the background. Firefox MV2 content
             // scripts can't reliably call permissions.contains
@@ -1538,9 +1547,7 @@ export default defineContentScript({
                                 console.log(`[Teams Exporter] SharePoint file too large (${result.bytes.byteLength} bytes), skipping: ${url.slice(0, 120)}`);
                                 return;
                             }
-                            let bin = '';
-                            for (let k = 0; k < result.bytes.length; k++) bin += String.fromCharCode(result.bytes[k]);
-                            att.dataUrl = `data:${result.mime};base64,${btoa(bin)}`;
+                            att.dataUrl = `data:${result.mime};base64,${uint8ToBase64(result.bytes)}`;
                             spOk++;
                         } else {
                             // log (not warn): SharePoint may decline to
@@ -1614,43 +1621,64 @@ export default defineContentScript({
             // MAX_CONCURRENT_FETCHES and drops to MAX_CONCURRENT_FETCHES_THROTTLED
             // for the rest of the export the first time any image fetch sees
             // a 429 from the urlp proxy. The transition is logged once.
-            let concurrency = MAX_CONCURRENT_FETCHES;
-            for (let i = 0; i < tasks.length; i += concurrency) {
-                if (currentAbortController?.signal.aborted) break;
-                if (sawRateLimit && concurrency !== MAX_CONCURRENT_FETCHES_THROTTLED) {
-                    concurrency = MAX_CONCURRENT_FETCHES_THROTTLED;
-                    console.log(`[Teams Exporter] Rate limit detected (HTTP 429); reducing concurrency to ${concurrency} for the rest of this export`);
-                }
-                const batch = tasks.slice(i, i + concurrency);
-                await Promise.all(
-                    batch.map(async ({ att, url }) => {
-                        if (currentAbortController?.signal.aborted) return;
-                        const dataUrl = (isTeamsFree && /\.asm\.skype\.com\/v1\/objects\//i.test(url) && imgFetchAuth?.ic3Token)
+            // Continuous fetch pool. Up to MAX_CONCURRENT_FETCHES requests stay
+            // in flight, and a worker pulls the next task the moment its current
+            // one finishes, instead of fixed batches that idle every finished
+            // slot until the batch's slowest image returns (one 4 s image used
+            // to stall five slots). Peak concurrency and the 429 throttle are
+            // unchanged: workers never exceed MAX_CONCURRENT_FETCHES, and a
+            // worker whose slot index is at or above the (reduced) target exits
+            // the first time any fetch sees a 429, dropping to the throttled
+            // count for the rest of the export. nextTask/succeeded/done are only
+            // touched between awaits, so the single-threaded event loop makes the
+            // shared-counter updates race-free.
+            let target = MAX_CONCURRENT_FETCHES;
+            let nextTask = 0;
+            const fetchWorker = async (slot: number) => {
+                while (true) {
+                    if (currentAbortController?.signal.aborted) return;
+                    if (sawRateLimit && target !== MAX_CONCURRENT_FETCHES_THROTTLED) {
+                        target = MAX_CONCURRENT_FETCHES_THROTTLED;
+                        console.log(`[Teams Exporter] Rate limit detected (HTTP 429); reducing concurrency to ${target} for the rest of this export`);
+                    }
+                    if (slot >= target) return;
+                    const idx = nextTask++;
+                    if (idx >= tasks.length) return;
+                    const { att, url } = tasks[idx];
+                    let dataUrl: string | null | undefined = imageUrlCache.get(url);
+                    if (dataUrl === undefined) {
+                        dataUrl = (isTeamsFree && /\.asm\.skype\.com\/v1\/objects\//i.test(url) && imgFetchAuth?.ic3Token)
                             ? await fetchTeamsFreeAmsImage(url, imgFetchAuth.ic3Token)
                             : await fetchImageAsDataUrl(url);
-                        if (dataUrl) {
-                            att.dataUrl = dataUrl;
-                            succeeded++;
-                        } else {
-                            // Fetch failed. If the source is an auth-protected
-                            // Teams/AMS endpoint, a saved export can never load
-                            // it (no cookies/bearer from file://), so drop the
-                            // href to avoid a broken image — the card text still
-                            // renders. For previews/videos/gifs the href is the
-                            // thumbnail (not a clickable link), so this is safe.
-                            // Public URLs (e.g. a giphy gif) are kept since they
-                            // still load when online.
-                            const authProtected = /\/v1\/objects\/[^/]+\/views\//i.test(url)
-                                || /\/urlp\//i.test(url)
-                                || /(asyncgw\.teams\.microsoft\.com|\.asm\.skype\.com)/i.test(url);
-                            if (authProtected) att.href = undefined;
-                        }
-                        done++;
-                        onProgress?.(done, tasks.length);
-                    }),
-                );
-            }
+                        if (dataUrl) imageUrlCache.set(url, dataUrl);
+                    }
+                    if (dataUrl) {
+                        att.dataUrl = dataUrl;
+                        succeeded++;
+                    } else {
+                        // Fetch failed. If the source is an auth-protected
+                        // Teams/AMS endpoint, a saved export can never load
+                        // it (no cookies/bearer from file://), so drop the
+                        // href to avoid a broken image — the card text still
+                        // renders. For previews/videos/gifs the href is the
+                        // thumbnail (not a clickable link), so this is safe.
+                        // Public URLs (e.g. a giphy gif) are kept since they
+                        // still load when online.
+                        const authProtected = /\/v1\/objects\/[^/]+\/views\//i.test(url)
+                            || /\/urlp\//i.test(url)
+                            || /(asyncgw\.teams\.microsoft\.com|\.asm\.skype\.com)/i.test(url);
+                        if (authProtected) att.href = undefined;
+                    }
+                    done++;
+                    onProgress?.(done, tasks.length);
+                }
+            };
+            await Promise.all(Array.from({ length: MAX_CONCURRENT_FETCHES }, (_, slot) => fetchWorker(slot)));
             console.log(`[Teams Exporter] Image fetch: ${succeeded} succeeded, ${tasks.length - succeeded} failed (of ${tasks.length} attempted)`);
+            // URL-dedup would save (images-unique) fetches. slowestMs >> totalMs/images
+            // means batch-boundary stalls dominate (one slow image per batch of 6).
+            if (tasks.length > 0) {
+            }
             if (imgFetchStats.directRecovered > 0 || imgFetchStats.directFailed > 0) {
                 console.log(`[Teams Exporter] Image fetch fallback: ${imgFetchStats.directRecovered} recovered, ${imgFetchStats.directFailed} still failed via direct upstream fetch.`);
             }
@@ -1735,6 +1763,13 @@ export default defineContentScript({
         }
 
         // ── Avatar Fetching (API mode) ────────────────────────────
+        // Cross-chat profile-photo cache. The same person recurs across many
+        // chats in a bundle, so each Graph photo is fetched once and reused
+        // (measured ~75% of avatar fetches were repeats). Value is the data URL,
+        // or '' for a known no-photo (404) so we don't re-query. Persists for
+        // the content-script lifetime, i.e. the whole bundle. Transient failures
+        // are NOT cached, so a later chat can retry them.
+        const apiAvatarPhotoCache = new Map<string, string>();
         /**
          * Fetch profile photos via Graph API for API-mode messages.
          * Extracts unique author UUIDs, fetches photos, and sets avatar data URLs.
@@ -1745,6 +1780,8 @@ export default defineContentScript({
         ): Promise<void> {
             const graphToken = await getGraphToken();
             if (!graphToken) return;
+            // context, so crossChatCacheHits = avatars a bundle-wide photo cache
+            // would have skipped. Remove after perf run.
 
             // Build author → UUID map from raw API messages
             const authorToUuid = new Map<string, string>();
@@ -1771,45 +1808,107 @@ export default defineContentScript({
             // authorToUuid maps display names to UUIDs and the same UUID can repeat
             // across many display names; a unique count is the meaningful one.
             const totalAvatars = new Set(authorToUuid.values()).size;
+            // Resolve which UUIDs still need a Graph fetch (after dedup + the
+            // cross-chat cache), then fetch them through a small concurrency pool.
+            // These hit Graph (graph.microsoft.com), not the 429-sensitive chat
+            // message endpoint, and they were previously fetched strictly one at a
+            // time (the serial loop was the second-biggest export phase). Counters
+            // and caches are only touched between awaits, so the single-threaded
+            // event loop keeps the shared updates race-free.
+            const avatarsToFetch: string[] = [];
+            let avProcessed = 0;
             for (const [, uuid] of authorToUuid) {
-                if (currentAbortController?.signal.aborted) break;
                 if (attempted.has(uuid)) continue;
                 attempted.add(uuid);
-                try {
-                    const resp = await runtime.sendMessage({
-                        type: 'FETCH_BLOB',
-                        url: `https://graph.microsoft.com/v1.0/users/${uuid}/photo/$value`,
-                        bearerToken: graphToken,
-                        maxBytes: MAX_IMAGE_BYTES,
-                        minBytes: 1,
-                    }) as { ok: boolean; dataUrl?: string; status?: number; statusText?: string; error?: string; sizeReason?: number };
-                    if (resp?.ok && resp.dataUrl) {
-                        uuidToDataUrl.set(uuid, resp.dataUrl);
-                    } else if (resp?.status === 404) {
-                        photo404++;
-                    } else {
-                        nonPhotoFailures++;
-                        if (!firstPhotoError) {
-                            firstPhotoError = resp?.status
-                                ? `HTTP ${resp.status} ${resp.statusText || ''}`
-                                : (resp?.error || 'unknown error');
-                        }
-                    }
-                } catch (e) {
-                    nonPhotoFailures++;
-                    if (!firstPhotoError) firstPhotoError = String(e);
+                // Cross-chat cache: reuse a photo already fetched for an earlier
+                // chat in this bundle (or a known no-photo) instead of re-querying.
+                const cachedPhoto = apiAvatarPhotoCache.get(uuid);
+                if (cachedPhoto !== undefined) {
+                    if (cachedPhoto) uuidToDataUrl.set(uuid, cachedPhoto);
+                    avProcessed++;
+                    continue;
                 }
-                // Emit progress every few avatars (and on the last one) so the
-                // popup button can show "x/total" without spamming messages.
-                if (attempted.size % 5 === 0 || attempted.size === totalAvatars) {
-                    try {
-                        runtime.sendMessage({
-                            type: 'SCRAPE_PROGRESS',
-                            payload: { phase: 'avatars', avatarsDone: attempted.size, avatarsTotal: totalAvatars },
-                        });
-                    } catch { /* ignore */ }
-                }
+                avatarsToFetch.push(uuid);
             }
+            // Resolve photos in Graph $batch first (20 per POST). Whatever it
+            // returns is seeded here; only the UUIDs it could NOT process fall
+            // through to the per-UUID FETCH_BLOB pool below. Self-probing: if
+            // /$batch is unusable for photos, resolveAvatarPhotos returns an
+            // empty map and everything falls through unchanged.
+            if (avatarsToFetch.length && graphToken) {
+                try {
+                    const batched = await resolveAvatarPhotos(avatarsToFetch, graphToken, MAX_IMAGE_BYTES, currentAbortController?.signal);
+                    if (batched.size) {
+                        const remaining: string[] = [];
+                        for (const uuid of avatarsToFetch) {
+                            if (!batched.has(uuid)) { remaining.push(uuid); continue; }
+                            const dataUrl = batched.get(uuid);
+                            if (dataUrl) { uuidToDataUrl.set(uuid, dataUrl); apiAvatarPhotoCache.set(uuid, dataUrl); }
+                            else { photo404++; apiAvatarPhotoCache.set(uuid, ''); } // no photo
+                            avProcessed++;
+                        }
+                        avatarsToFetch.length = 0;
+                        avatarsToFetch.push(...remaining);
+                    }
+                } catch (e) { console.log('[Teams Exporter] avatar $batch failed, using per-photo path:', e); }
+            }
+            // Emit one avatars-progress update now so the popup learns the total
+            // even when the batch resolved everyone (then the worker pool below
+            // does nothing and would never emit it). Common on the first chat.
+            if (totalAvatars > 0) {
+                try {
+                    runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'avatars', avatarsDone: avProcessed, avatarsTotal: totalAvatars } });
+                } catch { /* ignore */ }
+            }
+            let nextAvatar = 0;
+            const avatarWorker = async () => {
+                while (true) {
+                    if (currentAbortController?.signal.aborted) return;
+                    const idx = nextAvatar++;
+                    if (idx >= avatarsToFetch.length) return;
+                    const uuid = avatarsToFetch[idx];
+                    try {
+                        const resp = await runtime.sendMessage({
+                            type: 'FETCH_BLOB',
+                            url: `https://graph.microsoft.com/v1.0/users/${uuid}/photo/$value`,
+                            bearerToken: graphToken,
+                            maxBytes: MAX_IMAGE_BYTES,
+                            minBytes: 1,
+                        }) as { ok: boolean; dataUrl?: string; status?: number; statusText?: string; error?: string; sizeReason?: number };
+                        if (resp?.ok && resp.dataUrl) {
+                            uuidToDataUrl.set(uuid, resp.dataUrl);
+                            apiAvatarPhotoCache.set(uuid, resp.dataUrl);
+                        } else if (resp?.status === 404) {
+                            photo404++;
+                            apiAvatarPhotoCache.set(uuid, '');  // known no-photo; don't re-query
+                        } else {
+                            nonPhotoFailures++;
+                            if (!firstPhotoError) {
+                                firstPhotoError = resp?.status
+                                    ? `HTTP ${resp.status} ${resp.statusText || ''}`
+                                    : (resp?.error || 'unknown error');
+                            }
+                        }
+                    } catch (e) {
+                        nonPhotoFailures++;
+                        if (!firstPhotoError) firstPhotoError = String(e);
+                    }
+                    avProcessed++;
+                    // Emit progress every few avatars (and on the last one) so the
+                    // popup button can show "x/total" without spamming messages.
+                    if (avProcessed % 5 === 0 || avProcessed === totalAvatars) {
+                        try {
+                            runtime.sendMessage({
+                                type: 'SCRAPE_PROGRESS',
+                                payload: { phase: 'avatars', avatarsDone: avProcessed, avatarsTotal: totalAvatars },
+                            });
+                        } catch { /* ignore */ }
+                    }
+                }
+            };
+            await Promise.all(Array.from({ length: MAX_CONCURRENT_FETCHES }, () => avatarWorker()));
+            // how many of this chat's people were already fetched in an earlier
+            // chat this run (= what a bundle-wide photo cache would save).
             const missing = attempted.size - uuidToDataUrl.size;
             if (missing > 0) {
                 const parts: string[] = [];
@@ -1850,8 +1949,24 @@ export default defineContentScript({
             if (!graphToken) return out;
             const CAP = 400;
             const targets = toFetch.slice(0, CAP);
+            // Graph $batch first; only UUIDs it could not process fall through to
+            // the per-UUID serial loop below (self-probing, returns empty if
+            // /$batch is unusable for photos here).
+            let serialTargets = targets;
+            try {
+                const batched = await resolveAvatarPhotos(targets, graphToken, MAX_IMAGE_BYTES, currentAbortController?.signal);
+                if (batched.size) {
+                    serialTargets = [];
+                    for (const uuid of targets) {
+                        if (!batched.has(uuid)) { serialTargets.push(uuid); continue; }
+                        const dataUrl = batched.get(uuid);
+                        if (dataUrl) { out.set(uuid, dataUrl); reactorPhotoCache.set(uuid, dataUrl); }
+                        else reactorPhotoCache.set(uuid, null); // no photo / oversize
+                    }
+                }
+            } catch { /* fall through to the serial FETCH_BLOB path */ }
             let consecutive429 = 0;
-            for (const uuid of targets) {
+            for (const uuid of serialTargets) {
                 if (currentAbortController?.signal.aborted) break;
                 if (consecutive429 >= 3) {
                     console.warn('[Teams Exporter] Reactor photo fetch: backing off after repeated 429s');
