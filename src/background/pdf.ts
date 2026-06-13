@@ -148,8 +148,10 @@ const EMOJI_RASTER_PX = 72;
 type Fonts = {
   regular: PDFFont;
   bold: PDFFont;
-  cjk: PDFFont;
-  kr: PDFFont;
+  // null when the document has no CJK / Hangul codepoints (see loadFonts):
+  // the 10 MB CJK and 6 MB KR faces are then never fetched, subset or embedded.
+  cjk: PDFFont | null;
+  kr: PDFFont | null;
 };
 
 // Layout derived from user-picked PDF options (page size, body font
@@ -410,11 +412,21 @@ export async function buildPdfResilient(
 
 // ----- font loading ---------------------------------------------------
 
+// Font bytes are static extension assets, identical for every chat in a
+// bundle. Cache them at module level so a 321-chat export reads each face
+// once instead of re-fetching + re-allocating ~17 MB per chat. Read-only:
+// subsetFont copies into the WASM heap and the full-font fallback slices
+// before embedding, so the cached buffers are never mutated/detached.
+const _fontByteCache = new Map<string, ArrayBuffer>();
 async function fetchFont(path: string): Promise<ArrayBuffer> {
+  const cached = _fontByteCache.get(path);
+  if (cached) return cached;
   const url = chrome.runtime.getURL(path);
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`Failed to load font at ${path}: HTTP ${resp.status}`);
-  return resp.arrayBuffer();
+  const buf = await resp.arrayBuffer();
+  _fontByteCache.set(path, buf);
+  return buf;
 }
 
 // Page-number codepoints that always get rendered even if no message
@@ -423,11 +435,23 @@ async function fetchFont(path: string): Promise<ArrayBuffer> {
 const PAGE_NUMBER_CODEPOINTS = '0123456789/ ';
 
 async function loadFonts(doc: PDFDocument, codepoints: Set<number>, disableSubset = false): Promise<Fonts> {
+  // Only fetch/subset/embed the CJK (10 MB) and KR (6 MB) faces when the
+  // document actually routes a codepoint to them. The predicates are the SAME
+  // ones pickFontForChar uses, so a face is skipped only when no character
+  // would ever select it — no tofu risk. A Latin/Cyrillic chat skips ~16 MB
+  // of font fetch + HarfBuzz subsetting; this is the dominant per-chat font
+  // cost for non-CJK conversations.
+  let needCjk = false, needKr = false;
+  for (const cp of codepoints) {
+    if (!needKr && cpRoutesToKr(cp)) needKr = true;
+    if (!needCjk && cpRoutesToCjk(cp)) needCjk = true;
+    if (needCjk && needKr) break;
+  }
   const [regularBytes, boldBytes, cjkBytes, krBytes] = await Promise.all([
     fetchFont(FONT_REGULAR_PATH),
     fetchFont(FONT_BOLD_PATH),
-    fetchFont(FONT_CJK_PATH),
-    fetchFont(FONT_KR_PATH),
+    needCjk ? fetchFont(FONT_CJK_PATH) : Promise.resolve(null),
+    needKr ? fetchFont(FONT_KR_PATH) : Promise.resolve(null),
   ]);
 
   // Subset each font to exactly the codepoints the document uses via
@@ -443,8 +467,8 @@ async function loadFonts(doc: PDFDocument, codepoints: Set<number>, disableSubse
   // available — fail-safe, not fail-broken.
   const regular = await embedSubsetOrFull(doc, regularBytes, codepoints, 'regular', disableSubset);
   const bold = await embedSubsetOrFull(doc, boldBytes, codepoints, 'bold', disableSubset);
-  const cjk = await embedSubsetOrFull(doc, cjkBytes, codepoints, 'cjk', disableSubset);
-  const kr = await embedSubsetOrFull(doc, krBytes, codepoints, 'kr', disableSubset);
+  const cjk = cjkBytes ? await embedSubsetOrFull(doc, cjkBytes, codepoints, 'cjk', disableSubset) : null;
+  const kr = krBytes ? await embedSubsetOrFull(doc, krBytes, codepoints, 'kr', disableSubset) : null;
   return { regular, bold, cjk, kr };
 }
 
@@ -460,7 +484,7 @@ async function embedSubsetOrFull(
   // ("Trying to access beyond buffer length") that surfaced only at save time.
   if (disableSubset) {
     console.log(`[hb-subset] ${label}: subsetting disabled, embedding FULL font (${fontBytes.byteLength} bytes)`);
-    return doc.embedFont(fontBytes, { subset: false });
+    return doc.embedFont(fontBytes.slice(0), { subset: false });
   }
   try {
     const subset = await subsetFont(new Uint8Array(fontBytes), codepoints);
@@ -482,7 +506,7 @@ async function embedSubsetOrFull(
     // extension's error badge.
     console.log(`[hb-subset] ${label}: subset FAILED, embedding FULL font (${fontBytes.byteLength} bytes):`, (e as Error)?.message || e);
   }
-  return doc.embedFont(fontBytes, { subset: false });
+  return doc.embedFont(fontBytes.slice(0), { subset: false });
 }
 
 // Per-character font selection for NON-emoji characters. Emoji are
@@ -493,37 +517,28 @@ async function embedSubsetOrFull(
 //   3. Primary (Noto Sans Regular/Bold): Latin, Cyrillic, Greek, Hebrew,
 //      basic Arabic, Western-European extras.
 type PreferredWeight = 'regular' | 'bold';
-function pickFontForChar(ch: string, weight: PreferredWeight, fonts: Fonts): PDFFont {
-  const cp = ch.codePointAt(0) ?? 0;
-
-  // Korean Hangul: conjoining Jamo (1100-11FF), Compatibility Jamo
-  // (3130-318F), Jamo Extended-A (A960-A97F), syllables (AC00-D7A3), and
-  // Jamo Extended-B (D7B0-D7FF). NotoSansSC contains none of these, so
-  // they must route to NotoSansKR or they render as tofu (issue #28).
-  // U+FFA0 (halfwidth Hangul filler) is the one codepoint in the
-  // fullwidth-forms block below that SC lacks but KR has, so it is routed
-  // here before the CJK branch claims the rest of that block.
-  if (
+// Korean Hangul: conjoining Jamo (1100-11FF), Compatibility Jamo (3130-318F),
+// Jamo Extended-A (A960-A97F), syllables (AC00-D7A3), Jamo Extended-B
+// (D7B0-D7FF). NotoSansSC contains none of these, so they must route to
+// NotoSansKR or render as tofu (issue #28). U+FFA0 (halfwidth Hangul filler)
+// is the one codepoint in the fullwidth block below that SC lacks but KR has.
+function cpRoutesToKr(cp: number): boolean {
+  return (
     (cp >= 0x1100 && cp <= 0x11FF) ||
     (cp >= 0x3130 && cp <= 0x318F) ||
     (cp >= 0xA960 && cp <= 0xA97F) ||
     (cp >= 0xAC00 && cp <= 0xD7A3) ||
     (cp >= 0xD7B0 && cp <= 0xD7FF) ||
     cp === 0xFFA0
-  ) {
-    return fonts.kr;
-  }
+  );
+}
 
-  // CJK Unified Ideographs + extensions + Hiragana / Katakana, plus the
-  // CJK punctuation / fullwidth blocks. The punctuation ranges
-  // (3000-303F lenticular/angle brackets, ideographic comma/full stop;
-  // FF00-FFEF fullwidth comma/question/exclamation and halfwidth kana;
-  // FE10-1F vertical forms; FE30-4F compatibility forms; FE50-6F small
-  // forms) are absent from Latin Noto Sans, so without this they fell
-  // through to Latin and rendered as tofu. NotoSansSC covers every
-  // assigned codepoint in these blocks (the lone exception, U+FFA0, is
-  // handled by the Korean branch above).
-  if (
+// CJK Unified Ideographs + extensions + Hiragana/Katakana + the CJK
+// punctuation / fullwidth blocks (absent from Latin Noto Sans). NotoSansSC
+// covers every assigned codepoint in these blocks (the lone exception, U+FFA0,
+// is handled by cpRoutesToKr above). Callers must check cpRoutesToKr FIRST.
+function cpRoutesToCjk(cp: number): boolean {
+  return (
     (cp >= 0x3000 && cp <= 0x303F) ||
     (cp >= 0x3040 && cp <= 0x30FF) ||
     (cp >= 0x3400 && cp <= 0x4DBF) ||
@@ -533,10 +548,16 @@ function pickFontForChar(ch: string, weight: PreferredWeight, fonts: Fonts): PDF
     (cp >= 0xFE50 && cp <= 0xFE6F) ||
     (cp >= 0xFF00 && cp <= 0xFFEF) ||
     (cp >= 0x20000 && cp <= 0x2FFFF)
-  ) {
-    return fonts.cjk;
-  }
+  );
+}
 
+function pickFontForChar(ch: string, weight: PreferredWeight, fonts: Fonts): PDFFont {
+  const cp = ch.codePointAt(0) ?? 0;
+  // The `?? fonts.regular` fallbacks can never be hit: loadFonts only leaves
+  // cjk/kr null when no codepoint routes to them (same predicates). They keep
+  // the return type non-null and fail safe rather than crashing.
+  if (cpRoutesToKr(cp)) return fonts.kr ?? fonts.regular;
+  if (cpRoutesToCjk(cp)) return fonts.cjk ?? fonts.regular;
   return weight === 'bold' ? fonts.bold : fonts.regular;
 }
 
@@ -739,7 +760,15 @@ async function loadTwemojiPack(): Promise<Record<string, string>> {
   return _twemojiPackLoading;
 }
 
+// Rasterized emoji PNG bytes are identical for a given key across every chat,
+// but the rasterize step (SVG decode via DOM Image/OffscreenCanvas on Firefox,
+// or an offscreen-document IPC round-trip on Chrome) is the expensive part and
+// was re-run per chat. Cache successes module-wide so each unique emoji is
+// rasterized once per SW lifetime. Failures are NOT cached (may be transient).
+const _emojiPngCache = new Map<string, Uint8Array>();
 async function rasterizeTwemoji(key: string): Promise<Uint8Array | null> {
+  const cached = _emojiPngCache.get(key);
+  if (cached) return cached;
   try {
     const pack = await loadTwemojiPack();
     const svgText = pack[key];
@@ -756,6 +785,7 @@ async function rasterizeTwemoji(key: string): Promise<Uint8Array | null> {
       console.warn(`[pdf] Twemoji ${key}: rasterize returned null`);
       return null;
     }
+    _emojiPngCache.set(key, png);
     return png;
   } catch (err) {
     console.warn(`[pdf] Twemoji ${key}: rasterize threw`, err);
@@ -834,8 +864,10 @@ function registerFontsOnPages(
     }
     fontMap.set(PDFName.of(TEXT_FONT_REGULAR_NAME), fonts.regular.ref);
     fontMap.set(PDFName.of(TEXT_FONT_BOLD_NAME), fonts.bold.ref);
-    fontMap.set(PDFName.of(TEXT_FONT_CJK_NAME), fonts.cjk.ref);
-    fontMap.set(PDFName.of(TEXT_FONT_KR_NAME), fonts.kr.ref);
+    // cjk/kr are null when skipped (no codepoint routes to them), so no page
+    // references their resource name — nothing to register.
+    if (fonts.cjk) fontMap.set(PDFName.of(TEXT_FONT_CJK_NAME), fonts.cjk.ref);
+    if (fonts.kr) fontMap.set(PDFName.of(TEXT_FONT_KR_NAME), fonts.kr.ref);
     if (emojiFont) {
       fontMap.set(PDFName.of(EMOJI_FONT_RESOURCE_NAME), emojiFont.ref);
     }
