@@ -588,9 +588,34 @@ async function loadTwemojiManifest(): Promise<Set<string>> {
 // Tries progressively shorter prefixes so e.g. "👨‍💻" matches the full
 // ZWJ sequence when available, and falls back to the base emoji "👨"
 // when the specific sequence isn't in the Twemoji set.
+// Cheap reject for the ~99% of characters that begin no Twemoji sequence.
+// Without it, readEmojiSequence allocates a codepoint array and builds hex keys
+// for every character of every message; a CPU profile of a large export put it
+// at 16% of all PDF time. The set holds the FIRST codepoint of every manifest
+// key, so keycap starters ('#', '*', '0'-'9') stay in while ordinary letters
+// drop out. parseInt(key, 16) stops at the '-' separator, giving that first
+// codepoint for free. Memoised against the manifest's identity.
+let _emojiStarters: Set<number> | null = null;
+let _emojiStartersFor: Set<string> | null = null;
+function emojiStarterSet(index: Set<string>): Set<number> {
+  if (_emojiStartersFor === index && _emojiStarters) return _emojiStarters;
+  const starters = new Set<number>();
+  for (const key of index) {
+    const cp = parseInt(key, 16);
+    if (!Number.isNaN(cp)) starters.add(cp);
+  }
+  _emojiStarters = starters;
+  _emojiStartersFor = index;
+  return starters;
+}
+
 function readEmojiSequence(text: string, i: number, index: Set<string>): { key: string; len: number } | null {
   const cp0 = text.codePointAt(i);
   if (cp0 === undefined) return null;
+  // A character that starts no known emoji key cannot match below; the longest
+  // candidate the matcher would build still begins with cp0, so this is output
+  // identical, it just skips the per-character allocation and Set probes.
+  if (!emojiStarterSet(index).has(cp0)) return null;
 
   // Collect up to N codepoints worth of a plausible emoji sequence:
   // starter + any joiners (ZWJ, VS16), modifiers (skin tone), or
