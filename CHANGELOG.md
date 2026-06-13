@@ -2,6 +2,52 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2026-06-13
+
+Large multi-chat exports now run faster and use far less memory. In a same-machine test a few-hundred-chat export finished about 1.7 times faster than 1.4.14, roughly an hour down to under 40 minutes while exporting more chats. The release also exports pasted tables with their row and column structure intact instead of flattening them to text, adds reactor avatars, a participant list and saved chat presets, and fixes a range of export-fidelity issues.
+
+### Performance
+
+- **Faster PDF building.** All text now draws through one path that reuses each embedded font instead of re-registering it on every line. The text-drawing work, the part that changed, runs nearly 4 times faster: a 1,000-page chat's text builds in about 1.5 seconds instead of 5.8 (image embedding and scraping are unchanged).
+- **Lower memory on large bundles.** A multi-chat bundle used to keep every built chat plus all of the zip's compression state in memory until the very end, so memory climbed with each chat and a few-hundred-chat run could approach the browser's allocation limit. The bundle is now compressed one file at a time and streamed straight into the archive, so peak memory tracks the size of the archive being written rather than the sum of every chat. On a 292-chat run, peak working memory at the zip stage dropped from about 3 GB to under 600 MB.
+- **Scraping overlaps building.** While one chat's files are being built, the next chat's messages are already being fetched. The two run in different parts of the extension, so they no longer wait on each other.
+- **Batched directory lookups.** Names and profile photos are resolved through Microsoft Graph in batches of up to 20 per request instead of one request each. This is faster and removes the burst of per-photo console errors that large exports used to print.
+
+### Added
+
+- **Tables.** Tables pasted into Teams messages now export as real tables in every format (HTML, PDF, TXT, JSON, CSV) instead of being flattened to "cell | cell" text. Row and column structure, including merged cells, is preserved. Raised in [discussion #30](https://github.com/gediz/teams-web-chat-exporter/discussions/30).
+- **Reactor avatars.** The reaction line in HTML and PDF now shows each reactor's profile photo, fetched through Microsoft Graph, falling back to initials when no photo is available. Your own reactions reuse the avatar already captured from Teams, with no extra network call.
+- **Participant list.** A chat's PDF and HTML carry a "Participants" header line. Added and removed member names in system messages are resolved through Graph and the chat roster.
+- **Chat presets.** Save the current chat selection as a named preset and re-apply it later from the picker. If a saved chat no longer exists, applying the preset re-selects the ones that remain and notes how many were unavailable.
+- **Edited marker and reactions in TXT.** The plain-text export now appends "(edited)" to edited messages and a single-line reaction summary with reactor names, matching what the other formats already carried.
+- **Forwarded column in CSV.** Forwarded messages kept their body out of the CSV text column; a dedicated forwarded column now carries the original author and text. Fields with line breaks follow RFC 4180 quoting instead of escaping to a literal "\n".
+- **Clear button for the chat filter.** A Clear control empties the conversation search box in one click.
+- **Verbose export stats (Diagnostics page).** An opt-in toggle, off by default. When on, the export-timing diagnostics written to the console include per-chat detail (chat names and per-stage timing) for performance debugging; otherwise those logs stay limited to ID-free totals.
+
+### Fixed
+
+- **CSV formula injection.** A cell beginning with `=`, `+`, `-`, `@`, tab or carriage return is prefixed with an apostrophe so spreadsheets treat it as text rather than running it as a formula (OWASP CSV Injection).
+- **XML entities in system text.** System messages, recording titles and link-preview descriptions arrived entity-escaped (for example `&amp;`) and showed raw in TXT/JSON/CSV or double-escaped in HTML. They are decoded once now, and a single out-of-range numeric reference no longer discards the rest of the message.
+- **Wide tables in PDF.** A very wide table used to scale its columns down until every cell wrapped to fragments. The cell font size is reduced to fit first, keeping values readable.
+- **Mentions.** A mention split as "@First @Last" collapses to "@First Last", sender names win over mention names when both map to one person, and the mention list is coalesced and hardened.
+- **Reaction line in PDF.** Reactor names are bounded with a dot drawn per reactor, and popover initials are centered.
+- **Autolinked URLs.** A trailing CJK character or bracket next to a URL is no longer pulled into the link, and autolinked URLs are no longer double-escaped in HTML.
+- **SharePoint sign-in pages saved as images.** An image whose bytes are actually a SharePoint sign-in page is rejected and shown as a labeled placeholder that links out, instead of a broken image.
+- **One failed format no longer loses the others.** When a single format fails to build inside a bundle, the chat keeps its other formats instead of being dropped.
+- **HTML layout.** Reply-connector dots are centered for own and compact replies, the header uses a middot separator, the reactor popover appears only for four or more reactors and is height-capped and scrollable, and compact-view thread replies are tidied.
+- **Popup.** The popup is capped at 600 px so Chrome and Firefox show a single scrollbar, the progress bar no longer replays its fill animation when reopened mid-export, and the running state is written before reopen so the live status shows immediately.
+- **PDF font subsets.** Subsets are padded so fontkit's empty-glyph bounding-box read stays in bounds.
+- **Firefox diagnostics.** The diagnostics log size is shown even where `getBytesInUse` is unsupported.
+
+### Changed
+
+- **Shorter export helper text.** The line under the export button shows the source, format and date range only. The include-toggle list and the per-chat name were dropped because they overflowed and repeated information shown elsewhere.
+
+### i18n
+
+- New `presets.*` strings (button, save, apply, delete, and the partial-apply notice), translated across all 24 locales.
+- New `diagnostics.verboseStats.*` strings for the Diagnostics toggle, English in all 24 locales for now (translations to follow).
+
 ## [1.4.14] - 2026-06-09
 
 PDF font subsetting now runs in packaged builds. The service worker content security policy did not allow WebAssembly, so the HarfBuzz subsetter never started and every PDF embedded the full Noto fonts, about 9.5 MB of font data per file. With subsetting working a PDF keeps only the glyphs it uses, which drops the fonts to roughly 70 KB. A 1300-page chat went from 39 MB to 29 MB, the difference being fonts.
