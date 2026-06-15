@@ -1,0 +1,73 @@
+name: Release attestation
+
+# Fires when you publish a GitHub Release (with your hand-written notes).
+# It rebuilds the store zips from the released commit, generates SLSA build
+# provenance for them, and attaches the zips to the release as verifiable
+# assets. Your release ritual is unchanged: bump version, tag vX.Y.Z,
+# write the notes, publish. Publishing triggers this once.
+#
+# Runs for EVERY published release, major, minor, and patch alike (there is
+# no version filter). It does NOT run on a bare `git push --tags` (only on a
+# published Release), and not on drafts.
+on:
+  release:
+    types: [published]
+
+# Least privilege: grant nothing at the top level, scope each permission
+# to the job that needs it.
+permissions: {}
+
+jobs:
+  attest:
+    runs-on: ubuntu-latest
+    # Skip pre-releases only. This reads the "Set as a pre-release" checkbox,
+    # NOT the tag name, so flag any vX-debug release as a pre-release if you
+    # don't want it attested and re-uploaded.
+    if: ${{ !github.event.release.prerelease }}
+    permissions:
+      contents: write       # upload the built zips to the release
+      id-token: write       # mint the OIDC token Sigstore uses to sign
+      attestations: write   # persist the attestation to GitHub's store
+    steps:
+      # For a release event the default ref is the release's tag, so a plain
+      # checkout builds the exact released commit, not the branch HEAD.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      # Mirror the toolchain pinned in ci.yml. pnpm version comes from the
+      # packageManager field in package.json (pnpm@10.23.0); Node from .nvmrc.
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # wxt zip emits .output/teams-web-chat-exporter-<version>-<target>.zip
+      # for each target, plus a -sources.zip from the Firefox build (for AMO).
+      - run: pnpm zip
+      - run: pnpm zip:firefox
+      - run: pnpm zip:edge
+
+      # Human-readable per-file hashes. Survives store repackaging (unlike a
+      # whole-package hash) because a verifier compares individual files.
+      - name: Generate SHA256SUMS
+        working-directory: .output
+        run: |
+          ls *.zip >/dev/null 2>&1 || { echo "no zips to checksum" >&2; exit 1; }
+          sha256sum *.zip > SHA256SUMS.txt
+
+      # One multi-subject attestation covering every zip in .output.
+      - name: Generate SLSA build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
+        with:
+          subject-path: '.output/*.zip'
+
+      # Attach the attested zips + checksums to the release. Verify a zip with:
+      # gh attestation verify <zip> --repo gediz/teams-web-chat-exporter
+      - name: Attach zips to the release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
+        with:
+          files: |
+            .output/*.zip
+            .output/SHA256SUMS.txt

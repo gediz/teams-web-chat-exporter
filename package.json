@@ -2,6 +2,8 @@
   "name": "teams-web-chat-exporter",
   "version": "1.5.0",
   "description": "Export Microsoft Teams web chat conversations to JSON, CSV, HTML, TXT, or PDF",
+  "license": "MIT",
+  "packageManager": "pnpm@10.23.0",
   "type": "module",
   "private": true,
   "scripts": {
@@ -15,7 +17,7 @@
     "zip:firefox": "wxt zip -b firefox",
     "zip:edge": "wxt zip -b edge",
     "zip:safari": "wxt zip -b safari",
-    "check": "node scripts/check-i18n.mjs && svelte-check --tsconfig ./tsconfig.json",
+    "check": "node scripts/check-i18n.mjs && node scripts/check-vendor-hashes.mjs && svelte-check --tsconfig ./tsconfig.json",
     "check:i18n": "node scripts/check-i18n.mjs",
     "postinstall": "wxt prepare && node scripts/vendor-twemoji.mjs"
   },
