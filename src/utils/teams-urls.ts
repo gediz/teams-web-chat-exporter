@@ -103,3 +103,43 @@ const TEAMS_URL_REGEX = new RegExp(
 export function isTeamsUrl(url?: string | null): boolean {
   return TEAMS_URL_REGEX.test(url || '');
 }
+
+/**
+ * Microsoft-owned host suffixes the extension is allowed to attach the user's
+ * live messaging/Skype token to. Deliberately broad: a too-narrow list would
+ * risk false negatives on regional chat-service / SharePoint hosts we cannot
+ * all enumerate, while any non-Microsoft host (e.g. an exfiltration target
+ * injected via a poisoned `backwardLink` or `chatServiceUrl`) is still
+ * rejected. The leading-dot check (`.endsWith('.' + s)`) prevents a
+ * look-alike like `evilmicrosoft.com` from matching `microsoft.com`.
+ */
+const MS_API_HOST_SUFFIXES = [
+  'microsoft.com',   // teams / graph / *.ng.msg.teams.microsoft.com, etc.
+  'microsoft.us',    // GCC High / DoD
+  'cloud.microsoft',
+  'teams.live.com',  // Teams Free
+  'skype.com',       // *.asm.skype.com (AMS image CDN)
+  'office.com',      // *.ic3.teams.office.com
+  'office365.com', 'office365.us',  // GCC / GCC-High ic3 + chat-service hosts (matches attachments.ts allow-list)
+  'lync.com',        // legacy infra hosts
+  'sharepoint.com', 'sharepoint.us', 'sharepoint-mil.us', 'sharepoint.cn',
+] as const;
+
+/**
+ * Returns `true` when `url` is https and its host is a Microsoft-owned API
+ * host the extension may send credentialed (token-bearing) requests to.
+ * Used by the api-client messaging guard so the live token is never attached
+ * to a non-Microsoft origin.
+ */
+export function isMicrosoftApiHost(url?: string | null): boolean {
+  if (!url) return false;
+  let host: string;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return false;
+    host = u.hostname.toLowerCase().replace(/\.$/, '');  // tolerate absolute-DNS trailing dot
+  } catch {
+    return false;
+  }
+  return MS_API_HOST_SUFFIXES.some(s => host === s || host.endsWith('.' + s));
+}

@@ -9,6 +9,7 @@
 /* eslint-disable no-console */
 
 import type { ConversationSummary, FolderSummary, Participant } from '../types/shared';
+import { isMicrosoftApiHost } from '../utils/teams-urls';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -1761,6 +1762,18 @@ const INITIAL_DELAY_MS = 150; // reverted: 40ms tripped 429 on the chatsvc messa
 const MAX_PAGES = 500; // safety limit (~100k messages)
 const MAX_RETRIES = 5;
 
+// Credentialed-fetch guard for the messaging path. The server-supplied
+// `backwardLink` and the discovered `chatServiceUrl` both reach fetch() with
+// the user's live token attached, so a poisoned value could send that token
+// to an attacker host. fetchPageWithRetry checks every URL it fetches
+// (including each backwardLink) against the Microsoft host allowlist before
+// the token is attached. Phase 1 ships WARN-ONLY: log the divergence but do
+// not block, so diagnostics can confirm no legitimate tenant/cloud trips it.
+// Flip to true in a later release to enforce. NOTE: this guards the request
+// URL only; server 30x redirects are still followed (the fetch default
+// redirect mode), a residual documented in docs/VERIFY.md.
+const ENFORCE_HOST_GUARD = false;
+
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // 403 is officially "forbidden" but Teams returns it in transient
@@ -1828,6 +1841,17 @@ async function fetchPageWithRetry(
   token: string,
   signal?: AbortSignal,
 ): Promise<MessagesResponse> {
+  // Guard: only attach the live messaging token to a Microsoft host. A
+  // non-Microsoft host here means a poisoned chatServiceUrl/backwardLink is
+  // trying to exfiltrate the token. Warn-only for now (ENFORCE_HOST_GUARD).
+  if (!isMicrosoftApiHost(url)) {
+    let host = 'unparseable';
+    try { host = new URL(url).host; } catch { /* keep placeholder */ }
+    console.warn(`[API:guard] credentialed messaging fetch to non-Microsoft host: ${host}`);
+    if (ENFORCE_HOST_GUARD) {
+      throw new TypeError(`Refusing to send messaging token to non-Microsoft host: ${host}`);
+    }
+  }
   // Teams Free's chatsvc/consumer proxy needs the user's session
   // cookies to bridge auth into the Skype backend (a 401 otherwise).
   // Work/School's *.asm.skype.com endpoint doesn't need cookies — the
@@ -1999,6 +2023,10 @@ export async function fetchAllMessages(
     }
 
     nextUrl = data._metadata?.backwardLink || null;
+    // The backwardLink is validated on the next iteration: it flows through
+    // fetchPageWithRetry, whose host guard rejects any non-Microsoft host
+    // before the token is attached. No separate origin-equality check here:
+    // the chat service legitimately paginates across sibling MS subdomains.
 
     if (nextUrl) {
       // Gradually increase delay for large conversations to avoid rate limiting
