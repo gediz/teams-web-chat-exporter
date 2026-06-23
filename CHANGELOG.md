@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.2] - 2026-06-29
+
+Adds document download, deleted-message placeholders, and an opt-in full-resolution image setting. Also fixes several image and attachment export-fidelity issues found while auditing a large real-world chat.
+
+### Added
+
+- **Document download.** A new "Files" toggle in the Include section saves file attachments (PDF, Word, Excel, ZIP, video, and similar) to your Downloads folder, in a per-chat `attachments` folder beside the export. It is off by default, and the readable export still keeps every file's link. Inline images stay with the existing image setting; this covers documents that were otherwise only linked. Any file that cannot be downloaded (you do not have access, or it was moved or deleted) is listed in a `FAILURES.txt` in the same folder with its link, so nothing goes missing without a record; files you stop mid-download are listed separately.
+- **Deleted messages are kept as placeholders.** A message deleted for everyone used to be dropped, leaving an unexplained gap in the conversation. It now appears as "[message deleted]" with the original sender and timestamp, in its correct position.
+- **Full-resolution images (opt-in, off by default).** A new setting saves inline images at their original resolution instead of Teams' downscaled display view, which caps around 1280 px. It is off by default; turning it on produces much larger exports, especially the PDF, for the same on-screen size. Any image that is too large or cannot be fetched at full resolution falls back to the downscaled view, so no image is dropped. Fewer images are downloaded at once while it is on, to keep memory in check.
+
+### Fixed
+
+- **Image-heavy chats are no longer dropped at full resolution.** With full-resolution images on, a chat with many large images packed close together could exceed a fixed limit on how much data the extension moves internally at once, and the whole conversation was lost. That data is now moved in safely sized pieces, and a single message holding more image data than fits at once has its images sent on their own and reassembled, so no chat or image is dropped.
+- **A second person forwarding the same message is now kept.** Teams returns two rows for a single forward, which the exporter collapses to one. The rule that did this was too broad, so when two different people forwarded the same original message, the second was treated as a duplicate and dropped. It now matches only the true duplicate, so distinct forwards are all kept.
+- **Attachments now show in TXT even when the message also has text.** A message that carried both body text and an attachment previously showed only the text in the TXT export. The attachment is now listed on the same line. Link previews are left out, since their URL already appears in the body.
+- **Unfetched inline images render a clean placeholder in HTML.** An inline image that could not be downloaded (for example an old one the server no longer authorizes) rendered as a dead link that fails to load from a saved file. It now shows the same quiet "(not included)" placeholder as other unavailable images, and reads as "[image]" instead of "[file: image]" in TXT and CSV.
+- **More images recovered on stricter tenants.** In tenants that reject the bearer-token image path, the first batch of images fetched before the extension switched to the cookie path could be lost. They are now retried on the cookie path and recovered.
+- **Cleaner image labels.** Teams' generic placeholder alt text ("image", "undefined", and localized variants) no longer leaks into attachment labels, summaries, or saved filenames.
+
 ## [1.5.1] - 2026-06-23
 
 Maintenance release. Nothing changes in how the extension behaves or what it exports. This release hardens the project's own supply chain and licensing. Each GitHub release now ships a signed build-provenance attestation (SLSA) and a SHA-256 checksum file, the build toolchain and GitHub Actions are version-pinned, and the generated font and emoji assets are hash-verified against the source. The repository now carries an MIT LICENSE file, matching what the README already stated. A dormant, log-only safeguard was added to the message fetcher that records, without blocking, any attempt to send a request off Microsoft's hosts; it does not affect exports.
