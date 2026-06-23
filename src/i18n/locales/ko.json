@@ -283,5 +283,9 @@
   "presets.delete": "프리셋 삭제",
   "presets.empty": "저장된 프리셋이 없습니다",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "전체 해상도 이미지",
+  "settings.fullRes.hint": "축소된 보기 대신 원본 품질의 이미지를 저장합니다. 파일이 훨씬 커집니다.",
+  "settings.fullRes.tooltip": "Teams의 축소된 보기 대신 원본 이미지를 저장합니다. 화면 크기가 같아도 파일, 특히 PDF가 훨씬 커집니다. 너무 크거나 사용할 수 없는 이미지는 축소된 보기로 대체되므로 누락되지 않습니다.",
+  "settings.fullRes.enable": "사용"
 }

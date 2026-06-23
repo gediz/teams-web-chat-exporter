@@ -283,5 +283,9 @@
   "presets.delete": "प्रीसेट हटाएँ",
   "presets.empty": "अभी कोई सहेजा गया प्रीसेट नहीं",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "पूर्ण-रिज़ॉल्यूशन छवियाँ",
+  "settings.fullRes.hint": "छोटे किए गए दृश्य के बजाय मूल गुणवत्ता वाली छवियाँ सहेजें। बहुत बड़ी फ़ाइलें।",
+  "settings.fullRes.tooltip": "Teams के छोटे किए गए दृश्य के बजाय मूल छवि सहेजता है। समान स्क्रीन आकार के लिए फ़ाइलें बहुत बड़ी हो जाती हैं, खासकर PDF। बहुत बड़ी या अनुपलब्ध छवियाँ छोटे दृश्य पर लौट जाती हैं, इसलिए कोई नहीं छूटती।",
+  "settings.fullRes.enable": "सक्षम करें"
 }

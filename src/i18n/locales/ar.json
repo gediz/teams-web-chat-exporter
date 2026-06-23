@@ -283,5 +283,9 @@
   "presets.delete": "حذف الإعداد المسبق",
   "presets.empty": "لا توجد إعدادات مسبقة محفوظة بعد",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "صور بدقة كاملة",
+  "settings.fullRes.hint": "حفظ الصور بالجودة الأصلية بدلاً من العرض المصغّر. ملفات أكبر بكثير.",
+  "settings.fullRes.tooltip": "يحفظ الصورة الأصلية بدلاً من العرض المصغّر في Teams. تصبح الملفات أكبر بكثير، خاصةً ملفات PDF، لنفس الحجم على الشاشة. الصور الكبيرة جدًا أو غير المتوفرة تعود إلى العرض المصغّر، فلا يتم تجاهل أي منها.",
+  "settings.fullRes.enable": "تفعيل"
 }

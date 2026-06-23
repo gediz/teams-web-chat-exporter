@@ -283,5 +283,9 @@
   "presets.delete": "Vorlage löschen",
   "presets.empty": "Noch keine Vorlagen gespeichert",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "Bilder in voller Auflösung",
+  "settings.fullRes.hint": "Bilder in Originalqualität statt der verkleinerten Ansicht speichern. Viel größere Dateien.",
+  "settings.fullRes.tooltip": "Speichert das Originalbild statt der von Teams verkleinerten Ansicht. Dateien werden viel größer, besonders PDF, bei gleicher Anzeigegröße. Zu große oder nicht verfügbare Bilder fallen auf die verkleinerte Ansicht zurück, sodass keines verloren geht.",
+  "settings.fullRes.enable": "Aktivieren"
 }

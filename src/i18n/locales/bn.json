@@ -283,5 +283,9 @@
   "presets.delete": "প্রিসেট মুছুন",
   "presets.empty": "এখনো কোনো সংরক্ষিত প্রিসেট নেই",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "পূর্ণ-রেজোলিউশন ছবি",
+  "settings.fullRes.hint": "ছোট করা ভিউয়ের পরিবর্তে মূল মানের ছবি সংরক্ষণ করুন। অনেক বড় ফাইল।",
+  "settings.fullRes.tooltip": "Teams-এর ছোট করা ভিউয়ের পরিবর্তে মূল ছবি সংরক্ষণ করে। একই স্ক্রিন আকারের জন্য ফাইল অনেক বড় হয়, বিশেষ করে PDF। খুব বড় বা অনুপলব্ধ ছবি ছোট ভিউয়ে ফিরে যায়, তাই কোনোটি বাদ পড়ে না।",
+  "settings.fullRes.enable": "চালু করুন"
 }

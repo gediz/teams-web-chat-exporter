@@ -1265,6 +1265,7 @@
         includeSystem,
         embedAvatars,
         downloadImages,
+        fullResImages,
         showHud,
         exportTarget,
       } = options;
@@ -1295,6 +1296,7 @@
             formats,
             embedAvatars,
             downloadImages,
+            fullResImages,
             // No conversationId / conversationTitle here — the SW injects
             // them per-iteration from `conversations`.
           },
@@ -1367,6 +1369,7 @@
           formats,
           embedAvatars,
           downloadImages,
+          fullResImages,
           // Explicit conversation chosen by the picker. When set, the
           // scraper skips its DOM/IDB auto-detection and targets this
           // conversation directly.
@@ -1750,6 +1753,7 @@
         pdfShowPageNumbers={options.pdfShowPageNumbers}
         pdfIncludeAvatars={options.pdfIncludeAvatars}
         imageFetchFallback={options.imageFetchFallback}
+        fullResImages={options.fullResImages}
         on:back={() => (showSettings = false)}
         on:themeChange={(e) => updateOption("theme", e.detail)}
         on:langChange={(e) => updateOption("lang", e.detail)}
@@ -1760,6 +1764,7 @@
         on:pdfShowPageNumbersChange={(e) => updateOption("pdfShowPageNumbers", e.detail)}
         on:pdfIncludeAvatarsChange={(e) => updateOption("pdfIncludeAvatars", e.detail)}
         on:imageFetchFallbackChange={(e) => updateOption("imageFetchFallback", e.detail)}
+        on:fullResImagesChange={(e) => updateOption("fullResImages", e.detail)}
         on:replayTour={replayTour}
         on:openDiagnostics={() => { showSettings = false; showDiagnostics = true; }}
       />

@@ -283,5 +283,9 @@
   "presets.delete": "Előbeállítás törlése",
   "presets.empty": "Még nincs mentett előbeállítás",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "Teljes felbontású képek",
+  "settings.fullRes.hint": "Eredeti minőségű képek mentése a kicsinyített nézet helyett. Sokkal nagyobb fájlok.",
+  "settings.fullRes.tooltip": "Az eredeti képet menti a Teams kicsinyített nézete helyett. A fájlok sokkal nagyobbak lesznek, különösen a PDF, ugyanakkora képernyőméret mellett. A túl nagy vagy nem elérhető képek a kicsinyített nézetre váltanak, így egyik sem marad ki.",
+  "settings.fullRes.enable": "Engedélyezés"
 }

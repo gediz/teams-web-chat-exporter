@@ -283,5 +283,9 @@
   "presets.delete": "Удалить пресет",
   "presets.empty": "Сохранённых пресетов пока нет",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "Изображения в полном разрешении",
+  "settings.fullRes.hint": "Сохранять изображения в оригинальном качестве вместо уменьшенного вида. Файлы намного больше.",
+  "settings.fullRes.tooltip": "Сохраняет оригинальное изображение вместо уменьшенного вида Teams. Файлы становятся намного больше, особенно PDF, при том же размере на экране. Слишком большие или недоступные изображения возвращаются к уменьшенному виду, поэтому ни одно не пропускается.",
+  "settings.fullRes.enable": "Включить"
 }

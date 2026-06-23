@@ -283,5 +283,9 @@
   "presets.delete": "删除预设",
   "presets.empty": "暂无已保存的预设",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "全分辨率图片",
+  "settings.fullRes.hint": "保存原始质量的图片，而不是缩小后的视图。文件会大得多。",
+  "settings.fullRes.tooltip": "保存原始图片，而不是 Teams 缩小后的视图。在屏幕显示尺寸相同的情况下，文件会大得多，尤其是 PDF。过大或无法获取的图片会回退到缩小视图，因此不会丢失任何图片。",
+  "settings.fullRes.enable": "启用"
 }

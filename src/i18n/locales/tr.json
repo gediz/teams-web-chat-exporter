@@ -283,5 +283,9 @@
   "presets.delete": "Ön ayarı sil",
   "presets.empty": "Henüz kayıtlı ön ayar yok",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "Tam çözünürlüklü görseller",
+  "settings.fullRes.hint": "Küçültülmüş görünüm yerine orijinal kaliteli görselleri kaydedin. Çok daha büyük dosyalar.",
+  "settings.fullRes.tooltip": "Teams'in küçültülmüş görünümü yerine orijinal görseli kaydeder. Aynı ekran boyutu için dosyalar, özellikle PDF, çok daha büyük olur. Çok büyük veya erişilemeyen görseller küçültülmüş görünüme döner, hiçbiri atlanmaz.",
+  "settings.fullRes.enable": "Etkinleştir"
 }

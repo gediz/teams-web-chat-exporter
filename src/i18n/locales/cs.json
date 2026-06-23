@@ -283,5 +283,9 @@
   "presets.delete": "Odstranit předvolbu",
   "presets.empty": "Zatím žádné uložené předvolby",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "Obrázky v plném rozlišení",
+  "settings.fullRes.hint": "Ukládat obrázky v původní kvalitě místo zmenšeného náhledu. Mnohem větší soubory.",
+  "settings.fullRes.tooltip": "Uloží původní obrázek místo zmenšeného náhledu Teams. Soubory budou mnohem větší, zejména PDF, při stejné velikosti na obrazovce. Příliš velké nebo nedostupné obrázky se vrátí ke zmenšenému náhledu, takže žádný nevynechá.",
+  "settings.fullRes.enable": "Povolit"
 }

@@ -283,5 +283,9 @@
   "presets.delete": "プリセットを削除",
   "presets.empty": "保存済みのプリセットはまだありません",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "フル解像度の画像",
+  "settings.fullRes.hint": "縮小表示ではなく元の品質の画像を保存します。ファイルははるかに大きくなります。",
+  "settings.fullRes.tooltip": "Teams の縮小表示ではなく元の画像を保存します。画面上のサイズが同じでも、ファイル、特に PDF ははるかに大きくなります。大きすぎる、または取得できない画像は縮小表示に戻るため、欠落することはありません。",
+  "settings.fullRes.enable": "有効にする"
 }

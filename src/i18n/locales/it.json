@@ -283,5 +283,9 @@
   "presets.delete": "Elimina preset",
   "presets.empty": "Nessun preset salvato",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "Immagini a piena risoluzione",
+  "settings.fullRes.hint": "Salva le immagini in qualità originale invece della vista ridotta. File molto più grandi.",
+  "settings.fullRes.tooltip": "Salva l'immagine originale invece della vista ridotta di Teams. I file diventano molto più grandi, soprattutto il PDF, a parità di dimensione su schermo. Le immagini troppo grandi o non disponibili tornano alla vista ridotta, quindi nessuna viene saltata.",
+  "settings.fullRes.enable": "Attiva"
 }

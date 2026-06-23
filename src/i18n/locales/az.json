@@ -283,5 +283,9 @@
   "presets.delete": "Dəsti sil",
   "presets.empty": "Hələ saxlanmış dəst yoxdur",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "Tam çözünürlüklü şəkillər",
+  "settings.fullRes.hint": "Kiçildilmiş görünüş əvəzinə orijinal keyfiyyətli şəkilləri saxlayın. Çox daha böyük fayllar.",
+  "settings.fullRes.tooltip": "Teams-in kiçildilmiş görünüşü əvəzinə orijinal şəkli saxlayır. Eyni ekran ölçüsü üçün fayllar, xüsusən PDF, çox daha böyük olur. Çox böyük və ya əlçatmaz şəkillər kiçildilmiş görünüşə qayıdır, heç biri buraxılmır.",
+  "settings.fullRes.enable": "Aktiv et"
 }

@@ -283,5 +283,9 @@
   "presets.delete": "מחק ערכה",
   "presets.empty": "עדיין אין ערכות שמורות",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "תמונות ברזולוציה מלאה",
+  "settings.fullRes.hint": "שמירת תמונות באיכות מקורית במקום התצוגה המוקטנת. קבצים גדולים בהרבה.",
+  "settings.fullRes.tooltip": "שומר את התמונה המקורית במקום התצוגה המוקטנת של Teams. הקבצים נעשים גדולים בהרבה, במיוחד PDF, עבור אותו גודל במסך. תמונות גדולות מדי או שאינן זמינות חוזרות לתצוגה המוקטנת, כך שאף אחת לא מושמטת.",
+  "settings.fullRes.enable": "הפעל"
 }

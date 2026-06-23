@@ -283,5 +283,9 @@
   "presets.delete": "Usuń zestaw",
   "presets.empty": "Brak zapisanych zestawów",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "Obrazy w pełnej rozdzielczości",
+  "settings.fullRes.hint": "Zapisuj obrazy w oryginalnej jakości zamiast pomniejszonego widoku. Znacznie większe pliki.",
+  "settings.fullRes.tooltip": "Zapisuje oryginalny obraz zamiast pomniejszonego widoku Teams. Pliki stają się znacznie większe, zwłaszcza PDF, przy tym samym rozmiarze na ekranie. Zbyt duże lub niedostępne obrazy wracają do pomniejszonego widoku, więc żaden nie zostaje pominięty.",
+  "settings.fullRes.enable": "Włącz"
 }

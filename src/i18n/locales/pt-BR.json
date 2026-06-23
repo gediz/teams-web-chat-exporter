@@ -283,5 +283,9 @@
   "presets.delete": "Excluir predefinição",
   "presets.empty": "Nenhuma predefinição salva ainda",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "Imagens em resolução máxima",
+  "settings.fullRes.hint": "Salvar imagens com qualidade original em vez da versão reduzida. Arquivos muito maiores.",
+  "settings.fullRes.tooltip": "Salva a imagem original em vez da versão reduzida do Teams. Os arquivos ficam muito maiores, especialmente o PDF, para o mesmo tamanho na tela. Imagens grandes demais ou indisponíveis voltam para a versão reduzida, então nenhuma é descartada.",
+  "settings.fullRes.enable": "Ativar"
 }

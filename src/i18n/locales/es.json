@@ -283,5 +283,9 @@
   "presets.delete": "Eliminar preajuste",
   "presets.empty": "Aún no hay preajustes guardados",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "Imágenes en resolución completa",
+  "settings.fullRes.hint": "Guardar imágenes con calidad original en lugar de la vista reducida. Archivos mucho más grandes.",
+  "settings.fullRes.tooltip": "Guarda la imagen original en lugar de la vista reducida de Teams. Los archivos se vuelven mucho más grandes, especialmente el PDF, para el mismo tamaño en pantalla. Las imágenes demasiado grandes o no disponibles vuelven a la vista reducida, así que ninguna se omite.",
+  "settings.fullRes.enable": "Activar"
 }

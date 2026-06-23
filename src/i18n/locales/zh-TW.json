@@ -283,5 +283,9 @@
   "presets.delete": "刪除組合",
   "presets.empty": "尚無已儲存的組合",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "全解析度圖片",
+  "settings.fullRes.hint": "儲存原始品質的圖片，而非縮小後的檢視。檔案會大得多。",
+  "settings.fullRes.tooltip": "儲存原始圖片，而非 Teams 縮小後的檢視。在螢幕顯示尺寸相同的情況下，檔案會大得多，尤其是 PDF。過大或無法取得的圖片會退回縮小檢視，因此不會遺漏任何圖片。",
+  "settings.fullRes.enable": "啟用"
 }

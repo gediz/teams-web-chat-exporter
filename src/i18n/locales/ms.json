@@ -283,5 +283,9 @@
   "presets.delete": "Padam pratetap",
   "presets.empty": "Belum ada pratetap disimpan",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "Imej resolusi penuh",
+  "settings.fullRes.hint": "Simpan imej kualiti asal dan bukannya paparan dikecilkan. Fail jauh lebih besar.",
+  "settings.fullRes.tooltip": "Menyimpan imej asal dan bukannya paparan dikecilkan Teams. Fail menjadi jauh lebih besar, terutamanya PDF, untuk saiz skrin yang sama. Imej yang terlalu besar atau tidak tersedia kembali kepada paparan dikecilkan, jadi tiada yang tertinggal.",
+  "settings.fullRes.enable": "Aktifkan"
 }

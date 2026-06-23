@@ -50,6 +50,7 @@
   export let pdfShowPageNumbers = true;
   export let pdfIncludeAvatars = true;
   export let imageFetchFallback = false;
+  export let fullResImages = false;
 
   const dispatch = createEventDispatcher<{
     back: void;
@@ -62,6 +63,7 @@
     pdfShowPageNumbersChange: boolean;
     pdfIncludeAvatarsChange: boolean;
     imageFetchFallbackChange: boolean;
+    fullResImagesChange: boolean;
     replayTour: void;
     openDiagnostics: void;
   }>();
@@ -93,6 +95,10 @@
 
   function onPdfShowPageNumbersChange(e: Event) {
     dispatch('pdfShowPageNumbersChange', (e.target as HTMLInputElement).checked);
+  }
+
+  function onFullResImagesChange(e: Event) {
+    dispatch('fullResImagesChange', (e.target as HTMLInputElement).checked);
   }
 
   function onPdfIncludeAvatarsChange(e: Event) {
@@ -311,6 +317,24 @@
     <label class="pdf-toggle">
       <input type="checkbox" checked={imageFetchFallback} on:click={onImageFetchFallbackClick} />
       <span>{t('settings.imageFallback.enable', {}, lang) || 'Enable'}</span>
+    </label>
+  </div>
+
+  <div class="card settings-card">
+    <div class="card-header">
+      <span class="card-icon"><Image size={16} /></span>
+      <span class="card-title">{t('settings.fullRes', {}, lang) || 'Full-resolution images'}</span>
+      <span
+        class="card-info"
+        title={t('settings.fullRes.tooltip', {}, lang) || 'Save the original image instead of Teams\' downscaled view. Files get much larger, especially PDF, for the same on-screen size. Images that are too large or unavailable fall back to the downscaled view, so none are dropped.'}
+        aria-label={t('settings.fullRes.tooltip', {}, lang) || 'Tooltip'}
+        role="note"
+      >ⓘ</span>
+    </div>
+    <div class="settings-subtitle">{t('settings.fullRes.hint', {}, lang) || 'Save original-quality images instead of the downscaled view. Much larger files.'}</div>
+    <label class="pdf-toggle">
+      <input type="checkbox" checked={fullResImages} on:change={onFullResImagesChange} />
+      <span>{t('settings.fullRes.enable', {}, lang) || 'Enable'}</span>
     </label>
   </div>
 

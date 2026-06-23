@@ -283,5 +283,9 @@
   "presets.delete": "Delete preset",
   "presets.empty": "No saved presets yet",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "Full-resolution images",
+  "settings.fullRes.hint": "Save original-quality images instead of the downscaled view. Much larger files.",
+  "settings.fullRes.tooltip": "Save the original image instead of Teams' downscaled view. Files get much larger, especially PDF, for the same on-screen size. Images that are too large or unavailable fall back to the downscaled view, so none are dropped.",
+  "settings.fullRes.enable": "Enable"
 }

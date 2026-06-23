@@ -283,5 +283,9 @@
   "presets.delete": "Preset verwijderen",
   "presets.empty": "Nog geen presets opgeslagen",
   "presets.chats": "{n} chats",
-  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)"
+  "presets.appliedPartial": "Applied {found} of {total} ({missing} unavailable)",
+  "settings.fullRes": "Afbeeldingen op volledige resolutie",
+  "settings.fullRes.hint": "Sla afbeeldingen in originele kwaliteit op in plaats van de verkleinde weergave. Veel grotere bestanden.",
+  "settings.fullRes.tooltip": "Slaat de originele afbeelding op in plaats van de verkleinde weergave van Teams. Bestanden worden veel groter, vooral PDF, bij dezelfde schermgrootte. Te grote of niet-beschikbare afbeeldingen vallen terug op de verkleinde weergave, zodat er geen wordt overgeslagen.",
+  "settings.fullRes.enable": "Inschakelen"
 }
