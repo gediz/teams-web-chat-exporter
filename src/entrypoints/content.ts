@@ -1656,18 +1656,23 @@ export default defineContentScript({
                         att.dataUrl = dataUrl;
                         succeeded++;
                     } else {
-                        // Fetch failed. If the source is an auth-protected
-                        // Teams/AMS endpoint, a saved export can never load
-                        // it (no cookies/bearer from file://), so drop the
-                        // href to avoid a broken image — the card text still
-                        // renders. For previews/videos/gifs the href is the
-                        // thumbnail (not a clickable link), so this is safe.
-                        // Public URLs (e.g. a giphy gif) are kept since they
-                        // still load when online.
+                        // Fetch failed. For previews/videos the href is a
+                        // thumbnail the HTML renderer draws directly as <img>,
+                        // so a failed auth-protected one must be dropped to
+                        // avoid a broken icon. Inline images are different: the
+                        // renderer shows a quiet "(not included)" placeholder
+                        // for auth-protected image hrefs, so KEEP the href —
+                        // dropping it would lose the only evidence the image
+                        // existed (the card collapses to a bare "image" label)
+                        // and strips the AMS URL the TXT/CSV summary needs to
+                        // read it as [image] rather than [file: image].
+                        // Public URLs (e.g. a giphy gif) are kept either way —
+                        // they still load when online.
                         const authProtected = /\/v1\/objects\/[^/]+\/views\//i.test(url)
                             || /\/urlp\//i.test(url)
                             || /(asyncgw\.teams\.microsoft\.com|\.asm\.skype\.com)/i.test(url);
-                        if (authProtected) att.href = undefined;
+                        const isDirectThumbnail = att.kind === 'preview' || att.type === 'video';
+                        if (authProtected && isDirectThumbnail) att.href = undefined;
                     }
                     done++;
                     onProgress?.(done, tasks.length);
