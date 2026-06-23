@@ -25,8 +25,11 @@ const IMAGE_EXT_RE = /^(png|jpe?g|gif|webp|bmp|svg|ico|tif|tiff|heic)$/i;
 const VIDEO_EXT_RE = /^(mp4|webm|mov|avi|mkv|m4v)$/i;
 const AUDIO_EXT_RE = /^(mp3|wav|ogg|m4a|flac|aac)$/i;
 
-export function summarizeAttachments(message: ExportMessage): string {
-  const atts = Array.isArray(message.attachments) ? message.attachments : [];
+export function summarizeAttachments(message: ExportMessage, opts: { skipPreviews?: boolean } = {}): string {
+  let atts = Array.isArray(message.attachments) ? message.attachments : [];
+  // When appending the summary onto a message that already has body text, skip
+  // link previews — their URL already lives in the body, so they'd be noise.
+  if (opts.skipPreviews) atts = atts.filter(a => a.kind !== 'preview');
   if (!atts.length) return '';
   const labelFor = (a: typeof atts[number]): string => {
     const name = (a.label || '').trim();
@@ -36,7 +39,12 @@ export function summarizeAttachments(message: ExportMessage): string {
       return title ? `[link: ${title}]` : '[link]';
     }
     const ext = (a.type || '').trim();
-    if (IMAGE_EXT_RE.test(ext) || (!ext && /\.(png|jpe?g|gif|webp|bmp)$/i.test(name))) {
+    // Inline AMS images carry no extension and a null type; recognise the
+    // object-store URL shape so they read as "[image]" not "[file: image]".
+    const isAmsImageObj = !ext
+      && /asyncgw\.teams\.microsoft\.com|asm\.skype\.com/i.test(a.href || '')
+      && /\/v1\/objects\//i.test(a.href || '');
+    if (IMAGE_EXT_RE.test(ext) || isAmsImageObj || (!ext && /\.(png|jpe?g|gif|webp|bmp)$/i.test(name))) {
       return name && !/^image$/i.test(name) ? `[image: ${name}]` : '[image]';
     }
     if (VIDEO_EXT_RE.test(ext)) return name ? `[video: ${name}]` : '[video]';
@@ -650,6 +658,10 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
         const isAuthProtected = isAmsImage
           || /sharepoint\.com|sharepoint\.us|sharepoint-mil\.us|sharepoint\.cn|microsoftpersonalcontent\.com/i.test(att.href || '');
         const looksLikeImage =
+          // AMS inline images carry no extension/type, so the regexes below miss
+          // them; treat any AMS object URL that reached here (previews/video/audio
+          // already returned above) as an image so it renders the placeholder card.
+          isAmsImage ||
           /\.(png|jpe?g|gif|webp|bmp|svg|tiff?|heic)(\?|#|$)/i.test(att.href || '') ||
           /\.(png|jpe?g|gif|webp|bmp|svg|tiff?|heic)(\?|#|$)/i.test(att.label || '') ||
           /^(png|jpe?g|gif|webp|bmp|svg|tiff?|heic)$/i.test(att.type || '');

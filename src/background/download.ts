@@ -1099,6 +1099,15 @@ function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
     if (!text.trim()) {
       const summary = summarizeAttachments(m);
       if (summary) text = summary;
+    } else {
+      // Body has text AND attachments: append a compact mention so files/images
+      // aren't invisible in TXT (which, unlike CSV, has no attachments column).
+      // Link previews are skipped — their URL is already in the body text.
+      const summary = summarizeAttachments(m, { skipPreviews: true });
+      // Same line for a single-line body (the approved look); a fresh line for
+      // multi-line bodies so the mention can't glue onto a pasted table's
+      // bottom "+----+" border row.
+      if (summary) text = text.includes('\n') ? `${text}\n${summary}` : `${text}  ${summary}`;
     }
     // Indent continuation lines of a multi-line body so they aren't mistaken
     // for new "[timestamp] author:" message lines (e.g. pasted logs). Single

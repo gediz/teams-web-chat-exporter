@@ -75,6 +75,12 @@ function mentionMrisFromProps(properties: Record<string, unknown>): Array<string
   return [];
 }
 
+// Generic placeholder alt text Teams stamps on AMS images (localized). When an
+// <img>'s alt is one of these it carries no real caption, so we drop it rather
+// than leak "image"/"undefined"/"Medya" into text, attachment labels, or
+// derived filenames. Module-level so extractInlineImages shares the one set.
+const GENERIC_IMG_ALT = new Set(['image', 'resim', 'medya', 'media', 'shared image', 'image preview', 'undefined', '图像', '影像']);
+
 function htmlToText(html: string, mentionMris?: Array<string | undefined>): string {
   if (!html) return '';
 
@@ -110,9 +116,8 @@ function htmlToText(html: string, mentionMris?: Array<string | undefined>): stri
     prevMention = el;
   });
 
-  // Replace emoji/GIF <img> tags with their alt/title text
-  // Skip generic placeholder alt text on AMS images (e.g. "image", "resim", "Medya")
-  const GENERIC_IMG_ALT = new Set(['image', 'resim', 'medya', 'media', 'shared image', 'image preview', 'undefined', '图像', '影像']);
+  // Replace emoji/GIF <img> tags with their alt/title text.
+  // (GENERIC_IMG_ALT is module-level so extractInlineImages shares it.)
   temp.querySelectorAll('img').forEach(img => {
     const alt = cleanAltText(img.getAttribute('alt') || img.getAttribute('title'));
     if (alt && !GENERIC_IMG_ALT.has(alt.toLowerCase().trim())) {
@@ -632,7 +637,10 @@ function extractInlineImages(content: string, existingHrefs: Set<string>): Attac
     // so the attachment label and any downstream filename derived from
     // it stay sane.
     const altMatch = match[0].match(/alt="([^"]+)"/);
-    const label = (altMatch && cleanAltText(altMatch[1])) || 'image';
+    const cleanedAlt = altMatch ? cleanAltText(altMatch[1]) : '';
+    // Drop Teams' generic placeholder alt ("image"/"undefined"/"Medya"/...) so it
+    // doesn't leak into the label, the TXT/CSV summary, or a derived filename.
+    const label = (cleanedAlt && !GENERIC_IMG_ALT.has(cleanedAlt.toLowerCase().trim())) ? cleanedAlt : 'image';
 
     // Teams stamps the image kind on the <img> via `itemscope="bmp|png|
     // jpeg|gif|webp|...">`. Surfacing it on the Attachment lets:
