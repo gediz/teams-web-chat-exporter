@@ -1763,7 +1763,7 @@ export default defineContentScript({
             // the too-large tally; report the fallbacks on their own line.
             const tooLargeNet = Math.max(0, imgFetchStats.tooLarge - fullResFellBack);
             if (fullResFellBack > 0) {
-                console.log(`[Teams Exporter] ${fullResFellBack} full-res image(s) over the 20MB cap or unavailable; used the downscaled view instead`);
+                console.log(`[Teams Exporter] ${fullResFellBack} full-res image(s) over the ${Math.round(FULLRES_MAX_IMAGE_BYTES / 1048576)}MB cap or unavailable; used the downscaled view instead`);
             }
             const failures = imgFetchStats.httpError + imgFetchStats.threwError + tooLargeNet + imgFetchStats.tooSmall + imgFetchStats.skippedDomain;
             if (failures > 0) {
