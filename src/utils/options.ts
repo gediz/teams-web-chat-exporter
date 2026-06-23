@@ -191,7 +191,7 @@ export const DEFAULT_OPTIONS: Options = {
   includeSystem: false,
   embedAvatars: false,
   downloadImages: false,
-  fullResImages: true,
+  fullResImages: false,
   showHud: false,
   theme: 'light',
   afterExport: 'manual',

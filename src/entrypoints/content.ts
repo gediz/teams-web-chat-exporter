@@ -703,7 +703,19 @@ export default defineContentScript({
 
         // ── Inline Image Fetching (API mode) ──────────────────────
         const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+        // Opt-in full-res images use a higher per-image cap. NOTE: this is a
+        // post-download REJECTION gate (the body is fully fetched, then its size
+        // is checked), not a download limiter — the real peak-heap bound is the
+        // reduced concurrency below.
+        const FULLRES_MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MB
+        // Active per-image cap for the AMS image fetchers; set once per export in
+        // fetchInlineImages (one export at a time, set before the concurrent
+        // workers start, so reads are race-free). Avatars/SharePoint keep MAX_IMAGE_BYTES.
+        let imgFetchMaxBytes: number = MAX_IMAGE_BYTES;
         const MAX_CONCURRENT_FETCHES = 12; // [limit-test] was 6; raise to probe the ceiling
+        // Full-res images are up to 20MB each and the cap is post-download, so a
+        // lower pool bounds peak heap when full-res is on.
+        const FULLRES_CONCURRENT_FETCHES = 4;
         // When Teams' urlp proxy starts returning HTTP 429 we drop
         // concurrency for the rest of the export to give the rate
         // limit a chance to clear. 4 is empirical: low enough to
@@ -934,7 +946,7 @@ export default defineContentScript({
                     try {
                         if (d.ok && d.bytes) {
                             const buf = d.bytes;
-                            if (buf.byteLength > MAX_IMAGE_BYTES || buf.byteLength < 100) {
+                            if (buf.byteLength > imgFetchMaxBytes || buf.byteLength < 100) {
                                 resolve({ ok: false, sizeReason: buf.byteLength });
                                 return;
                             }
@@ -1052,7 +1064,7 @@ export default defineContentScript({
                             imgFetchStats.firstThrow = `${direct.error.slice(0, 100)} for ${url.slice(0, 80)}`;
                         }
                     } else if (typeof direct?.sizeReason === 'number') {
-                        if (direct.sizeReason > MAX_IMAGE_BYTES) {
+                        if (direct.sizeReason > imgFetchMaxBytes) {
                             imgFetchStats.tooLarge++;
                             hostStats.tooLarge++;
                         } else {
@@ -1069,7 +1081,7 @@ export default defineContentScript({
                         type: 'FETCH_BLOB',
                         url: fetchUrl,
                         bearerToken: imgFetchAuth.ic3Token,
-                        maxBytes: MAX_IMAGE_BYTES,
+                        maxBytes: imgFetchMaxBytes,
                         minBytes: 100,
                     }) as typeof resp;
                     // First AMS-direct response on a Bearer path tells
@@ -1147,7 +1159,7 @@ export default defineContentScript({
                             type: 'FETCH_BLOB',
                             url: fetchUrl,
                             bearerToken: imgFetchAuth.ic3Token,
-                            maxBytes: MAX_IMAGE_BYTES,
+                            maxBytes: imgFetchMaxBytes,
                             minBytes: 100,
                         }) as typeof resp;
                     }
@@ -1208,7 +1220,7 @@ export default defineContentScript({
                             imgFetchStats.firstThrow = `${rawAmsResp.error.slice(0, 100)} for ${url.slice(0, 80)}`;
                         }
                     } else if (typeof rawAmsResp?.sizeReason === 'number') {
-                        if (rawAmsResp.sizeReason > MAX_IMAGE_BYTES) {
+                        if (rawAmsResp.sizeReason > imgFetchMaxBytes) {
                             imgFetchStats.tooLarge++;
                             hostStats.tooLarge++;
                         } else {
@@ -1269,7 +1281,7 @@ export default defineContentScript({
                             const directResp = await runtime.sendMessage({
                                 type: 'FETCH_BLOB_DIRECT',
                                 url: upstreamUrl,
-                                maxBytes: MAX_IMAGE_BYTES,
+                                maxBytes: imgFetchMaxBytes,
                                 minBytes: 100,
                             }) as typeof resp;
 
@@ -1311,7 +1323,7 @@ export default defineContentScript({
                     imgFetchStats.failedUrls.push({ url, transformed: fetchUrl, error: resp.error });
                     if (!imgFetchStats.firstThrow) imgFetchStats.firstThrow = `${resp.error.slice(0, 100)} for ${url.slice(0, 80)}`;
                 } else if (typeof resp?.sizeReason === 'number') {
-                    if (resp.sizeReason > MAX_IMAGE_BYTES) {
+                    if (resp.sizeReason > imgFetchMaxBytes) {
                         imgFetchStats.tooLarge++;
                         hostStats.tooLarge++;
                     } else {
@@ -1437,7 +1449,7 @@ export default defineContentScript({
                     return null;
                 }
                 const buf = await resp.arrayBuffer();
-                if (buf.byteLength > MAX_IMAGE_BYTES) { imgFetchStats.tooLarge++; return null; }
+                if (buf.byteLength > imgFetchMaxBytes) { imgFetchStats.tooLarge++; return null; }
                 if (buf.byteLength < 100) { imgFetchStats.tooSmall++; return null; }
                 const mime = resp.headers.get('content-type')?.split(';')[0]?.trim() || 'image/jpeg';
                 const bytes = new Uint8Array(buf);
@@ -1453,9 +1465,11 @@ export default defineContentScript({
             messages: ExportMessage[],
             onProgress?: (done: number, total: number) => void,
             auth?: { userId: string | null; userRegion: string; ic3Token: string },
-            fullResImages = true,
+            fullResImages = false,
         ): Promise<void> {
             resetImgFetchStats();
+            // Full-res fetches the higher-cap original view; see FULLRES_MAX_IMAGE_BYTES.
+            imgFetchMaxBytes = fullResImages ? FULLRES_MAX_IMAGE_BYTES : MAX_IMAGE_BYTES;
             // Per-export image dedup: the same hosted image can appear in
             // several messages; fetch each URL once and reuse the result. Stores
             // successes only (failures stay retryable). Cleared per export.
@@ -1582,7 +1596,7 @@ export default defineContentScript({
             // Collect attachments whose href is an actual image (or routable through
             // the Teams URL-image proxy). Skip file attachments like SharePoint docs,
             // which have an http href but the proxy returns 415 for them.
-            const tasks: { att: { href?: string; dataUrl?: string; kind?: 'preview'; type?: string | null }; url: string }[] = [];
+            const tasks: { att: { href?: string; dataUrl?: string; kind?: 'preview'; type?: string | null }; url: string; fallbackUrl?: string }[] = [];
             for (const m of messages) {
                 if (!m.attachments) continue;
                 for (const att of m.attachments) {
@@ -1598,10 +1612,12 @@ export default defineContentScript({
                     // for the FETCH only (att.href stays the imgo link), and only
                     // for image objects — never the video/audio/thumbnail views.
                     let url = att.href;
+                    let fallbackUrl: string | undefined;
                     if (fullResImages && /\/v1\/objects\/[^/]+\/views\/imgo\b/i.test(url)) {
                         url = url.replace(/(\/v1\/objects\/[^/]+\/views\/)imgo\b/i, '$1imgpsh_fullsize');
+                        fallbackUrl = att.href; // original imgo; used if the full-res fetch fails or is over-cap
                     }
-                    tasks.push({ att, url });
+                    tasks.push({ att, url, fallbackUrl });
                 }
             }
 
@@ -1658,25 +1674,46 @@ export default defineContentScript({
             // count for the rest of the export. nextTask/succeeded/done are only
             // touched between awaits, so the single-threaded event loop makes the
             // shared-counter updates race-free.
-            let target = MAX_CONCURRENT_FETCHES;
+            // Full-res images are up to 20MB each, fully buffered before the
+            // post-download cap can reject them, so cut the pool to bound peak
+            // heap. Already at/below the throttled count, so no further drop on 429.
+            let target = fullResImages ? FULLRES_CONCURRENT_FETCHES : MAX_CONCURRENT_FETCHES;
             let nextTask = 0;
+            let fullResFellBack = 0;
             const fetchWorker = async (slot: number) => {
                 while (true) {
                     if (currentAbortController?.signal.aborted) return;
-                    if (sawRateLimit && target !== MAX_CONCURRENT_FETCHES_THROTTLED) {
-                        target = MAX_CONCURRENT_FETCHES_THROTTLED;
+                    const throttledTarget = fullResImages ? FULLRES_CONCURRENT_FETCHES : MAX_CONCURRENT_FETCHES_THROTTLED;
+                    if (sawRateLimit && target !== throttledTarget) {
+                        target = throttledTarget;
                         console.log(`[Teams Exporter] Rate limit detected (HTTP 429); reducing concurrency to ${target} for the rest of this export`);
                     }
                     if (slot >= target) return;
                     const idx = nextTask++;
                     if (idx >= tasks.length) return;
-                    const { att, url } = tasks[idx];
+                    const { att, url, fallbackUrl } = tasks[idx];
+                    // One dispatcher owns the routing (Teams Free vs proxy) so the
+                    // full-res url and its imgo fallback take the identical path,
+                    // cap (imgFetchMaxBytes), and dedup cache.
+                    const fetchOne = (u: string) =>
+                        (isTeamsFree && /\.asm\.skype\.com\/v1\/objects\//i.test(u) && imgFetchAuth?.ic3Token)
+                            ? fetchTeamsFreeAmsImage(u, imgFetchAuth.ic3Token)
+                            : fetchImageAsDataUrl(u);
                     let dataUrl: string | null | undefined = imageUrlCache.get(url);
                     if (dataUrl === undefined) {
-                        dataUrl = (isTeamsFree && /\.asm\.skype\.com\/v1\/objects\//i.test(url) && imgFetchAuth?.ic3Token)
-                            ? await fetchTeamsFreeAmsImage(url, imgFetchAuth.ic3Token)
-                            : await fetchImageAsDataUrl(url);
+                        dataUrl = await fetchOne(url);
                         if (dataUrl) imageUrlCache.set(url, dataUrl);
+                        else if (fallbackUrl) {
+                            // Full-res failed (over 20MB / 404 / error): fall back to
+                            // the imgo view so the image is downscaled, never dropped.
+                            if (currentAbortController?.signal.aborted) return;
+                            dataUrl = imageUrlCache.get(fallbackUrl);
+                            if (dataUrl === undefined) {
+                                dataUrl = await fetchOne(fallbackUrl);
+                                if (dataUrl) imageUrlCache.set(fallbackUrl, dataUrl);
+                            }
+                            if (dataUrl) fullResFellBack++;
+                        }
                     }
                     if (dataUrl) {
                         att.dataUrl = dataUrl;
@@ -1720,12 +1757,20 @@ export default defineContentScript({
                 const hosts = [...directFetchHosts].sort().join(', ');
                 console.log(`[Teams Exporter] Image fetch fallback contacted ${directFetchHosts.size} upstream host(s) directly: ${hosts}`);
             }
-            const failures = imgFetchStats.httpError + imgFetchStats.threwError + imgFetchStats.tooLarge + imgFetchStats.tooSmall + imgFetchStats.skippedDomain;
+            // Full-res images that went over the cap (or 404'd) but recovered via
+            // the imgo fallback ultimately succeeded, so they must NOT print as
+            // failures. Over-cap is the dominant fallback reason, so net it out of
+            // the too-large tally; report the fallbacks on their own line.
+            const tooLargeNet = Math.max(0, imgFetchStats.tooLarge - fullResFellBack);
+            if (fullResFellBack > 0) {
+                console.log(`[Teams Exporter] ${fullResFellBack} full-res image(s) over the 20MB cap or unavailable; used the downscaled view instead`);
+            }
+            const failures = imgFetchStats.httpError + imgFetchStats.threwError + tooLargeNet + imgFetchStats.tooSmall + imgFetchStats.skippedDomain;
             if (failures > 0) {
                 const detail = [
                     imgFetchStats.httpError && `${imgFetchStats.httpError} http-error`,
                     imgFetchStats.threwError && `${imgFetchStats.threwError} threw`,
-                    imgFetchStats.tooLarge && `${imgFetchStats.tooLarge} too-large`,
+                    tooLargeNet && `${tooLargeNet} too-large`,
                     imgFetchStats.tooSmall && `${imgFetchStats.tooSmall} too-small`,
                     imgFetchStats.skippedDomain && `${imgFetchStats.skippedDomain} domain-blocked`,
                 ].filter(Boolean).join(', ');
@@ -3706,7 +3751,7 @@ export default defineContentScript({
                                             if (done % 10 === 0 || done === total) {
                                                 try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length, imagesDone: done, imagesTotal: total } }); } catch {}
                                             }
-                                        }, { userId: apiResult.userId, userRegion: apiResult.userRegion, ic3Token: apiResult.ic3Token }, fullResImages !== false);
+                                        }, { userId: apiResult.userId, userRegion: apiResult.userRegion, ic3Token: apiResult.ic3Token }, fullResImages === true);
                                     } else {
                                         console.log(`[Teams Exporter] Skipping inline image fetch — formats=${fmtList.join(',')}, downloadImages=${downloadImages}`);
                                     }
