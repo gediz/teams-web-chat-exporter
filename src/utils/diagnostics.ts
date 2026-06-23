@@ -151,7 +151,7 @@ async function makeTokenizer(): Promise<Tokenizer> {
 const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 const MRI_RE = /\b(?:8:orgid:|8:live:|8:teamsvisitor:|gid:|28:)([A-Za-z0-9._-]+)/g;
 // SharePoint tenant subdomain. Format examples:
-//   amlogicglobaleur-my.sharepoint.com  (work/school OneDrive)
+//   contoso-my.sharepoint.com  (work/school OneDrive)
 //   contoso.sharepoint.com
 // The first label names the organisation. Tokenized; the
 // `.sharepoint.<tld>` suffix is preserved as URL-shape context.
