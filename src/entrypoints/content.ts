@@ -1119,6 +1119,7 @@ export default defineContentScript({
                     // tenant that rejects Bearer (symptom: an image that loads in
                     // Teams but reads "(not included)" in the export).
                     if (!isUrlpPath && amsBearerStatus === 'failed' && resp?.status === 401) {
+                        if (currentAbortController?.signal.aborted) return null;
                         resp = await fetchUrlpDirect(fetchUrl);
                     }
                 }
@@ -1135,7 +1136,11 @@ export default defineContentScript({
                     const delay = 1500 + Math.floor(Math.random() * 600);
                     await new Promise(r => setTimeout(r, delay));
                     if (currentAbortController?.signal.aborted) return null;
-                    if (useCookies) {
+                    // Retry on the LIVE auth path: if the tenant already flipped
+                    // to cookies, don't bounce a just-rescued sibling back onto
+                    // the dead Bearer path (useCookies is a const captured before
+                    // the flip, so a pre-flip sibling still has it false).
+                    if (useCookies || amsBearerStatus === 'failed') {
                         resp = await fetchUrlpDirect(fetchUrl);
                     } else {
                         resp = await runtime.sendMessage({
@@ -1576,7 +1581,7 @@ export default defineContentScript({
             // Collect attachments whose href is an actual image (or routable through
             // the Teams URL-image proxy). Skip file attachments like SharePoint docs,
             // which have an http href but the proxy returns 415 for them.
-            const tasks: { att: { href?: string; dataUrl?: string }; url: string }[] = [];
+            const tasks: { att: { href?: string; dataUrl?: string; kind?: 'preview'; type?: string | null }; url: string }[] = [];
             for (const m of messages) {
                 if (!m.attachments) continue;
                 for (const att of m.attachments) {
@@ -1682,7 +1687,7 @@ export default defineContentScript({
                         const authProtected = /\/v1\/objects\/[^/]+\/views\//i.test(url)
                             || /\/urlp\//i.test(url)
                             || /(asyncgw\.teams\.microsoft\.com|\.asm\.skype\.com)/i.test(url);
-                        const isDirectThumbnail = att.kind === 'preview' || att.type === 'video';
+                        const isDirectThumbnail = att.kind === 'preview' || att.type === 'video' || att.type === 'audio';
                         if (authProtected && isDirectThumbnail) att.href = undefined;
                     }
                     done++;
