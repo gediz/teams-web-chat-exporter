@@ -1110,6 +1110,17 @@ export default defineContentScript({
                             resp = await fetchUrlpDirect(fetchUrl);
                         }
                     }
+                    // Concurrent sibling of the canary call: it was dispatched
+                    // on the Bearer path while amsBearerStatus was still
+                    // 'unknown', but its 401 arrived after another worker had
+                    // already flipped the status to 'failed', so the block above
+                    // no longer matched it. Retry it via the cookie helper too —
+                    // otherwise the first batch of images is silently lost in a
+                    // tenant that rejects Bearer (symptom: an image that loads in
+                    // Teams but reads "(not included)" in the export).
+                    if (!isUrlpPath && amsBearerStatus === 'failed' && resp?.status === 401) {
+                        resp = await fetchUrlpDirect(fetchUrl);
+                    }
                 }
                 // 429 retry: a single per-image retry with a small jittered
                 // delay. Teams' urlp proxy rate-limits per session and
