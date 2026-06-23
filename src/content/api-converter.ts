@@ -1304,22 +1304,22 @@ export function convertApiMessages(
     for (const [mri, name] of graphResolved) mriMap.set(mri, name);
   }
 
-  // Deduplicate forwarded messages — Teams API sometimes returns two messages
-  // for a single forward (within seconds of each other, same originalMessageContext)
+  // Deduplicate the duplicate row Teams returns for a single forward
+  // (keyed on clientmessageid below).
   const seenForwards = new Set<string>();
 
   const result: ExportMessage[] = [];
   for (const msg of apiMessages) {
-    // Deduplicate forwards by originalMessageContext.messageId
-    if (msg.properties?.forwardTemplateId && msg.properties?.originalMessageContext) {
-      try {
-        const ctx = typeof msg.properties.originalMessageContext === 'string'
-          ? JSON.parse(msg.properties.originalMessageContext as string)
-          : msg.properties.originalMessageContext;
-        const origId = String((ctx as Record<string, unknown>).messageId || '');
-        if (origId && seenForwards.has(origId)) continue; // Skip duplicate
-        if (origId) seenForwards.add(origId);
-      } catch { /* proceed without dedup */ }
+    // Teams emits a duplicate row for a single forward (the same forward, sent
+    // again within seconds). Both rows carry the SAME clientmessageid, while
+    // distinct forwards each have their own — verified against real API data.
+    // Keying dedup on clientmessageid collapses the duplicate row WITHOUT
+    // dropping a legitimate second forward of the same original message, which
+    // keying on originalMessageContext.messageId would wrongly do (two people
+    // forwarding the same message share that id).
+    if (msg.properties?.forwardTemplateId && msg.clientmessageid) {
+      if (seenForwards.has(msg.clientmessageid)) continue; // Skip the duplicate row
+      seenForwards.add(msg.clientmessageid);
     }
 
     const converted = convertOneMessage(msg, opts, mriMap, selfUserId);
