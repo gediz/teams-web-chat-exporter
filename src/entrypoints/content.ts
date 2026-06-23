@@ -4051,15 +4051,101 @@ export default defineContentScript({
                         const port = runtime.connect({ name: `scrape-result:${requestId}` });
                         try {
                             port.postMessage({ type: 'meta', meta });
-                            const BATCH = 100;
-                            for (let i = 0; i < normalizedMessages.length; i += BATCH) {
+                            // Byte-aware batching. A single chrome.runtime port
+                            // message is capped at 64 MiB (JSON-serialized), and
+                            // full-res image dataUrls can push a fixed-count batch
+                            // past it, which would drop the entire chat. Flush by
+                            // accumulated dataUrl bytes (with a message-count
+                            // ceiling) so no port message approaches the cap; the
+                            // background receiver appends batches in order, so any
+                            // batch size is fine.
+                            const FLUSH_BYTES = 32 * 1024 * 1024;      // batch target, well under the 64 MiB cap
+                            const PEEL_ABOVE_BYTES = 48 * 1024 * 1024; // a lone message over this peels its biggest images into standalone chunks
+                            const SINGLE_CHUNK_MAX = 60 * 1024 * 1024; // a single image bigger than this can't fit even its own port message -> drop it
+                            const MAX_BATCH_MSGS = 100;
+                            // Estimate a message's serialized port-message weight: image
+                            // dataUrls (the dominant term), any data: URL parked in href
+                            // (the DOM-scrape link-preview path), plus the big text fields
+                            // so the batch byte budget reflects real size, not just images.
+                            const msgBytesOf = (m: { attachments?: Array<{ dataUrl?: string; href?: string }>; contentHtml?: string; text?: string }): number => {
+                                let n = (m.contentHtml?.length || 0) + (m.text?.length || 0);
+                                if (m.attachments) for (const a of m.attachments) {
+                                    if (a.dataUrl) n += a.dataUrl.length;
+                                    else if (a.href && a.href.startsWith('data:')) n += a.href.length;
+                                }
+                                return n;
+                            };
+                            let batch: typeof normalizedMessages = [];
+                            let batchBytes = 0;
+                            let batchNo = 0;
+                            const flushBatch = () => {
+                                if (!batch.length) return;
+                                batchNo++;
+                                port.postMessage({ type: 'messages', messages: batch });
+                                console.debug(`[Teams Exporter] Sent batch ${batchNo}: ${batch.length} messages (~${(batchBytes / 1048576).toFixed(1)}MB)`);
+                                batch = [];
+                                batchBytes = 0;
+                            };
+                            // A single message whose own images exceed the cap can
+                            // never fit in one port message. Peel its largest image
+                            // dataUrls out and stream them as standalone chunks (one
+                            // image is well under 64 MiB); the background reattaches
+                            // each by message + attachment index, so nothing is lost.
+                            const chunks: Array<{ mi: number; ai: number; dataUrl: string }> = [];
+                            let mi = -1;
+                            for (const m of normalizedMessages) {
+                                mi++;
                                 if (abortSignal.aborted) {
                                     console.log('[Teams Exporter] Streaming aborted mid-flight');
                                     break;
                                 }
-                                const batch = normalizedMessages.slice(i, i + BATCH);
-                                port.postMessage({ type: 'messages', messages: batch });
-                                console.debug(`[Teams Exporter] Sent batch ${Math.floor(i / BATCH) + 1}: messages ${i + 1}-${i + batch.length}`);
+                                // A single image too large to fit even its own port
+                                // message (>64 MiB) can't be chunked further, so drop
+                                // it to a placeholder so it can never fail the stream.
+                                // Belt for any uncapped path (e.g. the DOM-scrape
+                                // canvas, whose data: URL can land in dataUrl OR href);
+                                // the API/fetch image paths are byte-capped.
+                                if (m.attachments) {
+                                    for (const a of m.attachments) {
+                                        if (a.dataUrl && a.dataUrl.length > SINGLE_CHUNK_MAX) {
+                                            console.warn(`[Teams Exporter] One image is too large to stream even alone (~${Math.round(a.dataUrl.length / 1048576)}MB); dropped to placeholder`);
+                                            delete a.dataUrl;
+                                        } else if (a.href && a.href.startsWith('data:') && a.href.length > SINGLE_CHUNK_MAX) {
+                                            console.warn(`[Teams Exporter] One image is too large to stream even alone (~${Math.round(a.href.length / 1048576)}MB); dropped to placeholder`);
+                                            a.href = undefined;
+                                        }
+                                    }
+                                }
+                                let mBytes = msgBytesOf(m);
+                                if (mBytes > PEEL_ABOVE_BYTES && m.attachments) {
+                                    const heavy = m.attachments
+                                        .map((a, ai) => ({ a, ai }))
+                                        .filter(x => !!x.a.dataUrl)
+                                        .sort((x, y) => y.a.dataUrl!.length - x.a.dataUrl!.length);
+                                    let peeled = 0;
+                                    for (const { a, ai } of heavy) {
+                                        if (mBytes <= PEEL_ABOVE_BYTES) break;
+                                        chunks.push({ mi, ai, dataUrl: a.dataUrl! });
+                                        mBytes -= a.dataUrl!.length;
+                                        delete a.dataUrl;
+                                        peeled++;
+                                    }
+                                    console.debug(`[Teams Exporter] Peeled ${peeled} oversized image(s) from one message into standalone chunks`);
+                                }
+                                if (batch.length && (batchBytes + mBytes > FLUSH_BYTES || batch.length >= MAX_BATCH_MSGS)) {
+                                    flushBatch();
+                                }
+                                batch.push(m);
+                                batchBytes += mBytes;
+                            }
+                            if (!abortSignal.aborted) {
+                                flushBatch();
+                                // Send peeled chunks AFTER all message batches so the
+                                // background already has every message to reattach to.
+                                for (const c of chunks) {
+                                    port.postMessage({ type: 'attachment-chunk', mi: c.mi, ai: c.ai, dataUrl: c.dataUrl });
+                                }
+                                if (chunks.length) console.debug(`[Teams Exporter] Sent ${chunks.length} oversized image chunk(s) separately`);
                             }
                             if (abortSignal.aborted) {
                                 port.postMessage({ type: 'error', error: 'cancelled' });

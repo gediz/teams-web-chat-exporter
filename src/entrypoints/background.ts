@@ -436,6 +436,9 @@ runtime.onConnect.addListener((port: chrome.runtime.Port) => {
     const messages: ExportMessage[] = [];
     let meta: ExportMeta = {};
     let batches = 0;
+    // Oversized-image dataUrls peeled off single messages that were too big for
+    // one port message; reattached by message + attachment index on 'done'.
+    const chunks: Array<{ mi: number; ai: number; dataUrl: string }> = [];
 
     port.onMessage.addListener((msg: any) => {
         if (msg.type === 'meta') {
@@ -446,8 +449,16 @@ runtime.onConnect.addListener((port: chrome.runtime.Port) => {
             messages.push(...batch);
             batches++;
             log(`received batch ${batches}: ${batch.length} messages (total: ${messages.length})`);
+        } else if (msg.type === 'attachment-chunk') {
+            chunks.push({ mi: msg.mi, ai: msg.ai, dataUrl: msg.dataUrl });
         } else if (msg.type === 'done') {
-            log(`streaming complete: ${messages.length} messages in ${batches} batches`);
+            // Reattach any peeled oversized-image dataUrls now that every message
+            // has arrived (chunks are always sent after all message batches).
+            for (const c of chunks) {
+                const att = messages[c.mi]?.attachments?.[c.ai];
+                if (att) att.dataUrl = c.dataUrl;
+            }
+            log(`streaming complete: ${messages.length} messages in ${batches} batches${chunks.length ? `, ${chunks.length} reattached image chunk(s)` : ''}`);
             pendingScrapes.delete(requestId);
             pending.resolve({ messages, meta });
         } else if (msg.type === 'error') {
