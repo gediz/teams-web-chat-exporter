@@ -1712,7 +1712,16 @@ export default defineContentScript({
                                 dataUrl = await fetchOne(fallbackUrl);
                                 if (dataUrl) imageUrlCache.set(fallbackUrl, dataUrl);
                             }
-                            if (dataUrl) fullResFellBack++;
+                            if (dataUrl) {
+                                fullResFellBack++;
+                                // The over-cap primary already counted a too-large for
+                                // its host; it recovered via the fallback, so roll that
+                                // back on the aggregate and per-host tallies (over-cap is
+                                // the dominant fallback reason) to keep both honest.
+                                imgFetchStats.tooLarge = Math.max(0, imgFetchStats.tooLarge - 1);
+                                const hs = getHostStats(hostOf(url));
+                                hs.tooLarge = Math.max(0, hs.tooLarge - 1);
+                            }
                         }
                     }
                     if (dataUrl) {
@@ -1757,20 +1766,18 @@ export default defineContentScript({
                 const hosts = [...directFetchHosts].sort().join(', ');
                 console.log(`[Teams Exporter] Image fetch fallback contacted ${directFetchHosts.size} upstream host(s) directly: ${hosts}`);
             }
-            // Full-res images that went over the cap (or 404'd) but recovered via
-            // the imgo fallback ultimately succeeded, so they must NOT print as
-            // failures. Over-cap is the dominant fallback reason, so net it out of
-            // the too-large tally; report the fallbacks on their own line.
-            const tooLargeNet = Math.max(0, imgFetchStats.tooLarge - fullResFellBack);
+            // Full-res images that went over the cap but recovered via the imgo
+            // fallback had their too-large rolled back (aggregate + per-host) as
+            // each fallback succeeded, so the tallies below are already honest.
             if (fullResFellBack > 0) {
                 console.log(`[Teams Exporter] ${fullResFellBack} full-res image(s) over the ${Math.round(FULLRES_MAX_IMAGE_BYTES / 1048576)}MB cap or unavailable; used the downscaled view instead`);
             }
-            const failures = imgFetchStats.httpError + imgFetchStats.threwError + tooLargeNet + imgFetchStats.tooSmall + imgFetchStats.skippedDomain;
+            const failures = imgFetchStats.httpError + imgFetchStats.threwError + imgFetchStats.tooLarge + imgFetchStats.tooSmall + imgFetchStats.skippedDomain;
             if (failures > 0) {
                 const detail = [
                     imgFetchStats.httpError && `${imgFetchStats.httpError} http-error`,
                     imgFetchStats.threwError && `${imgFetchStats.threwError} threw`,
-                    tooLargeNet && `${tooLargeNet} too-large`,
+                    imgFetchStats.tooLarge && `${imgFetchStats.tooLarge} too-large`,
                     imgFetchStats.tooSmall && `${imgFetchStats.tooSmall} too-small`,
                     imgFetchStats.skippedDomain && `${imgFetchStats.skippedDomain} domain-blocked`,
                 ].filter(Boolean).join(', ');
