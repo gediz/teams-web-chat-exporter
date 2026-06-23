@@ -54,6 +54,11 @@ export type Options = {
   includeSystem: boolean;
   embedAvatars: boolean;
   downloadImages: boolean;
+  // Fetch the full-resolution inline-image view (AMS imgpsh_fullsize) rather
+  // than Teams' downscaled display view (imgo, ~1280px cap). On by default so
+  // the images/ folder holds true originals; trade-off is larger exports and
+  // slower PDF embedding.
+  fullResImages: boolean;
   showHud: boolean;
   theme: Theme;
   afterExport: AfterExport;
@@ -186,6 +191,7 @@ export const DEFAULT_OPTIONS: Options = {
   includeSystem: false,
   embedAvatars: false,
   downloadImages: false,
+  fullResImages: true,
   showHud: false,
   theme: 'light',
   afterExport: 'manual',
@@ -266,6 +272,9 @@ const normalizeOptions = (raw: LegacyOptions, defaults: Options = DEFAULT_OPTION
   }
   if (typeof merged.imageFetchFallback !== 'boolean') {
     merged.imageFetchFallback = defaults.imageFetchFallback;
+  }
+  if (typeof merged.fullResImages !== 'boolean') {
+    merged.fullResImages = defaults.fullResImages;
   }
   if (typeof merged.diagLogPersist !== 'boolean') {
     merged.diagLogPersist = defaults.diagLogPersist;

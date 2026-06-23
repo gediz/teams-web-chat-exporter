@@ -178,6 +178,9 @@ export type ScrapeOptions = {
   formats?: ('json' | 'csv' | 'html' | 'txt' | 'pdf')[];
   embedAvatars?: boolean;
   downloadImages?: boolean;
+  // Fetch the full-resolution AMS image view (imgpsh_fullsize) instead of the
+  // downscaled display view (imgo, ~1280px cap). Larger but the true original.
+  fullResImages?: boolean;
   // Explicit conversation ID chosen by the popup's ConversationPicker.
   // When set, the API scraper skips DOM/IDB extraction entirely and
   // fetches this conversation directly. When absent, falls back to the

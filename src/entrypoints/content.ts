@@ -1453,6 +1453,7 @@ export default defineContentScript({
             messages: ExportMessage[],
             onProgress?: (done: number, total: number) => void,
             auth?: { userId: string | null; userRegion: string; ic3Token: string },
+            fullResImages = true,
         ): Promise<void> {
             resetImgFetchStats();
             // Per-export image dedup: the same hosted image can appear in
@@ -1591,7 +1592,16 @@ export default defineContentScript({
                     const isUrlp = /\/urlp\//i.test(att.href);
                     const isImageish = att.type === 'gif' || att.type === 'video' || att.kind === 'preview';
                     if (!isAmsObject && !isUrlp && !isImageish) continue;
-                    tasks.push({ att, url: att.href });
+                    // Full resolution: Teams' message HTML carries the downscaled
+                    // display view (imgo, ~1280px cap, JPEG). The true original is
+                    // the imgpsh_fullsize view (PNG) on the same object. Swap it in
+                    // for the FETCH only (att.href stays the imgo link), and only
+                    // for image objects — never the video/audio/thumbnail views.
+                    let url = att.href;
+                    if (fullResImages && /\/v1\/objects\/[^/]+\/views\/imgo\b/i.test(url)) {
+                        url = url.replace(/(\/v1\/objects\/[^/]+\/views\/)imgo\b/i, '$1imgpsh_fullsize');
+                    }
+                    tasks.push({ att, url });
                 }
             }
 
@@ -3610,7 +3620,7 @@ export default defineContentScript({
                         return;
                     }
                     if (msg.type === 'SCRAPE_TEAMS') {
-                        const { startAt, endAt, includeReactions, includeSystem, includeReplies, showHud, exportTarget, formats, embedAvatars, downloadImages, conversationId, conversationTitle, noDomFallback } = msg.options || {};
+                        const { startAt, endAt, includeReactions, includeSystem, includeReplies, showHud, exportTarget, formats, embedAvatars, downloadImages, fullResImages, conversationId, conversationTitle, noDomFallback } = msg.options || {};
                         const target = exportTarget === 'team' ? 'team' : 'chat';
                         hudEnabled = showHud !== false;
                         if (!hudEnabled) clearHUD();
@@ -3696,7 +3706,7 @@ export default defineContentScript({
                                             if (done % 10 === 0 || done === total) {
                                                 try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length, imagesDone: done, imagesTotal: total } }); } catch {}
                                             }
-                                        }, { userId: apiResult.userId, userRegion: apiResult.userRegion, ic3Token: apiResult.ic3Token });
+                                        }, { userId: apiResult.userId, userRegion: apiResult.userRegion, ic3Token: apiResult.ic3Token }, fullResImages !== false);
                                     } else {
                                         console.log(`[Teams Exporter] Skipping inline image fetch — formats=${fmtList.join(',')}, downloadImages=${downloadImages}`);
                                     }
