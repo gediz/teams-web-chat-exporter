@@ -55,9 +55,9 @@ export type Options = {
   embedAvatars: boolean;
   downloadImages: boolean;
   // Fetch the full-resolution inline-image view (AMS imgpsh_fullsize) rather
-  // than Teams' downscaled display view (imgo, ~1280px cap). On by default so
-  // the images/ folder holds true originals; trade-off is larger exports and
-  // slower PDF embedding.
+  // than Teams' downscaled display view (imgo, ~1280px cap). Off by default
+  // (opt-in); when on, the images/ folder holds true originals, at the cost of
+  // much larger exports and slower PDF embedding.
   fullResImages: boolean;
   showHud: boolean;
   theme: Theme;
