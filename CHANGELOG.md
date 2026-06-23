@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.1] - 2026-06-23
+
+Maintenance release. Nothing changes in how the extension behaves or what it exports. This release hardens the project's own supply chain and licensing. Each GitHub release now ships a signed build-provenance attestation (SLSA) and a SHA-256 checksum file, the build toolchain and GitHub Actions are version-pinned, and the generated font and emoji assets are hash-verified against the source. The repository now carries an MIT LICENSE file, matching what the README already stated. A dormant, log-only safeguard was added to the message fetcher that records, without blocking, any attempt to send a request off Microsoft's hosts; it does not affect exports.
+
 ## [1.5.0] - 2026-06-13
 
 Large multi-chat exports now run faster and use far less memory. In a same-machine test a few-hundred-chat export finished about 1.7 times faster than 1.4.14, roughly an hour down to under 40 minutes while exporting more chats. The release also exports pasted tables with their row and column structure intact instead of flattening them to text, adds reactor avatars, a participant list and saved chat presets, and fixes a range of export-fidelity issues.
