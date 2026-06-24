@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { MessageSquareQuote, Smile, Bell, CircleUserRound, ListChecks, Image } from 'lucide-svelte';
+  import { MessageSquareQuote, Smile, Bell, CircleUserRound, ListChecks, Image, FileDown } from 'lucide-svelte';
   import { t } from '../../../i18n/i18n';
 
   export let includeReplies = true;
@@ -8,6 +8,7 @@
   export let includeSystem = false;
   export let embedAvatars = false;
   export let downloadImages = false;
+  export let downloadFiles = false;
   export let lang = 'en';
   export let disableReplies = false;
   export let disableReactions = false;
@@ -20,6 +21,7 @@
     includeSystemChange: boolean;
     embedAvatarsChange: boolean;
     includeImagesChange: boolean;
+    downloadFilesChange: boolean;
   }>();
 </script>
 
@@ -103,6 +105,20 @@
         checked={downloadImages}
         disabled={disableImages}
         on:change={(e) => dispatch('includeImagesChange', e.currentTarget.checked)}
+      />
+    </label>
+
+    <label class="checkbox-item" title={t('include.filesHint', {}, lang)}>
+      <div class="checkbox-content">
+        <div class="checkbox-icon">
+          <FileDown size={18} />
+        </div>
+        <span class="checkbox-label">{t('include.files', {}, lang)}</span>
+      </div>
+      <input
+        type="checkbox"
+        checked={downloadFiles}
+        on:change={(e) => dispatch('downloadFilesChange', e.currentTarget.checked)}
       />
     </label>
   </div>

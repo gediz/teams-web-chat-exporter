@@ -83,6 +83,38 @@ export const sanitizeBase = (name: string | null | undefined): string => {
   return cleaned || 'teams-chat';
 };
 
+// Filesystem-safe sanitizer for a real FILE NAME, preserving the extension.
+// Unlike sanitizeBase (the chat-TITLE sanitizer, which splits on '|', strips
+// "(n) " prefixes and " - Microsoft Teams" suffixes, and truncates the whole
+// string), this keeps the document's actual name + extension while still
+// defending against path traversal, Windows reserved device names, and the
+// control / zero-width characters chrome.downloads.download rejects. Used for
+// attachment files saved by the "Files" toggle.
+export const sanitizeFileName = (name: string | null | undefined): string => {
+  let cleaned = (name || '').toString();
+  // Filesystem-illegal characters (incl. DEL) and C0 controls -> dash. This
+  // turns '/' and '\' into '-' too, so no path separator survives.
+  cleaned = cleaned.replace(/[<>:"/\\|?*\x00-\x1F\x7F]/g, '-');
+  // Zero-width / bidirectional formatting chars (chrome.downloads rejects
+  // these as illegal characters; see sanitizeBase / issue #21).
+  cleaned = cleaned.replace(/[​-‏‪-‮⁠-⁤﻿]/g, '');
+  // Collapse ".." runs (traversal once glued into a subpath) and whitespace.
+  cleaned = cleaned.replace(/\.{2,}/g, '.').replace(/\s+/g, ' ').trim();
+  // Strip leading dots (Unix hidden) and leading dashes; trim trailing
+  // dots/spaces (illegal on Windows NTFS).
+  cleaned = cleaned.replace(/^[.\-\s]+/, '').replace(/[. ]+$/g, '');
+  // Split base + extension so truncation never eats the extension. A dot more
+  // than 16 chars from the end isn't a real extension (keep it in the base).
+  const dot = cleaned.lastIndexOf('.');
+  const hasExt = dot > 0 && cleaned.length - dot <= 16;
+  let base = hasExt ? cleaned.slice(0, dot) : cleaned;
+  const ext = hasExt ? cleaned.slice(dot) : '';
+  // Windows reserved device names (CON, PRN, ...) on the base portion.
+  if (WINDOWS_RESERVED.test(base)) base = `${base}_`;
+  base = base.slice(0, 100);
+  return (base + ext) || 'attachment';
+};
+
 export const formatRangeLabel = (startISO?: string | null, endISO?: string | null): string | null => {
   if (!startISO && !endISO) return null;
   const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });

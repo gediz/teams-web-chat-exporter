@@ -143,3 +143,40 @@ export function isMicrosoftApiHost(url?: string | null): boolean {
   }
   return MS_API_HOST_SUFFIXES.some(s => host === s || host.endsWith('.' + s));
 }
+
+/**
+ * SharePoint / OneDrive-for-Business file host suffixes, across all national
+ * clouds. Deliberately NARROWER than {@link MS_API_HOST_SUFFIXES}: this gates
+ * which attachment URLs the document downloader will run the credentialed
+ * `/_api/v2.0/shares` resolver against, so it must be the SharePoint family
+ * only — never teams.* / graph.* / skype.*. Consumer
+ * `my.microsoftpersonalcontent.com` is intentionally absent (it 302s to
+ * login.live.com with no CORS; see API_FETCH_PATTERNS), so those stay
+ * link-only.
+ */
+const SHAREPOINT_FILE_HOST_SUFFIXES = [
+  'sharepoint.com',
+  'sharepoint.us',
+  'sharepoint-mil.us',
+  'sharepoint.cn',
+] as const;
+
+/**
+ * Returns `true` when `url` is an https SharePoint/OneDrive-for-Business file
+ * host (any national cloud). Used to gate the document-download shares resolver
+ * before a credentialed (cookie-bearing) fetch is made. The leading-dot check
+ * (`.endsWith('.' + s)`) prevents a look-alike like `evilsharepoint.com` from
+ * matching `sharepoint.com`.
+ */
+export function isSharePointFileHost(url?: string | null): boolean {
+  if (!url) return false;
+  let host: string;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return false;
+    host = u.hostname.toLowerCase().replace(/\.$/, '');
+  } catch {
+    return false;
+  }
+  return SHAREPOINT_FILE_HOST_SUFFIXES.some(s => host === s || host.endsWith('.' + s));
+}

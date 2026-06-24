@@ -208,6 +208,10 @@ export type BuildOptions = {
   saveAs?: boolean;
   embedAvatars?: boolean;
   downloadImages?: boolean;
+  // Stream non-image SharePoint document attachments to disk via
+  // chrome.downloads (the "Files" toggle). Independent of the selected
+  // formats; runs after the main export is saved.
+  downloadFiles?: boolean;
   // 'files' forces HTML-only exports to zip so the avatars/ folder can
   // sit alongside the HTML. 'inline' keeps avatars as base64 in the
   // HTML (single self-contained file).
@@ -256,6 +260,17 @@ export type ExportStatusPayload = {
   bundleChatName?: string;
   bundleSuccessCount?: number;
   bundleFailedCount?: number;
+  // Attachment-download phase ('downloading-files'): how many document
+  // attachments have been processed (resolved + handed to chrome.downloads)
+  // out of the total found for this export. Drives the "Downloading files:
+  // N / M" progress line. Only present while downloadFiles is on.
+  filesDone?: number;
+  filesTotal?: number;
+  // Final attachment-download tally, attached to the 'complete' status when
+  // downloadFiles is on. `saved` = downloaded to disk; `links` = kept as a
+  // link (cross-tenant / consumer / unresolved); `failed` = resolve or
+  // download error. Drives the post-export summary line.
+  filesSummary?: { total: number; saved: number; links: number; failed: number };
 };
 
 // One row in the export history. Written on phase='complete'|'cancelled'

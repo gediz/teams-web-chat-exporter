@@ -11,6 +11,14 @@ import {
   type BundleEmpty,
   type BundleFailure,
 } from '../background/download';
+import {
+  collectDocumentAttachments,
+  downloadAttachments,
+  downloadChatAttachments,
+  toFilesSummaryWire,
+  type AttachmentCandidate,
+  type AttachmentDownloadSummary,
+} from '../background/attachment-download';
 import { revokeDownloadUrl, textToDownloadUrl } from '../background/builders';
 import { createZipStream, type ZipStream } from '../background/zip';
 import { beginExportStats, endExportStats, getExportStats } from '../background/export-stats';
@@ -222,7 +230,8 @@ const { reset: resetBadge, updateForStatus: updateBadgeForStatus, updateForProgr
 const isFirefox = typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox');
 
 function log(...a: unknown[]) { try { console.log("[Teams Exporter SW]", ...a) } catch { } }
-log("boot");
+// Build marker — bump when verifying a fresh load in the SW console.
+log("boot [files=download.aspx-markup]");
 
 // Ask the content script for the tab's current Teams conversation id. The
 // content script uses IndexedDB/DOM/URL to resolve it — the address-bar
@@ -714,6 +723,37 @@ function handleExportWithScrape(
 
             statsOutcome = 'complete';
             statsFilename = buildRes.filename;
+
+            // Stream document attachments to disk (the "Files" toggle). Runs
+            // after the main export is saved and only when downloadFiles is on,
+            // so a normal export is byte-identical. The attachments/ tree sits
+            // beside the saved file under the same TeamsExport_… base name
+            // (derived by stripping the file's extension so the timestamp
+            // matches; recomputing the base would mint a fresh, mismatched one).
+            // The AbortController is registered with the tab so STOP_EXPORT
+            // (abortFetchesForTab) cancels the in-flight resolver fetches too.
+            let filesSummary: AttachmentDownloadSummary | undefined;
+            if (buildOptions?.downloadFiles && buildRes.filename) {
+                const exportFolder = buildRes.filename.replace(/\.[^.\\/]+$/, '');
+                const filesAbort = new AbortController();
+                trackFetch(tabId, filesAbort);
+                try {
+                    filesSummary = await downloadChatAttachments(
+                        scrapeRes.messages || [],
+                        exportFolder,
+                        {
+                            downloads,
+                            log,
+                            onProgress: (filesDone, filesTotal) =>
+                                broadcastStatus({ tabId, phase: 'downloading-files', filesDone, filesTotal }),
+                        },
+                        filesAbort.signal,
+                    );
+                } finally {
+                    untrackFetch(tabId, filesAbort);
+                }
+            }
+
             broadcastStatus({
                 tabId,
                 phase: 'complete',
@@ -722,6 +762,7 @@ function handleExportWithScrape(
                 // Forward the setting so the popup can try auto-open from
                 // its own context (see auto-action comment below).
                 afterExport: buildOptions?.afterExport,
+                filesSummary: filesSummary && toFilesSummaryWire(filesSummary),
             });
 
             // Append a row to the persisted export history. Reading happens
@@ -956,6 +997,11 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
         // bundle-root PARTIAL.txt + outer-zip filename suffix are the
         // signals we want users to see anyway.
         const partials: { folderName: string; conversationId: string; reason: 'network' | 'truncation' }[] = [];
+        // Document attachments (the "Files" toggle) collected per successful
+        // chat. Resolved + streamed to disk after the outer zip is saved (the
+        // bundle folder name isn't known until then). Each item carries its
+        // per-chat folder so files land under <bundleBase>/<chat>/attachments/.
+        const bundleAttachItems: AttachmentCandidate[] = [];
         // Set true at either cancel point so the stats finally below can
         // label the outcome without threading it through every return.
         let bundleCancelled = false;
@@ -1089,6 +1135,14 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
             if (totalMessages === 0) {
                 noHistory.push({ folderName, conversationId: conv.id });
                 continue;
+            }
+
+            // Collect this chat's document attachments for the post-zip Files
+            // pass (cheap: just hrefs + names, not the message bodies).
+            if (buildOptions?.downloadFiles) {
+                for (const c of collectDocumentAttachments(scrapeRes.messages || [])) {
+                    bundleAttachItems.push({ ...c, chatFolder: folderName });
+                }
             }
 
             try {
@@ -1375,6 +1429,31 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                 return;
             }
 
+            // Stream collected document attachments to disk now that the outer
+            // zip name (= export folder base) is known. Registered with the tab
+            // so STOP_EXPORT cancels the in-flight resolver fetches.
+            let filesSummary: AttachmentDownloadSummary | undefined;
+            if (buildOptions?.downloadFiles && bundleAttachItems.length && buildRes.filename && !bundleStops.has(tabId)) {
+                const exportFolder = buildRes.filename.replace(/\.zip$/i, '');
+                const filesAbort = new AbortController();
+                trackFetch(tabId, filesAbort);
+                try {
+                    filesSummary = await downloadAttachments(
+                        bundleAttachItems,
+                        exportFolder,
+                        {
+                            downloads,
+                            log,
+                            onProgress: (filesDone, filesTotal) =>
+                                broadcastStatus({ tabId, phase: 'downloading-files', filesDone, filesTotal, bundleTotalChats: totalChats }),
+                        },
+                        filesAbort.signal,
+                    );
+                } finally {
+                    untrackFetch(tabId, filesAbort);
+                }
+            }
+
             broadcastStatus({
                 tabId,
                 phase: 'complete',
@@ -1384,6 +1463,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                 bundleTotalChats: totalChats,
                 bundleSuccessCount: entries.length,
                 bundleFailedCount: failures.length,
+                filesSummary: filesSummary && toFilesSummaryWire(filesSummary),
             });
 
             const elapsedMs = Math.max(0, Date.now() - startedAt);

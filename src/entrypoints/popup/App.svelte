@@ -1088,6 +1088,16 @@
       const isZip = fname.endsWith('.zip');
       const key = isZip ? "status.compressing" : "status.building";
       setStatus(t(key, {}, langNow), { count });
+    } else if (phase === "downloading-files") {
+      // Attachment download (the "Files" toggle). Count is only known after the
+      // scrape, so this phase fires after the main export is saved.
+      setBusy(true, busyBuildLabel());
+      const done = msg.filesDone ?? 0;
+      const total = msg.filesTotal ?? 0;
+      setStatus(
+        t("status.downloadingFiles", { done, total }, langNow),
+        total > 0 ? { countLabel: `${done}/${total}` } : {},
+      );
     } else if (phase === "empty") {
       const message = msg.message || emptyLabel();
       setBusy(false);
@@ -1101,7 +1111,17 @@
       // even when idle" path doesn't render stale "Chat 12 of 12" text.
       // The user-facing status is now the bundle-summary line set above.
       bundleContext = null;
-      setStatus(t("status.complete", {}, langNow), { stopElapsed: true });
+      // Append the attachment-download summary when the Files toggle ran.
+      // Only non-zero buckets are shown so a clean run reads "… · N files saved".
+      const fs = msg.filesSummary;
+      let completeText = t("status.complete", {}, langNow);
+      if (fs && fs.total > 0) {
+        const parts = [t("status.filesSaved", { n: fs.saved }, langNow)];
+        if (fs.links > 0) parts.push(t("status.filesLinks", { n: fs.links }, langNow));
+        if (fs.failed > 0) parts.push(t("status.filesFailed", { n: fs.failed }, langNow));
+        completeText += " · " + parts.join(" · ");
+      }
+      setStatus(completeText, { stopElapsed: true });
       hideErrorBanner(true);
       // The success path no longer renders an inline outcome tile. The
       // background appends a row to the persisted history; we re-read it
@@ -1265,6 +1285,7 @@
         includeSystem,
         embedAvatars,
         downloadImages,
+        downloadFiles,
         fullResImages,
         showHud,
         exportTarget,
@@ -1305,6 +1326,7 @@
             saveAs: true,
             embedAvatars,
             downloadImages,
+            downloadFiles,
             afterExport: options.afterExport,
             avatarMode: options.avatarMode,
             pdfPageSize: options.pdfPageSize,
@@ -1393,6 +1415,7 @@
           saveAs: true,
           embedAvatars,
           downloadImages,
+          downloadFiles,
           afterExport: options.afterExport,
           avatarMode: options.avatarMode,
           pdfPageSize: options.pdfPageSize,
@@ -1901,6 +1924,7 @@
           includeSystem={options.includeSystem}
           embedAvatars={options.embedAvatars}
           downloadImages={options.downloadImages}
+          downloadFiles={options.downloadFiles}
           lang={options.lang || "en"}
           disableReplies={options.formats.every((f) => f === "txt")}
           disableReactions={options.formats.every((f) => f === "txt")}
@@ -1915,6 +1939,8 @@
           on:embedAvatarsChange={(e) => updateOption("embedAvatars", e.detail)}
           on:includeImagesChange={(e) =>
             updateOption("downloadImages", e.detail)}
+          on:downloadFilesChange={(e) =>
+            updateOption("downloadFiles", e.detail)}
         />
       </div>
     </div>
