@@ -230,8 +230,11 @@ const { reset: resetBadge, updateForStatus: updateBadgeForStatus, updateForProgr
 const isFirefox = typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox');
 
 function log(...a: unknown[]) { try { console.log("[Teams Exporter SW]", ...a) } catch { } }
-// Build marker — bump when verifying a fresh load in the SW console.
-log("boot [files=download.aspx-markup]");
+// Per-build identifier (git hash + build time), injected at build time. Logged
+// at boot and at each export start/end so any SW console / export can be tied to
+// the exact build — no more guessing whether a stale service worker is running.
+const BUILD_STAMP = __BUILD_STAMP__;
+log(`boot build=${BUILD_STAMP} [files=fire-and-forget; dl-complete=enum]`);
 
 // Ask the content script for the tab's current Teams conversation id. The
 // content script uses IndexedDB/DOM/URL to resolve it — the address-bar
@@ -267,36 +270,79 @@ function makeEntryId(): string {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+// True when a DownloadItem's bytes are fully on disk, even if we never observed
+// the 'complete' state transition. Used as a last-chance check on timeout to
+// distinguish a real stall from a missed 'complete' signal. Field-guarded for
+// Firefox MV2, whose DownloadItem omits `exists`.
+function downloadIsOnDisk(item: chrome.downloads.DownloadItem): boolean {
+    if ((item as { exists?: boolean }).exists === false) return false;
+    if (item.state === 'interrupted') return false;
+    const received = item.bytesReceived || 0;
+    if (received <= 0) return false;
+    const total = item.totalBytes;
+    // total <= 0 means the size was never reported (a data: URL can read -1);
+    // after the full timeout, a non-interrupted item with bytes received is a
+    // finished write, not a partial one.
+    return total <= 0 || received >= total;
+}
+
 // downloads.download() returns the item's ID before the file is actually
 // written to disk. Calling downloads.open() in that window would fail for
-// larger exports (blob-URL writes can take a few hundred ms for 50MB+).
-// Wait up to `timeoutMs` for the item to reach state='complete'. Returns
-// true when ready, false on timeout or interruption.
-function waitForDownloadComplete(id: number, timeoutMs = 10_000): Promise<boolean> {
+// larger exports (blob-URL writes can take a few hundred ms for 50MB+). Watch
+// the item for up to `timeoutMs` and report which terminal state it reached:
+//   'complete'    — reached state='complete'.
+//   'interrupted' — reached state='interrupted' (a real cancel/failure, e.g.
+//                   the user hit Cancel in the Save As dialog).
+//   'timeout'     — the window elapsed without observing either. A data:-scheme
+//                   download settles synchronously and can reach 'complete' in
+//                   the gap between download() resolving and our listener
+//                   attaching, so the one fast-path search can miss it; the
+//                   timeout does a final on-disk recheck and upgrades to
+//                   'complete' when the file is actually there, rather than
+//                   mislabeling a saved export as cancelled.
+type DownloadOutcome = 'complete' | 'interrupted' | 'timeout';
+
+function waitForDownloadComplete(id: number, timeoutMs = 10_000): Promise<DownloadOutcome> {
     return new Promise(resolve => {
         let done = false;
-        const finish = (ok: boolean) => {
+        const finish = (outcome: DownloadOutcome) => {
             if (done) return;
             done = true;
             try { downloads.onChanged.removeListener(onChange); } catch { /* noop */ }
             clearTimeout(timer);
-            resolve(ok);
+            resolve(outcome);
         };
         const onChange = (delta: chrome.downloads.DownloadDelta) => {
             if (delta.id !== id) return;
-            if (delta.state?.current === 'complete') finish(true);
-            else if (delta.state?.current === 'interrupted') finish(false);
+            if (delta.state?.current === 'complete') finish('complete');
+            else if (delta.state?.current === 'interrupted') finish('interrupted');
         };
-        const timer = setTimeout(() => finish(false), timeoutMs);
+        const onTimeout = () => {
+            // Hard backstop: a hung downloads.search() must never leave this
+            // promise unresolved (that would freeze the whole export). Force
+            // 'timeout' after a short grace if the recheck doesn't settle.
+            const hard = setTimeout(() => finish('timeout'), 2_000);
+            // Last chance: the 'complete' we missed may already be on disk.
+            Promise.resolve(downloads.search({ id }))
+                .then(results => {
+                    clearTimeout(hard);
+                    const item = Array.isArray(results) ? results[0] : undefined;
+                    if (item && (item.state === 'complete' || downloadIsOnDisk(item))) finish('complete');
+                    else if (item?.state === 'interrupted') finish('interrupted');
+                    else finish('timeout');
+                })
+                .catch(() => { clearTimeout(hard); finish('timeout'); });
+        };
+        const timer = setTimeout(onTimeout, timeoutMs);
         try { downloads.onChanged.addListener(onChange); } catch { /* noop */ }
         // Fast path — the item may already be complete by the time we check.
         Promise.resolve(downloads.search({ id }))
             .then(results => {
                 const item = Array.isArray(results) ? results[0] : undefined;
-                if (item?.state === 'complete') finish(true);
-                else if (item?.state === 'interrupted') finish(false);
+                if (item?.state === 'complete') finish('complete');
+                else if (item?.state === 'interrupted') finish('interrupted');
             })
-            .catch(() => { /* leave the listener to resolve it */ });
+            .catch(() => { /* leave the listener / timeout to resolve it */ });
     });
 }
 
@@ -674,6 +720,7 @@ function handleExportWithScrape(
             // the reopen reveal.
             await persistActiveExports();
             broadcastStatus({ tabId, phase: 'starting', startedAt });
+            log(`export start build=${BUILD_STAMP} tab=${tabId}`);
 
             broadcastStatus({ tabId, phase: 'scrape:start' });
             const scrapeStartedAt = Date.now();
@@ -710,15 +757,26 @@ function handleExportWithScrape(
             // 'complete' and persist a history entry before checking, the
             // popup ends up showing a row that points at a non-existent
             // file, and Open fails with "An unexpected error occurred."
-            const downloadOk = buildRes.id != null
+            log('awaiting zip download completion id=', buildRes.id);
+            const downloadStatus = buildRes.id != null
                 ? await waitForDownloadComplete(buildRes.id, 30_000)
-                : true;
-            if (!downloadOk) {
+                : 'complete';
+            log('zip download wait ->', downloadStatus, 'id=', buildRes.id);
+            // Only a real interruption (e.g. Cancel in the Save As dialog, which
+            // surfaces as state='interrupted') counts as cancelled. A 'timeout'
+            // means we could not confirm completion in the window — common for
+            // small data:-scheme exports that settle synchronously — but the file
+            // is not interrupted, so we treat it as saved and continue, including
+            // the Files phase below (which would otherwise be wrongly skipped).
+            if (downloadStatus === 'interrupted') {
                 statsOutcome = 'cancelled';
-                log('export download did not complete (cancelled or interrupted) for id', buildRes.id);
+                log('export download interrupted (cancelled) for id', buildRes.id);
                 broadcastStatus({ tabId, phase: 'cancelled' });
                 sendResponse({ cancelled: true });
                 return;
+            }
+            if (downloadStatus === 'timeout') {
+                log('export download completion unconfirmed; proceeding for id', buildRes.id);
             }
 
             statsOutcome = 'complete';
@@ -734,6 +792,7 @@ function handleExportWithScrape(
             // (abortFetchesForTab) cancels the in-flight resolver fetches too.
             let filesSummary: AttachmentDownloadSummary | undefined;
             if (buildOptions?.downloadFiles && buildRes.filename) {
+                log('Files phase: starting for', (scrapeRes.messages || []).length, 'messages');
                 const exportFolder = buildRes.filename.replace(/\.[^.\\/]+$/, '');
                 const filesAbort = new AbortController();
                 trackFetch(tabId, filesAbort);
@@ -814,9 +873,10 @@ function handleExportWithScrape(
 
             // Auto-action dispatch:
             //   'show' — downloads.show() doesn't need a user gesture, so
-            //            the SW handles it here. We don't have to wait for
-            //            the download to be on disk because the
-            //            waitForDownloadComplete above already gated us.
+            //            the SW handles it here. A real interruption already
+            //            returned above; we're here on a confirmed (or
+            //            on-disk-but-unconfirmed) download, and show() only
+            //            reveals the file's folder, so this is safe either way.
             //   'manual' — no auto-action; the user clicks the Open / Show
             //              buttons on the History page when ready.
             const after = buildOptions?.afterExport;
@@ -852,7 +912,8 @@ function handleExportWithScrape(
         } finally {
             // Emit the console-only stats block, then drop the collector. Runs
             // for every outcome (complete / empty / cancelled / error).
-            getExportStats(tabId)?.log(Date.now(), statsOutcome, { filename: statsFilename, verbose: diagVerboseStatsEnabled });
+            log(`export done build=${BUILD_STAMP} tab=${tabId} outcome=${statsOutcome}`);
+            getExportStats(tabId)?.log(Date.now(), statsOutcome, { filename: statsFilename, verbose: diagVerboseStatsEnabled, buildStamp: BUILD_STAMP });
             endExportStats(tabId);
             activeExports.delete(tabId); void persistActiveExports();
         }
@@ -1419,14 +1480,20 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
             // is non-null. Guard defensively anyway.
             if (!bundleZip) throw new Error('bundle zip stream missing despite built chats');
             const buildRes = await buildAndDownloadBundlesZip({ downloads, isFirefox }, bundleZip, entries.length, failures, noHistory, partials);
-            const downloadOk = buildRes.id != null
+            const downloadStatus = buildRes.id != null
                 ? await waitForDownloadComplete(buildRes.id, 60_000)
-                : true;
-            if (!downloadOk) {
+                : 'complete';
+            // Same rule as the single-chat path: only a real interruption is a
+            // cancel. A 'timeout' (completion unconfirmed in the window) still
+            // continues to the Files phase rather than dropping it.
+            if (downloadStatus === 'interrupted') {
                 bundleCancelled = true;
                 broadcastStatus({ tabId, phase: 'cancelled' });
                 sendResponse({ cancelled: true });
                 return;
+            }
+            if (downloadStatus === 'timeout') {
+                log('bundle export download completion unconfirmed; proceeding for id', buildRes.id);
             }
 
             // Stream collected document attachments to disk now that the outer

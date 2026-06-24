@@ -51,9 +51,10 @@ export interface AttachmentDownloadDeps {
 
 export interface AttachmentDownloadSummary {
   total: number;   // SharePoint document candidates found (deduped by href)
-  saved: number;   // handed to chrome.downloads
+  saved: number;   // handed to chrome.downloads (fire-and-forget; the browser
+                   // streams server->disk in its own context)
   links: number;   // skipped without a download attempt (host gate) — kept as a link
-  failed: number;  // chrome.downloads.download rejected
+  failed: number;  // chrome.downloads.download threw synchronously
   failures: Array<{ name: string; reason: string }>;
 }
 
@@ -67,10 +68,6 @@ export interface AttachmentCandidate {
 // NOT a SharePoint file URL). Skipped here: inline images are handled by the
 // separate downloadImages path and would otherwise be double-fetched.
 const IMAGE_FILETYPE = /^(png|jpe?g|gif|webp|bmp|svg|ico|tiff?|heic|heif|avif)$/i;
-
-// Paces dispatch of downloads.download calls. The browser then manages its own
-// concurrent-download limit; this just avoids spawning every call in one tick.
-const DISPATCH_CONCURRENCY = 6;
 
 /** Last path segment of a URL, percent-decoded, as a filename fallback. */
 function fileNameFromUrl(url: string): string {
@@ -154,16 +151,23 @@ export function buildAttachmentPath(exportFolder: string, chatFolder: string, na
 }
 
 /**
- * Stream a set of SharePoint document attachments to disk via chrome.downloads.
- * Returns a tally. No-op safe: an empty `items` returns a zero summary without
- * touching the downloads API.
+ * Hand a set of SharePoint document attachments to chrome.downloads. Returns a
+ * tally. No-op safe: an empty `items` returns a zero summary.
  *
- * `saved` counts files handed to chrome.downloads (which streams server->disk
- * in the browser's network context, sending the user's SharePoint cookies and
- * following any redirect). We do NOT await disk completion: downloads outlive
- * the service worker, and onChanged-awaiting a multi-minute stream would risk
- * SW eviction. Disk-write / access failures surface in the browser's own
- * download manager.
+ * FIRE-AND-FORGET, and it must stay that way. On a remote URL, download() does
+ * NOT resolve until the transfer actually starts (a download-manager slot plus a
+ * network round-trip) — about a second each. Awaiting it therefore serialized
+ * dispatch at the network rate (~1 file/s), and a few-hundred-file set ran longer
+ * than the MV3 service worker stayed alive: it was evicted mid-phase, so the
+ * export never reached its terminal state and no history row was written. Here we
+ * call download() back-to-back WITHOUT awaiting, so every file is queued in
+ * milliseconds and the export completes immediately; the browser then streams
+ * each one server->disk in its own context, outliving the worker.
+ *
+ * Trade-off: because we no longer await each download, we can't inspect its
+ * response, so a file the user cannot open still saves the SharePoint "request
+ * access" HTML page (it surfaces in the browser's own download manager). Deleting
+ * those required awaiting completion, which is exactly what broke reliability.
  */
 export async function downloadAttachments(
   items: AttachmentCandidate[],
@@ -174,56 +178,44 @@ export async function downloadAttachments(
   const summary: AttachmentDownloadSummary = { total: items.length, saved: 0, links: 0, failed: 0, failures: [] };
   if (!items.length) return summary;
 
-  let done = 0;
-  let next = 0;
-  let viaAspx = 0;  // how many were routed through the download.aspx handler (markup types)
-  deps.onProgress?.(0, items.length);
-
-  const worker = async () => {
-    while (!signal.aborted) {
-      const i = next++;
-      if (i >= items.length) return;
-      const item = items[i];
-      let outcome: 'saved' | 'links' | 'failed' | 'aborted' = 'saved';
-      let failReason = '';
+  deps.log?.(`attachment phase: ${items.length} candidate(s)`);
+  let viaAspx = 0;  // queued files routed through the download.aspx handler (markup types)
+  for (let i = 0; i < items.length; i++) {
+    if (signal.aborted) break;
+    const item = items[i];
+    // Defense-in-depth: only SharePoint-family hosts reach chrome.downloads.
+    // collectDocumentAttachments already gates on this, so this is a
+    // belt-and-suspenders check, not the primary filter.
+    if (!isSharePointFileHost(item.href)) {
+      summary.links++;
+    } else {
+      const rawName = item.name || fileNameFromUrl(item.href) || 'attachment';
+      const url = toDownloadUrl(item.href);
+      const name = item.name || fileNameFromUrl(item.href) || item.href;
       try {
-        // Defense-in-depth: only SharePoint-family hosts reach chrome.downloads.
-        // collectDocumentAttachments already gates on this, so this branch is a
-        // belt-and-suspenders check, not the primary filter.
-        if (!isSharePointFileHost(item.href)) {
-          outcome = 'links';
-        } else {
-          const rawName = item.name || fileNameFromUrl(item.href) || 'attachment';
-          const url = toDownloadUrl(item.href);
-          const opts: chrome.downloads.DownloadOptions = {
-            url,
-            filename: buildAttachmentPath(exportFolder, item.chatFolder, rawName),
-            saveAs: false,
-            conflictAction: 'uniquify',
-          };
-          await deps.downloads.download(opts);
-          if (url.includes('/_layouts/15/download.aspx')) viaAspx++;
-          outcome = 'saved';
-        }
+        // Fire, do NOT await (see the function note). The download is registered
+        // the instant this is called; the returned id-promise is ignored, but we
+        // attach a catch so a rejection isn't an unhandled promise.
+        Promise.resolve(deps.downloads.download({
+          url,
+          filename: buildAttachmentPath(exportFolder, item.chatFolder, rawName),
+          saveAs: false,
+          conflictAction: 'uniquify',
+        })).catch(e => deps.log?.(`attachment download error: ${name}: ${errMsg(e)}`));
+        summary.saved++;
+        if (url.includes('/_layouts/15/download.aspx')) viaAspx++;
       } catch (e) {
-        outcome = signal.aborted ? 'aborted' : 'failed';
-        if (outcome === 'failed') failReason = errMsg(e);
-      }
-      if (outcome === 'aborted') return;
-      if (outcome === 'saved') summary.saved++;
-      else if (outcome === 'links') summary.links++;
-      else {
+        // Synchronous throw (e.g. a malformed options object) — rare.
         summary.failed++;
-        summary.failures.push({ name: item.name || fileNameFromUrl(item.href) || item.href, reason: failReason });
+        summary.failures.push({ name, reason: errMsg(e) });
       }
-      done++;
-      deps.onProgress?.(done, items.length);
     }
-  };
+    const processed = summary.saved + summary.links + summary.failed;
+    deps.onProgress?.(processed, items.length);
+    if (processed % 50 === 0 || processed === items.length) deps.log?.(`attachment dispatch: ${processed}/${items.length}`);
+  }
 
-  const n = Math.min(DISPATCH_CONCURRENCY, items.length);
-  await Promise.all(Array.from({ length: n }, () => worker()));
-  deps.log?.(`attachment download: ${summary.saved} saved (${viaAspx} via download.aspx), ${summary.links} link(s), ${summary.failed} failed of ${summary.total}`);
+  deps.log?.(`attachment download: ${summary.saved} queued (${viaAspx} via download.aspx), ${summary.links} link(s), ${summary.failed} failed of ${summary.total}`);
   return summary;
 }
 
