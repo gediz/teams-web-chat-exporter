@@ -1935,7 +1935,11 @@ async function renderMessage(
     const text = (m.text || '').replace(/\r\n/g, '\n');
     if (text) {
       cursor.y -= 2;
-      drawLinkedText(cursor, text, 'regular', ctx, ctx.layout.sizeBody, COLOR_BODY, ctx.layout.leadBody, ctx.layout.textWidth, 0);
+      // Deleted-message tombstone body draws muted (grey) to match the HTML
+      // .deleted-body styling; the "[message deleted]" placeholder rides in
+      // m.text, so its glyphs are already in the subset (no pre-stamp needed).
+      const bodyColor = m.deleted ? COLOR_META : COLOR_BODY;
+      drawLinkedText(cursor, text, 'regular', ctx, ctx.layout.sizeBody, bodyColor, ctx.layout.leadBody, ctx.layout.textWidth, 0);
     }
   }
 

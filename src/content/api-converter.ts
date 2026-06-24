@@ -1004,8 +1004,10 @@ function convertOneMessage(
   // Filter system messages if not included
   if (isSystem && !opts.includeSystem) return null;
 
-  // Skip deleted messages with no content
-  if (properties.deletetime && !msg.content) return null;
+  // Deleted-for-everyone messages arrive with a deletetime and empty content.
+  // Keep them as a "[message deleted]" tombstone that preserves the sender and
+  // timestamp, instead of dropping them.
+  const deleted = Boolean(properties.deletetime) && !msg.content;
 
   // Build timestamp
   const timestamp = msg.originalarrivaltime || msg.composetime || '';
@@ -1204,6 +1206,12 @@ function convertOneMessage(
     text = '[inline image]';
   }
 
+  // Deleted-for-everyone tombstone body. Set last so no earlier text fallback
+  // overwrites it; sender + timestamp come from the envelope resolved above.
+  if (deleted) {
+    text = '[message deleted]';
+  }
+
   // Edited
   const edited = Boolean(properties.edittime);
 
@@ -1260,27 +1268,34 @@ function convertOneMessage(
   const parsedBlocks = bodyHtml ? parseBodyBlocksFromHtml(bodyHtml, htmlToText) : [];
   const bodyBlocks: BodyBlock[] | undefined = parsedBlocks.length ? parsedBlocks : undefined;
 
+  // A deleted-for-everyone message is rendered as a "[message deleted]"
+  // tombstone of sender + timestamp only. Teams clears the body but can leave
+  // reactions / files / a forward card / a reply preview / mentions in the
+  // envelope (they are sourced from properties, not content); strip every
+  // content-derived extra so they don't render next to the placeholder. Sender
+  // (author, isOwn) and timestamp are kept.
   return {
     id: msg.id || msg.clientmessageid || '',
     author,
     timestamp,
     text,
-    contentHtml: rawContent || undefined,
+    contentHtml: deleted ? undefined : (rawContent || undefined),
     messageType: messageType || undefined,
-    edited,
+    edited: deleted ? false : edited,
+    deleted,
     system: isSystem,
-    forwarded: forwardCtx,
-    importance,
-    subject,
+    forwarded: deleted ? undefined : forwardCtx,
+    importance: deleted ? undefined : importance,
+    subject: deleted ? undefined : subject,
     isOwn,
     avatar: null,
-    reactions,
-    attachments,
-    bodyBlocks,
-    replyTo,
-    mentions,
+    reactions: deleted ? [] : reactions,
+    attachments: deleted ? [] : attachments,
+    bodyBlocks: deleted ? undefined : bodyBlocks,
+    replyTo: deleted ? null : replyTo,
+    mentions: deleted ? undefined : mentions,
     systemAttendees,
-    recordingDetails,
+    recordingDetails: deleted ? undefined : recordingDetails,
   };
 }
 
@@ -1326,18 +1341,33 @@ export function convertApiMessages(
     if (converted) result.push(converted);
   }
 
-  // API returns newest-first; reverse to oldest-first for export
+  // The API returns roughly newest-first, but a deleted (or otherwise
+  // re-ranked) message is ordered by its latest UPDATE, not its send time, so
+  // a plain reverse() drops a "[message deleted]" tombstone at the very end
+  // instead of its original chronological slot. Reverse for the base order,
+  // then stable-sort by the display timestamp so every message lands in send
+  // order. A (rare) timestamp-less message carries its neighbour's time so it
+  // keeps its place instead of jumping to the front; the index tiebreaker
+  // keeps equal-timestamp messages in their existing relative order.
   result.reverse();
+  let lastTs = '';
+  const keyed = result.map((m, i) => {
+    const ts = m.timestamp || lastTs;
+    if (m.timestamp) lastTs = m.timestamp;
+    return { m, ts, i };
+  });
+  keyed.sort((a, b) => a.ts.localeCompare(b.ts) || a.i - b.i);
+  const ordered = keyed.map(k => k.m);
 
   // Pair each CallRecording message with its matching Meeting started/ended events
   // (same callId in the Event/Call XML) so the recording card can show the
   // meeting's actual duration, attendees, organizer, and subject.
-  pairRecordingsWithMeetings(result, apiMessages);
+  pairRecordingsWithMeetings(ordered, apiMessages);
 
   // Teams emits two CallRecording messages per recording (initial empty state +
   // final state with Play link). Collapse to one entry per AMSDocumentID,
   // preferring the one with a SharePoint Play URL.
-  return dedupRecordings(result);
+  return dedupRecordings(ordered);
 }
 
 function dedupRecordings(messages: ExportMessage[]): ExportMessage[] {

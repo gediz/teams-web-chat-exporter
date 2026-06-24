@@ -93,6 +93,9 @@ export type ExportMessage = {
   contentHtml?: string;           // Raw HTML content (API mode only)
   messageType?: string;           // e.g. "Text", "RichText/Html", "Event/Call"
   edited?: boolean;
+  // True for a deleted-for-everyone message kept as a "[message deleted]"
+  // tombstone (text is set to the placeholder). Mirrors `edited`.
+  deleted?: boolean;
   system?: boolean;
   forwarded?: ForwardContext;     // Forward context with original author info
   importance?: string;            // "normal", "urgent", etc.

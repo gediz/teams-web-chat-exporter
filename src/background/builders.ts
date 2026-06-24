@@ -73,7 +73,7 @@ export function toCSV(messages: ExportMessage[], meta: ExportMeta = {}) {
         '',
       ].join('\n')
     : '';
-  const header = ['id', 'author', 'timestamp', 'text', 'edited', 'system', 'subject', 'importance', 'mentions', 'reactions_json', 'attachments_json', 'forwarded'];
+  const header = ['id', 'author', 'timestamp', 'text', 'edited', 'deleted', 'system', 'subject', 'importance', 'mentions', 'reactions_json', 'attachments_json', 'forwarded'];
 
   const rows = (messages || []).map(m => {
     const row = [];
@@ -90,7 +90,7 @@ export function toCSV(messages: ExportMessage[], meta: ExportMeta = {}) {
       const summary = summarizeAttachments(m);
       if (summary) text = summary;
     }
-    row.push(m.id ?? '', m.author ?? '', m.timestamp ?? '', text, m.edited ? 'true' : 'false', m.system ? 'true' : 'false');
+    row.push(m.id ?? '', m.author ?? '', m.timestamp ?? '', text, m.edited ? 'true' : 'false', m.deleted ? 'true' : 'false', m.system ? 'true' : 'false');
 
     row.push(m.subject ?? '');
     row.push(m.importance ?? '');
@@ -334,6 +334,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     .hdr{color:var(--muted); font-size:12px; margin-bottom:6px}
     .hdr .rel{margin-left:6px; font-style:italic}
     .hdr .edited{font-style:italic}
+    .deleted-body{color:var(--muted); font-style:italic}
     .reply{background:#f8fafc; border-left:3px solid #d1d5db; padding:8px 10px; border-radius:8px; margin:8px 0; font-size:13px; color:#374151}
     .reply .reply-meta{display:flex; flex-wrap:wrap; gap:6px; font-size:12px; color:#6b7280; margin-bottom:4px}
     .reply blockquote{margin:0; padding:0; border:none; color:#1f2937; word-wrap:break-word; overflow-wrap:anywhere}
@@ -719,7 +720,9 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     // their original positions. Falls back to the flat text + legacy tables
     // when no bodyBlocks were parsed (non-table messages, DOM-scrape mode).
     const blocks = Array.isArray(m.bodyBlocks) ? m.bodyBlocks : null;
-    const bodyHtml = blocks && blocks.length
+    const bodyHtml = m.deleted
+      ? `<div class="deleted-body">${escapeHtml(text)}</div>`
+      : blocks && blocks.length
       ? blocks
           .map(b => (b.type === 'table' ? renderHtmlTable(b.table) : `<div>${formatText(b.text)}</div>`))
           .join('')
