@@ -12,6 +12,7 @@
 
 export type EnvInfo = {
   extensionVersion: string;
+  buildStamp: string;
   manifestVersion: number;
   browserBrand: string;
   browserVersion: string;

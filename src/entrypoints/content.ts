@@ -3672,6 +3672,7 @@ export default defineContentScript({
                         return;
                     }
                     if (msg.type === 'SCRAPE_TEAMS') {
+                        console.log(`[Teams Exporter] export start build=${__BUILD_STAMP__}`);
                         const { startAt, endAt, includeReactions, includeSystem, includeReplies, showHud, exportTarget, formats, embedAvatars, downloadImages, fullResImages, conversationId, conversationTitle, noDomFallback } = msg.options || {};
                         const target = exportTarget === 'team' ? 'team' : 'chat';
                         hudEnabled = showHud !== false;

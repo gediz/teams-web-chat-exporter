@@ -138,7 +138,7 @@ export class ExportStats {
   log(
     now: number,
     outcome: string,
-    extra: { messages?: number; outputBytes?: number; filename?: string; verbose?: boolean } = {},
+    extra: { messages?: number; outputBytes?: number; filename?: string; verbose?: boolean; buildStamp?: string } = {},
   ): void {
     if (this.curStage) {
       this.stageMs[this.curStage] += Math.max(0, now - this.curStageStart);
@@ -157,6 +157,7 @@ export class ExportStats {
     const block = {
       kind: this.kind,
       outcome,
+      ...(extra.buildStamp ? { build: extra.buildStamp } : {}),
       totalMs: round(now - this.startedAt),
       totalMessages,
       chats: this.chats.length,

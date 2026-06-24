@@ -1,6 +1,27 @@
+import { execFileSync } from 'node:child_process';
 import { defineConfig } from 'wxt';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { TEAMS_MATCH_PATTERNS, API_FETCH_PATTERNS } from './src/utils/teams-urls';
+
+// A per-build identifier baked into the bundle so any export, log line or
+// diagnostic can be traced to the exact build that produced it (kills the
+// "is this a stale service worker?" ambiguity). The git short hash (plus
+// `-dirty` for an uncommitted tree) always rides along. The build TIME is added
+// only for local dev/test builds (`wxt build` / `wxt` dev) so each rebuild is
+// distinguishable; release builds (`wxt zip`) omit it so the shipped bundle
+// stays byte-reproducible from its commit. execFileSync (no shell), static args.
+const RELEASE_BUILD = process.argv.includes('zip');
+function computeBuildStamp(): string {
+  let git = 'nogit';
+  try {
+    const opts = { encoding: 'utf8' as const, stdio: ['ignore', 'pipe', 'ignore'] as ['ignore', 'pipe', 'ignore'] };
+    const hash = execFileSync('git', ['rev-parse', '--short', 'HEAD'], opts).trim();
+    const dirty = execFileSync('git', ['status', '--porcelain'], opts).trim().length > 0;
+    git = hash + (dirty ? '-dirty' : '');
+  } catch { /* not a git checkout — fall back to a stable placeholder */ }
+  return RELEASE_BUILD ? git : `${git} @ ${new Date().toISOString()}`;
+}
+const BUILD_STAMP = computeBuildStamp();
 
 export default defineConfig({
   srcDir: 'src',
@@ -13,6 +34,10 @@ export default defineConfig({
   } as any,
   vite: () => ({
     plugins: [svelte()],
+    define: {
+      // Compile-time constant; replaced literally in every entrypoint bundle.
+      __BUILD_STAMP__: JSON.stringify(BUILD_STAMP),
+    },
   }),
   // AMO sources zip: WXT's defaults exclude hidden files, node_modules,
   // and tests, but everything else in the repo root ships. `debug/` is

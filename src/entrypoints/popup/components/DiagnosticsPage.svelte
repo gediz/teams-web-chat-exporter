@@ -177,6 +177,7 @@
 
     return {
       extensionVersion: String(manifest.version || ''),
+      buildStamp: __BUILD_STAMP__,
       manifestVersion: Number(manifest.manifest_version ?? 3),
       browserBrand,
       browserVersion,
@@ -604,6 +605,10 @@
       <div class="row">
         <div class="label">{t('diagnostics.field.extension', {}, lang)}</div>
         <div class="val">{summary.env.extensionVersion} (manifest v{summary.env.manifestVersion})</div>
+      </div>
+      <div class="row">
+        <div class="label">Build</div>
+        <div class="val">{summary.env.buildStamp}</div>
       </div>
       <div class="row">
         <div class="label">{t('diagnostics.field.browser', {}, lang)}</div>
