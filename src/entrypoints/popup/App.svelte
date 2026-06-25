@@ -1117,6 +1117,9 @@
       let completeText = t("status.complete", {}, langNow);
       if (fs && fs.total > 0) {
         const parts = [t("status.filesSaved", { n: fs.saved }, langNow)];
+        // Host-gate links kept as links rather than downloaded. (Files the user
+        // can't access are cleaned up post-download into FAILURES.txt, after this
+        // summary is sent, so they aren't reflected here.)
         if (fs.links > 0) parts.push(t("status.filesLinks", { n: fs.links }, langNow));
         if (fs.failed > 0) parts.push(t("status.filesFailed", { n: fs.failed }, langNow));
         completeText += " · " + parts.join(" · ");

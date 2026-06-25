@@ -16,6 +16,7 @@ import {
   downloadAttachments,
   downloadChatAttachments,
   toFilesSummaryWire,
+  verifyDownloadOnChanged,
   type AttachmentCandidate,
   type AttachmentDownloadSummary,
 } from '../background/attachment-download';
@@ -234,7 +235,17 @@ function log(...a: unknown[]) { try { console.log("[Teams Exporter SW]", ...a) }
 // at boot and at each export start/end so any SW console / export can be tied to
 // the exact build — no more guessing whether a stale service worker is running.
 const BUILD_STAMP = __BUILD_STAMP__;
-log(`boot build=${BUILD_STAMP} [files=fire-and-forget; dl-complete=enum]`);
+log(`boot build=${BUILD_STAMP} [files=fire-and-forget; markup=uniqueid; verify=onchanged-mime; dl-complete=enum]`);
+
+// Post-download request-access cleanup for the Files toggle. Registered at the
+// service-worker top level so a download completing after the export's await
+// chain has ended (or after the worker was evicted and re-spawned) still wakes
+// the worker and reaches the verifier. A non-markup attachment that lands as
+// text/html is a "request access" page; verifyDownloadOnChanged deletes it and
+// records the file in FAILURES.txt. See attachment-download.ts.
+try {
+    downloads.onChanged.addListener(d => { void verifyDownloadOnChanged({ downloads, log }, d); });
+} catch { /* noop: downloads API unavailable */ }
 
 // Ask the content script for the tab's current Teams conversation id. The
 // content script uses IndexedDB/DOM/URL to resolve it — the address-bar
@@ -1505,6 +1516,10 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                 const filesAbort = new AbortController();
                 trackFetch(tabId, filesAbort);
                 try {
+                    // Every chat's attachments are dispatched here; per-chat
+                    // request-access pages are cleaned up post-download by the
+                    // onChanged verifier (each candidate carries its chatFolder,
+                    // so FAILURES.txt lands in the right per-chat folder).
                     filesSummary = await downloadAttachments(
                         bundleAttachItems,
                         exportFolder,

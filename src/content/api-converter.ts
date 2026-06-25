@@ -607,6 +607,11 @@ function convertAttachments(properties: Record<string, unknown>): Attachment[] {
       size: f.fileSize ? humanizeBytes(Number(f.fileSize)) : null,
       owner: null,
       metaText: null,
+      // Stable SharePoint file GUID (the file's site-scoped listItemUniqueId).
+      // Used as the download.aspx `UniqueId` to stream renderable-markup
+      // attachments. Read from the raw file object, independent of the image
+      // href override.
+      itemid: (f.itemid || undefined) as string | undefined,
     };
   }).filter(a => a.label || a.href);
 }

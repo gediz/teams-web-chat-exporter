@@ -23,6 +23,10 @@ export type Attachment = {
   metaText?: string | null;
   dataUrl?: string;
   kind?: 'preview';
+  // Stable SharePoint file GUID (== the file's site-scoped listItemUniqueId).
+  // Used as the download.aspx `UniqueId` when streaming renderable-markup
+  // attachments to disk. Non-sensitive; kept in output. Renderers ignore it.
+  itemid?: string;
 };
 
 export type ReplyContext = {
