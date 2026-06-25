@@ -207,8 +207,9 @@ async function writeFailuresFile(
   key: string,
 ): Promise<void> {
   const body =
-    'These files were shared in this chat but could not be downloaded because\n' +
-    'your account does not have access to them. Open each one in Teams using its link.\n\n' +
+    'These files were shared in this chat but could not be downloaded. You may not\n' +
+    'have access, or the file was moved or deleted. Open each one in Teams using its\n' +
+    'link to check.\n\n' +
     entries.map(e => `${e.name}\n${e.href}\n`).join('\n');
   const url = 'data:text/plain;charset=utf-8,' + encodeURIComponent(body);
   const prev = failuresDownloadId.get(key);
@@ -224,26 +225,27 @@ async function writeFailuresFile(
   } catch { /* best-effort; the file just stays out of the export */ }
 }
 
-// ── Post-download request-access verification ──────────────────────────────
+// ── Post-download verification (could-not-download -> FAILURES.txt) ─────────
 //
-// Fire-and-forget downloads can't inspect the response, so a file the user has
-// no access to comes down as SharePoint's "request access" HTML page saved
-// under the real file's name. There is no reliable way to know this upfront
-// (see debug/ACCESS_DETECTION_FINDINGS.md), so we verify after the fact: when a
-// NON-markup download completes with Content-Type text/html, it is that junk
-// page (a real pdf/xlsx/zip/video is never text/html). Remove it from disk and
-// history and list the file, with its link, in the chat's FAILURES.txt.
+// Fire-and-forget downloads can't inspect the response, so we verify after the
+// fact via downloads.onChanged. A file the user can't retrieve shows up two ways:
+//   - NON-markup that COMPLETES as text/html: SharePoint's "request access" HTML
+//     page saved under the file's name (a real pdf/zip/video is never text/html).
+//     Remove it from disk + history.
+//   - ANY download the server INTERRUPTS (no access, deleted, error): no real file
+//     landed. A deliberate user cancel (error USER_CANCELED) is not a failure.
+// Either way the file, with its link, is listed in the chat's FAILURES.txt so the
+// user has a record of everything that could not be downloaded.
 //
-// Markup types (html/svg/xml) are deliberately NOT verified: routed through
-// download.aspx they legitimately arrive as text/html, so the signal is
-// ambiguous for them. Their request-access pages are the one junk case that
-// still slips through.
+// Markup that COMPLETES is kept: routed through download.aspx it legitimately
+// arrives as text/html, so completion means the real file (an inaccessible markup
+// file is interrupted with a JSON error instead, caught by the interrupted path).
 //
 // State is in-memory and best-effort. The stream of onChanged events keeps the
 // MV3 worker alive while downloads land; if a long gap evicts it, late checks
-// are simply skipped (the file just stays — no upfront data loss).
+// are simply skipped (no upfront data loss).
 
-interface VerifyMeta { name: string; href: string; chatFolder: string; exportFolder: string; }
+interface VerifyMeta { name: string; href: string; chatFolder: string; exportFolder: string; markup?: boolean; }
 const pendingVerify = new Map<number, VerifyMeta>();
 const verifiedFailures = new Map<string, Array<{ name: string; href: string }>>();
 const failuresDownloadId = new Map<string, number>(); // folder key → last FAILURES.txt download id
@@ -253,6 +255,15 @@ function resetVerifyState(): void {
   pendingVerify.clear();
   verifiedFailures.clear();
   failuresDownloadId.clear();
+}
+
+/** Record a file that could not be downloaded into this chat's FAILURES.txt. */
+async function recordFailure(deps: { downloads: DownloadsApi }, meta: VerifyMeta): Promise<void> {
+  const key = `${meta.exportFolder} ${meta.chatFolder}`;
+  const list = verifiedFailures.get(key) || [];
+  list.push({ name: meta.name, href: meta.href });
+  verifiedFailures.set(key, list);
+  await writeFailuresFile(deps.downloads, meta.exportFolder, meta.chatFolder, list, key);
 }
 
 /**
@@ -266,7 +277,8 @@ export async function verifyDownloadOnChanged(
   deps: { downloads: DownloadsApi; log?: (m: string) => void },
   delta: { id: number; state?: { current?: string } },
 ): Promise<void> {
-  if (delta.state?.current !== 'complete') return;
+  const st = delta.state?.current;
+  if (st !== 'complete' && st !== 'interrupted') return;
   const meta = pendingVerify.get(delta.id);
   if (!meta) return;                 // not one of ours, or already handled
   pendingVerify.delete(delta.id);
@@ -276,19 +288,27 @@ export async function verifyDownloadOnChanged(
     const r = await deps.downloads.search({ id: delta.id });
     item = Array.isArray(r) ? r[0] : undefined;
   } catch { return; }
-  // A non-markup file that arrived as anything but text/html is the real file.
-  if (!item || (item.mime || '').toLowerCase() !== 'text/html') return;
+  if (!item) return;
 
-  // Request-access page saved under the file's name: delete file + history row.
+  if (st === 'interrupted') {
+    // The server refused the download (no access, deleted, error) so no real file
+    // landed. A deliberate user cancel is not a failure and isn't recorded. We do
+    // NOT removeFile/erase here: an interrupted download may be auto-resumable, and
+    // deleting its partial or history row would break the resume. Just record it.
+    if (item.error === 'USER_CANCELED') return;
+    deps.log?.(`attachment no-access: ${meta.name} (${item.error || 'interrupted'})`);
+    await recordFailure(deps, meta);
+    return;
+  }
+
+  // Completed. A NON-markup file that arrived as text/html is a request-access
+  // page saved under the file's name (a real pdf/zip/video is never text/html).
+  // Markup is legitimately text/html, so a completed markup download is kept.
+  if (meta.markup || (item.mime || '').toLowerCase() !== 'text/html') return;
   try { await deps.downloads.removeFile(delta.id); } catch { /* may already be gone */ }
   try { await deps.downloads.erase({ id: delta.id }); } catch { /* noop */ }
-
-  const key = `${meta.exportFolder} ${meta.chatFolder}`;
-  const list = verifiedFailures.get(key) || [];
-  list.push({ name: meta.name, href: meta.href });
-  verifiedFailures.set(key, list);
   deps.log?.(`attachment no-access: removed request-access page for ${meta.name}`);
-  await writeFailuresFile(deps.downloads, meta.exportFolder, meta.chatFolder, list, key);
+  await recordFailure(deps, meta);
 }
 
 /**
@@ -347,10 +367,12 @@ export async function downloadAttachments(
           conflictAction: 'uniquify',
         }))
           .then(id => {
-            // Markup (download.aspx-routed) legitimately arrives as text/html, so
-            // it can't be verified by Content-Type; only enroll the rest.
-            if (typeof id === 'number' && !viaDownloadAspx) {
-              pendingVerify.set(id, { name, href: item.href, chatFolder: item.chatFolder, exportFolder });
+            // Enroll for the post-download verifier: a completed non-markup file
+            // that is text/html, or any download the server interrupts, could not
+            // be retrieved and is recorded in FAILURES.txt. The markup flag tells
+            // the verifier that text/html is the real file, not a junk page.
+            if (typeof id === 'number') {
+              pendingVerify.set(id, { name, href: item.href, chatFolder: item.chatFolder, exportFolder, markup: viaDownloadAspx });
             }
           })
           .catch(e => deps.log?.(`attachment download error: ${name}: ${errMsg(e)}`));
