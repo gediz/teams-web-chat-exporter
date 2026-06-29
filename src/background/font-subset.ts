@@ -192,7 +192,7 @@ export async function subsetFont(fontBytes: Uint8Array, codepoints: Iterable<num
   // PDF. Padding keeps the over-read in-bounds: it reads zeros, decoding to
   // numberOfContours 0 (correctly an empty glyph). Trailing bytes after the
   // last table are ignored by the TTF table directory, so this is otherwise
-  // inert. 16 covers the 10-byte header with margin. See debug/pdf-repro.
+  // inert. 16 covers the 10-byte header with margin. See tce-debug/pdf-repro.
   const GLYF_OVERREAD_PAD = 16;
   const out = new Uint8Array(resultLen + GLYF_OVERREAD_PAD);
   out.set(freshHeap.subarray(dataPtr, dataPtr + resultLen));

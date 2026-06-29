@@ -12,7 +12,7 @@
  * content script (DOMParser available); the background builders consume the
  * serializable result via ExportMessage.bodyBlocks.
  *
- * Representation choices (see debug/table-design/DESIGN.md and the research
+ * Representation choices (see tce-debug/table-design/DESIGN.md and the research
  * behind it): the dense `rows` grid REPEATS a spanned cell's value into every
  * position it covers (the pandas read_html / tidy-data convention, so every
  * row is self-contained), and `merges` records each span once on its anchor

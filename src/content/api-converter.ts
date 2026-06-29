@@ -93,9 +93,9 @@ function htmlToText(html: string, mentionMris?: Array<string | undefined>): stri
   // distinguishable from the same name occurring as ordinary text. The
   // DOM-scrape path (normalizeMentions in text.ts) already does this; this
   // covers the API path so all formats agree. Teams splits ONE person's mention
-  // into consecutive same-MRI spans ("Sertac" + "Tulluk" for "Sertac Tulluk"),
+  // into consecutive same-MRI spans ("Jane" + "Doe" for "Jane Doe"),
   // so only @ the FIRST span of an adjacent same-MRI run and let the parts join
-  // — otherwise a single mention reads "@Sertac @Tulluk". Different people have
+  // — otherwise a single mention reads "@Jane @Doe". Different people have
   // different MRIs (or non-whitespace text between), so each still gets its @.
   let prevMention: Element | null = null;
   temp.querySelectorAll('[itemtype*="Mention" i]').forEach(el => {
@@ -986,8 +986,8 @@ function buildMentionMap(messages: TeamsApiMessage[]): Map<string, string> {
     for (const m of mentions) {
       // Only fill an MRI no sender has already named. A sender's imdisplayname
       // is the canonical full name; a mention can be a partial (Teams splits
-      // "Sertac Tulluk" into "@Sertac" + "@Tulluk" spans), and letting the last
-      // part overwrite the sender name made reactors/system msgs read "Tulluk".
+      // "Jane Doe" into "@Jane" + "@Doe" spans), and letting the last
+      // part overwrite the sender name made reactors/system msgs read "Doe".
       if (m.mri && m.displayName && !map.has(m.mri)) map.set(m.mri, m.displayName);
     }
   }

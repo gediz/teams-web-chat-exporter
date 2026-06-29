@@ -818,6 +818,10 @@ function handleExportWithScrape(
                                 broadcastStatus({ tabId, phase: 'downloading-files', filesDone, filesTotal }),
                         },
                         filesAbort.signal,
+                        // Firefox does not cap concurrent downloads; bound them so a
+                        // large set doesn't burst SharePoint into throttling. Chrome
+                        // caps per host, so it stays fire-and-forget (undefined).
+                        { maxConcurrent: isFirefox ? 6 : undefined },
                     );
                 } finally {
                     untrackFetch(tabId, filesAbort);
@@ -1530,6 +1534,9 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                                 broadcastStatus({ tabId, phase: 'downloading-files', filesDone, filesTotal, bundleTotalChats: totalChats }),
                         },
                         filesAbort.signal,
+                        // Bound concurrency on Firefox (no per-host cap there) so the
+                        // bundle's many files don't burst SharePoint into throttling.
+                        { maxConcurrent: isFirefox ? 6 : undefined },
                     );
                 } finally {
                     untrackFetch(tabId, filesAbort);
