@@ -51,6 +51,7 @@
   export let pdfIncludeAvatars = true;
   export let imageFetchFallback = false;
   export let fullResImages = false;
+  export let imageFilenameDate = false;
 
   const dispatch = createEventDispatcher<{
     back: void;
@@ -64,6 +65,7 @@
     pdfIncludeAvatarsChange: boolean;
     imageFetchFallbackChange: boolean;
     fullResImagesChange: boolean;
+    imageFilenameDateChange: boolean;
     replayTour: void;
     openDiagnostics: void;
   }>();
@@ -99,6 +101,10 @@
 
   function onFullResImagesChange(e: Event) {
     dispatch('fullResImagesChange', (e.target as HTMLInputElement).checked);
+  }
+
+  function onImageFilenameDateChange(e: Event) {
+    dispatch('imageFilenameDateChange', (e.target as HTMLInputElement).checked);
   }
 
   function onPdfIncludeAvatarsChange(e: Event) {
@@ -335,6 +341,24 @@
     <label class="pdf-toggle">
       <input type="checkbox" checked={fullResImages} on:change={onFullResImagesChange} />
       <span>{t('settings.fullRes.enable', {}, lang) || 'Enable'}</span>
+    </label>
+  </div>
+
+  <div class="card settings-card">
+    <div class="card-header">
+      <span class="card-icon"><Image size={16} /></span>
+      <span class="card-title">{t('settings.imageDate', {}, lang) || 'Date in image filenames'}</span>
+      <span
+        class="card-info"
+        title={t('settings.imageDate.tooltip', {}, lang) || 'Add the message share time to each saved image filename, e.g. 20260628T104615Z__photo.png. Useful for cataloguing images extracted out of the export. Only affects the images/ folder; off by default.'}
+        aria-label={t('settings.imageDate.tooltip', {}, lang) || 'Tooltip'}
+        role="note"
+      >ⓘ</span>
+    </div>
+    <div class="settings-subtitle">{t('settings.imageDate.hint', {}, lang) || 'Prefix saved image filenames with the share time (UTC), for sorting and cataloguing.'}</div>
+    <label class="pdf-toggle">
+      <input type="checkbox" checked={imageFilenameDate} on:change={onImageFilenameDateChange} />
+      <span>{t('settings.imageDate.enable', {}, lang) || 'Enable'}</span>
     </label>
   </div>
 

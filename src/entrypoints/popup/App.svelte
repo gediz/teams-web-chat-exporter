@@ -1290,6 +1290,7 @@
         downloadImages,
         downloadFiles,
         fullResImages,
+        imageFilenameDate,
         showHud,
         exportTarget,
       } = options;
@@ -1330,6 +1331,7 @@
             embedAvatars,
             downloadImages,
             downloadFiles,
+            imageFilenameDate,
             afterExport: options.afterExport,
             avatarMode: options.avatarMode,
             pdfPageSize: options.pdfPageSize,
@@ -1419,6 +1421,7 @@
           embedAvatars,
           downloadImages,
           downloadFiles,
+          imageFilenameDate,
           afterExport: options.afterExport,
           avatarMode: options.avatarMode,
           pdfPageSize: options.pdfPageSize,
@@ -1780,6 +1783,7 @@
         pdfIncludeAvatars={options.pdfIncludeAvatars}
         imageFetchFallback={options.imageFetchFallback}
         fullResImages={options.fullResImages}
+        imageFilenameDate={options.imageFilenameDate}
         on:back={() => (showSettings = false)}
         on:themeChange={(e) => updateOption("theme", e.detail)}
         on:langChange={(e) => updateOption("lang", e.detail)}
@@ -1791,6 +1795,7 @@
         on:pdfIncludeAvatarsChange={(e) => updateOption("pdfIncludeAvatars", e.detail)}
         on:imageFetchFallbackChange={(e) => updateOption("imageFetchFallback", e.detail)}
         on:fullResImagesChange={(e) => updateOption("fullResImages", e.detail)}
+        on:imageFilenameDateChange={(e) => updateOption("imageFilenameDate", e.detail)}
         on:replayTour={replayTour}
         on:openDiagnostics={() => { showSettings = false; showDiagnostics = true; }}
       />

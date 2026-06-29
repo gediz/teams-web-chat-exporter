@@ -293,5 +293,9 @@
   "settings.fullRes": "Imágenes en resolución completa",
   "settings.fullRes.hint": "Guardar imágenes con calidad original en lugar de la vista reducida. Archivos mucho más grandes.",
   "settings.fullRes.tooltip": "Guarda la imagen original en lugar de la vista reducida de Teams. Los archivos se vuelven mucho más grandes, especialmente el PDF, para el mismo tamaño en pantalla. Las imágenes demasiado grandes o no disponibles vuelven a la vista reducida, así que ninguna se omite.",
-  "settings.fullRes.enable": "Activar"
+  "settings.fullRes.enable": "Activar",
+  "settings.imageDate": "Fecha en los nombres de archivo de imagen",
+  "settings.imageDate.hint": "Añade la hora de compartición (UTC) a los nombres de las imágenes guardadas, para ordenar y catalogar.",
+  "settings.imageDate.tooltip": "Añade la hora de compartición del mensaje al nombre de cada imagen guardada, p. ej. 20260628T104615Z__photo.png. Útil para catalogar imágenes extraídas de la exportación. Solo afecta a la carpeta images/; desactivado por defecto.",
+  "settings.imageDate.enable": "Activar"
 }

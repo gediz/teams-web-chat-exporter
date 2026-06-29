@@ -967,6 +967,7 @@ function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
             meta: scrapeRes.meta || {},
             embedAvatars: Boolean(buildOptions.embedAvatars),
             downloadImages,
+            imageFilenameDate: Boolean(buildOptions.imageFilenameDate),
             ...pdfKnobs,
         };
         // 2+ formats -> always bundle.zip. The bundle path doesn't honor
@@ -1229,6 +1230,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                     formats,
                     embedAvatars,
                     downloadImages,
+                    imageFilenameDate: Boolean(buildOptions.imageFilenameDate),
                     avatarMode,
                     pdfPageSize: buildOptions.pdfPageSize,
                     pdfBodyFontSize: buildOptions.pdfBodyFontSize,

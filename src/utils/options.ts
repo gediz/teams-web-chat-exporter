@@ -59,6 +59,11 @@ export type Options = {
   // (opt-in); when on, the images/ folder holds true originals, at the cost of
   // much larger exports and slower PDF embedding.
   fullResImages: boolean;
+  // Opt-in: prepend each inline image's message share time (UTC, filesystem-safe)
+  // to its saved filename in the images/ folder, e.g.
+  // `20260628T104615Z__screenshot.png`. Off by default so existing `image-N.png`
+  // naming is unchanged. For cataloguing images extracted out of the export.
+  imageFilenameDate: boolean;
   // Opt-in: stream non-image file attachments (SharePoint documents like
   // PDF/DOCX/XLSX) to disk via chrome.downloads, into an `attachments/` folder
   // beside the export. Off by default. Inline images are handled separately by
@@ -199,6 +204,7 @@ export const DEFAULT_OPTIONS: Options = {
   embedAvatars: false,
   downloadImages: false,
   fullResImages: false,
+  imageFilenameDate: false,
   downloadFiles: false,
   showHud: false,
   theme: 'light',
@@ -283,6 +289,9 @@ const normalizeOptions = (raw: LegacyOptions, defaults: Options = DEFAULT_OPTION
   }
   if (typeof merged.fullResImages !== 'boolean') {
     merged.fullResImages = defaults.fullResImages;
+  }
+  if (typeof merged.imageFilenameDate !== 'boolean') {
+    merged.imageFilenameDate = defaults.imageFilenameDate;
   }
   if (typeof merged.downloadFiles !== 'boolean') {
     merged.downloadFiles = defaults.downloadFiles;

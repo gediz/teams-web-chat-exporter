@@ -215,6 +215,10 @@ export type BuildOptions = {
   saveAs?: boolean;
   embedAvatars?: boolean;
   downloadImages?: boolean;
+  // Prepend each saved inline image's message share time (UTC) to its
+  // images/ filename. Off by default; only affects the HTML/bundle image
+  // folder, for cataloguing images pulled out of the export.
+  imageFilenameDate?: boolean;
   // Stream non-image SharePoint document attachments to disk via
   // chrome.downloads (the "Files" toggle). Independent of the selected
   // formats; runs after the main export is saved.

@@ -293,5 +293,9 @@
   "settings.fullRes": "Obrazy w pełnej rozdzielczości",
   "settings.fullRes.hint": "Zapisuj obrazy w oryginalnej jakości zamiast pomniejszonego widoku. Znacznie większe pliki.",
   "settings.fullRes.tooltip": "Zapisuje oryginalny obraz zamiast pomniejszonego widoku Teams. Pliki stają się znacznie większe, zwłaszcza PDF, przy tym samym rozmiarze na ekranie. Zbyt duże lub niedostępne obrazy wracają do pomniejszonego widoku, więc żaden nie zostaje pominięty.",
-  "settings.fullRes.enable": "Włącz"
+  "settings.fullRes.enable": "Włącz",
+  "settings.imageDate": "Data w nazwach plików obrazów",
+  "settings.imageDate.hint": "Dodaje czas udostępnienia (UTC) do nazw zapisanych obrazów, na potrzeby sortowania i katalogowania.",
+  "settings.imageDate.tooltip": "Dodaje czas udostępnienia wiadomości do nazwy każdego zapisanego obrazu, np. 20260628T104615Z__photo.png. Przydatne do katalogowania obrazów wyodrębnionych z eksportu. Dotyczy tylko folderu images/; domyślnie wyłączone.",
+  "settings.imageDate.enable": "Włącz"
 }

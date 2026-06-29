@@ -293,5 +293,9 @@
   "settings.fullRes": "全分辨率图片",
   "settings.fullRes.hint": "保存原始质量的图片，而不是缩小后的视图。文件会大得多。",
   "settings.fullRes.tooltip": "保存原始图片，而不是 Teams 缩小后的视图。在屏幕显示尺寸相同的情况下，文件会大得多，尤其是 PDF。过大或无法获取的图片会回退到缩小视图，因此不会丢失任何图片。",
-  "settings.fullRes.enable": "启用"
+  "settings.fullRes.enable": "启用",
+  "settings.imageDate": "图片文件名中包含日期",
+  "settings.imageDate.hint": "在保存的图片文件名中加入分享时间（UTC），便于排序和归档。",
+  "settings.imageDate.tooltip": "为每个保存的图片文件名加入消息的分享时间，例如 20260628T104615Z__photo.png。便于归档从导出中提取的图片。仅影响 images/ 文件夹；默认关闭。",
+  "settings.imageDate.enable": "启用"
 }
