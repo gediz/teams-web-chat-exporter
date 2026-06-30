@@ -222,8 +222,11 @@ export const DEFAULT_OPTIONS: Options = {
   pdfIncludeAvatars: true,
   onboardingDismissed: false,
   imageFetchFallback: false,
-  diagLogPersist: false,
-  diagVerboseStats: false,
+  // Diagnostic logging defaults ON in dev builds only and OFF in production.
+  // import.meta.env.DEV is replaced at build time (true under `wxt dev`, false
+  // for `wxt build`/`wxt zip`), so the prod bundle ships these as plain `false`.
+  diagLogPersist: import.meta.env.DEV,
+  diagVerboseStats: import.meta.env.DEV,
 };
 
 const VALID_FORMATS: readonly OptionFormat[] = ['json', 'csv', 'html', 'txt', 'pdf'];
