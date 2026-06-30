@@ -581,13 +581,13 @@
 </script>
 
 <div class="diag-page">
-  <div class="diag-header">
+  <div class="settings-header">
     <button class="icon-btn" title={t('common.back', {}, lang)} on:click={() => dispatch('back')}>
       <ArrowLeft size={18} />
     </button>
     <h1>{t('diagnostics.title', {}, lang)}</h1>
-    <button class="icon-btn" title={t('common.refresh', {}, lang)} on:click={refresh} disabled={state === 'loading' || probesRunning}>
-      <RefreshCw size={16} class={state === 'loading' ? 'spin' : ''} />
+    <button class="icon-btn settings-header-right" title={t('common.refresh', {}, lang)} on:click={refresh} disabled={state === 'loading' || probesRunning}>
+      <RefreshCw size={18} class={state === 'loading' ? 'spin' : ''} />
     </button>
   </div>
 
@@ -800,23 +800,11 @@
 
 <style>
   .diag-page {
-    padding: 0 4px 12px;
+    padding: 0;
   }
-  .diag-header {
-    display: flex; align-items: center; gap: 8px;
-    padding: 12px 4px;
-    margin-bottom: 8px;
-  }
-  .diag-header h1 {
-    font-size: 16px; margin: 0; font-weight: 600;
-    flex: 1;
-  }
-  .icon-btn {
-    background: transparent; border: 0;
-    color: inherit; cursor: pointer; padding: 4px;
-    line-height: 0;
-  }
-  .icon-btn[disabled] { opacity: 0.5; cursor: default; }
+  /* Header and icon buttons reuse the shared .settings-header / .icon-btn
+     rules in popup.css, so this page matches Settings and History. Only the
+     refresh-spin animation is page-specific. */
   :global(.spin) {
     animation: tce-diag-spin 0.8s linear infinite;
   }
