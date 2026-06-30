@@ -71,14 +71,14 @@
     display: flex; align-items: center; justify-content: center;
     border: none;
     background: transparent;
-    color: var(--color-text-muted, #64748b);
+    color: var(--color-subtle);
     border-radius: 6px;
     cursor: pointer;
     transition: background 0.15s ease, color 0.15s ease;
   }
   .icon-btn:hover {
-    background: var(--color-accent-soft, #eff6ff);
-    color: var(--color-accent, #2563eb);
+    background: var(--color-accent-light);
+    color: var(--color-accent);
   }
   /* One-shot pulse — replays each time the parent bumps `pulseHistoryIcon`. */
   .icon-btn.pulse {
