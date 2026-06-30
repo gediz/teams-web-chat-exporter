@@ -20,7 +20,7 @@
   "include.reactions": "প্রতিক্রিয়া",
   "include.system": "সিস্টেম বার্তা",
   "include.avatars": "অবতার",
-  "include.images": "ইনলাইন ছবি (শুধু HTML)",
+  "include.images": "ছবি",
   "include.files": "ফাইল সংযুক্তি",
   "include.filesHint": "ডকুমেন্ট সংযুক্তি (PDF, DOCX, এবং অনুরূপ) আপনার ডাউনলোড ফোল্ডারে সংরক্ষণ করুন। প্রতিটি ফাইল আলাদাভাবে ডাউনলোড হয়।",
   "summary.replies": "উত্তর",

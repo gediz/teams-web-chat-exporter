@@ -20,7 +20,7 @@
   "include.reactions": "表情反应",
   "include.system": "系统消息",
   "include.avatars": "头像",
-  "include.images": "内嵌图片（仅 HTML）",
+  "include.images": "图片",
   "include.files": "文件附件",
   "include.filesHint": "将文档附件（PDF、DOCX 等）保存到下载文件夹。每个文件单独下载。",
   "summary.replies": "回复",

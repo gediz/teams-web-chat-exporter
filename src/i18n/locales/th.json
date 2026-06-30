@@ -20,7 +20,7 @@
   "include.reactions": "ปฏิกิริยา",
   "include.system": "ข้อความระบบ",
   "include.avatars": "อวาตาร์",
-  "include.images": "รูปภาพในบรรทัด (HTML เท่านั้น)",
+  "include.images": "รูปภาพ",
   "include.files": "ไฟล์แนบ",
   "include.filesHint": "บันทึกไฟล์เอกสารแนบ (PDF, DOCX และอื่นๆ ที่คล้ายกัน) ไปยังโฟลเดอร์ดาวน์โหลดของคุณ แต่ละไฟล์จะดาวน์โหลดแยกกัน",
   "summary.replies": "การตอบกลับ",

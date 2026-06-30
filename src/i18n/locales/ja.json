@@ -20,7 +20,7 @@
   "include.reactions": "リアクション",
   "include.system": "システムメッセージ",
   "include.avatars": "アバター",
-  "include.images": "インライン画像（HTMLのみ）",
+  "include.images": "画像",
   "include.files": "ファイル添付",
   "include.filesHint": "ドキュメントの添付ファイル（PDF、DOCX など）をダウンロードフォルダーに保存します。ファイルは1件ずつ個別にダウンロードされます。",
   "summary.replies": "返信",

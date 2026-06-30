@@ -20,7 +20,7 @@
   "include.reactions": "תגובות",
   "include.system": "הודעות מערכת",
   "include.avatars": "אווטרים",
-  "include.images": "תמונות מוטמעות (HTML בלבד)",
+  "include.images": "תמונות",
   "include.files": "קבצים מצורפים",
   "include.filesHint": "שמירת מסמכים מצורפים (PDF, DOCX וכדומה) בתיקיית ההורדות שלך. כל קובץ יורד בנפרד.",
   "summary.replies": "תגובות",

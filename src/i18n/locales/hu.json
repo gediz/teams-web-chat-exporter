@@ -20,7 +20,7 @@
   "include.reactions": "Reakciók",
   "include.system": "Rendszerüzenetek",
   "include.avatars": "Avatarok",
-  "include.images": "Beágyazott képek (csak HTML)",
+  "include.images": "Képek",
   "include.files": "Fájlmellékletek",
   "include.filesHint": "Dokumentummellékletek (PDF, DOCX és hasonlók) mentése a Letöltések mappába. Minden fájl külön töltődik le.",
   "summary.replies": "Válaszok",

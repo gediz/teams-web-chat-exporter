@@ -20,7 +20,7 @@
   "include.reactions": "प्रतिक्रियाएँ",
   "include.system": "सिस्टम संदेश",
   "include.avatars": "अवतार",
-  "include.images": "इनलाइन छवियाँ (केवल HTML)",
+  "include.images": "छवियाँ",
   "include.files": "फ़ाइल अटैचमेंट",
   "include.filesHint": "दस्तावेज़ अटैचमेंट (PDF, DOCX और इसी तरह की) आपके डाउनलोड फ़ोल्डर में सहेजें। हर फ़ाइल अलग-अलग डाउनलोड होती है।",
   "summary.replies": "उत्तर",

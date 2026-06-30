@@ -20,7 +20,7 @@
   "include.reactions": "Reações",
   "include.system": "Mensagens do sistema",
   "include.avatars": "Avatares",
-  "include.images": "Imagens embutidas (somente HTML)",
+  "include.images": "Imagens",
   "include.files": "Anexos de arquivo",
   "include.filesHint": "Salva os anexos de documentos (PDF, DOCX e similares) na sua pasta de downloads. Cada arquivo é baixado individualmente.",
   "summary.replies": "Respostas",

@@ -20,7 +20,7 @@
   "include.reactions": "Réactions",
   "include.system": "Messages système",
   "include.avatars": "Avatars",
-  "include.images": "Images intégrées (HTML uniquement)",
+  "include.images": "Images",
   "include.files": "Pièces jointes",
   "include.filesHint": "Enregistre les documents joints (PDF, DOCX et similaires) dans votre dossier Téléchargements. Chaque fichier est téléchargé séparément.",
   "summary.replies": "Réponses",

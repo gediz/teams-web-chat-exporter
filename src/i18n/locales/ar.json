@@ -20,7 +20,7 @@
   "include.reactions": "التفاعلات",
   "include.system": "رسائل النظام",
   "include.avatars": "الصور الرمزية",
-  "include.images": "صور مضمنة (HTML فقط)",
+  "include.images": "الصور",
   "include.files": "الملفات المرفقة",
   "include.filesHint": "حفظ المستندات المرفقة (PDF وDOCX وما شابهها) في مجلد التنزيلات. يُنزَّل كل ملف على حدة.",
   "summary.replies": "الردود",

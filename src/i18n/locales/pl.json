@@ -20,7 +20,7 @@
   "include.reactions": "Reakcje",
   "include.system": "Wiadomości systemowe",
   "include.avatars": "Awatary",
-  "include.images": "Obrazy w tekście (tylko HTML)",
+  "include.images": "Obrazy",
   "include.files": "Załączone pliki",
   "include.filesHint": "Zapisuje załączone dokumenty (PDF, DOCX i podobne) do folderu Pobrane. Każdy plik pobierany jest osobno.",
   "summary.replies": "Odpowiedzi",

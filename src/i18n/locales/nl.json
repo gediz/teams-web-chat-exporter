@@ -20,7 +20,7 @@
   "include.reactions": "Reacties",
   "include.system": "Systeemberichten",
   "include.avatars": "Avatars",
-  "include.images": "Inline-afbeeldingen (alleen HTML)",
+  "include.images": "Afbeeldingen",
   "include.files": "Bestandsbijlagen",
   "include.filesHint": "Documentbijlagen (PDF, DOCX en dergelijke) opslaan in je Downloads-map. Elk bestand wordt afzonderlijk gedownload.",
   "summary.replies": "Antwoorden",

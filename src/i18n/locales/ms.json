@@ -20,7 +20,7 @@
   "include.reactions": "Reaksi",
   "include.system": "Mesej sistem",
   "include.avatars": "Avatar",
-  "include.images": "Imej sebaris (HTML sahaja)",
+  "include.images": "Imej",
   "include.files": "Lampiran fail",
   "include.filesHint": "Simpan lampiran dokumen (PDF, DOCX dan seumpamanya) ke folder Muat Turun anda. Setiap fail dimuat turun satu per satu.",
   "summary.replies": "Balasan",

@@ -20,7 +20,7 @@
   "include.reactions": "반응",
   "include.system": "시스템 메시지",
   "include.avatars": "아바타",
-  "include.images": "인라인 이미지(HTML 전용)",
+  "include.images": "이미지",
   "include.files": "파일 첨부",
   "include.filesHint": "문서 첨부 파일(PDF, DOCX 등)을 다운로드 폴더에 저장합니다. 각 파일은 개별적으로 다운로드됩니다.",
   "summary.replies": "답글",

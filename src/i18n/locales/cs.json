@@ -20,7 +20,7 @@
   "include.reactions": "Reakce",
   "include.system": "Systémové zprávy",
   "include.avatars": "Avatary",
-  "include.images": "Vložené obrázky (pouze HTML)",
+  "include.images": "Obrázky",
   "include.files": "Přílohy souborů",
   "include.filesHint": "Uloží přiložené dokumenty (PDF, DOCX a podobné) do složky Stažené soubory. Každý soubor se stahuje samostatně.",
   "summary.replies": "Odpovědi",
