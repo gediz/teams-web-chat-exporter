@@ -64,6 +64,11 @@ export type Options = {
   // `20260628T104615Z__screenshot.png`. Off by default so existing `image-N.png`
   // naming is unchanged. For cataloguing images extracted out of the export.
   imageFilenameDate: boolean;
+  // Opt-in: set each saved inline image's ZIP-entry modified-date to its message
+  // share time, so the extracted file's "Date modified" reflects when it was
+  // shared. Off by default; independent of imageFilenameDate. Only affects the
+  // images/ folder. Whether the date survives is extractor-dependent (see zip.ts).
+  imageModifiedDate: boolean;
   // Opt-in: stream non-image file attachments (SharePoint documents like
   // PDF/DOCX/XLSX) to disk via chrome.downloads, into an `attachments/` folder
   // beside the export. Off by default. Inline images are handled separately by
@@ -205,6 +210,7 @@ export const DEFAULT_OPTIONS: Options = {
   downloadImages: false,
   fullResImages: false,
   imageFilenameDate: false,
+  imageModifiedDate: false,
   downloadFiles: false,
   showHud: false,
   theme: 'light',
@@ -292,6 +298,9 @@ const normalizeOptions = (raw: LegacyOptions, defaults: Options = DEFAULT_OPTION
   }
   if (typeof merged.imageFilenameDate !== 'boolean') {
     merged.imageFilenameDate = defaults.imageFilenameDate;
+  }
+  if (typeof merged.imageModifiedDate !== 'boolean') {
+    merged.imageModifiedDate = defaults.imageModifiedDate;
   }
   if (typeof merged.downloadFiles !== 'boolean') {
     merged.downloadFiles = defaults.downloadFiles;

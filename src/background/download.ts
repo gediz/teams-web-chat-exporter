@@ -13,7 +13,7 @@ type DownloadsApi = Pick<typeof chrome.downloads, 'download'>;
 
 type ImageMode = 'none' | 'data-url' | 'files';
 
-type InlineImage = { filename: string; dataUrl: string };
+type InlineImage = { filename: string; dataUrl: string; mtime?: Date };
 
 type BuiltExport = {
   baseFolder: string;
@@ -56,6 +56,8 @@ type BuildExportOptions = {
   downloadImages?: boolean;
   // Prepend each saved image's message share time to its images/ filename.
   imageFilenameDate?: boolean;
+  // Set each saved image's zip-entry modified-date to its message share time.
+  imageModifiedDate?: boolean;
   // Only read by the zip paths; single-file HTML always inlines avatars
   // because one loose .html file can't reference a sibling folder.
   avatarMode?: AvatarMode;
@@ -68,6 +70,7 @@ type BuildBundleOptions = {
   embedAvatars?: boolean;
   downloadImages?: boolean;
   imageFilenameDate?: boolean;
+  imageModifiedDate?: boolean;
   avatarMode?: AvatarMode;
 } & PdfKnobs;
 
@@ -215,7 +218,24 @@ function imageDateStamp(ts: string | undefined): string {
   return d.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z') + '__';
 }
 
-function applyInlineImages(messages: ExportMessage[], mode: ImageMode, withDate = false) {
+// Validated zip-entry modified-date for a saved image, from its message share
+// time. Returns a Date only when it is real AND in fflate's writable DOS range
+// (years 1980-2099); otherwise undefined, so the entry falls back to the export
+// time instead of throwing (fflate rejects 0 / out-of-range and silently writes
+// junk for an Invalid Date). Teams predates 1980 by decades, so real share times
+// always qualify; this just guards malformed/missing timestamps. fflate packs the
+// Date with LOCAL getters, so the user's local share wall-clock is written. See
+// ZipFile in zip.ts for the extractor-dependence caveat (Windows Explorer / cloud).
+function imageMtime(ts: string | undefined): Date | undefined {
+  if (!ts) return undefined;
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return undefined;
+  const y = d.getFullYear();
+  if (y < 1980 || y > 2099) return undefined;
+  return d;
+}
+
+function applyInlineImages(messages: ExportMessage[], mode: ImageMode, withDate = false, withMtime = false) {
   const inlineImages: InlineImage[] = [];
   if (mode === 'none') {
     return { messages: stripMessageDataUrls(messages), inlineImages };
@@ -250,7 +270,9 @@ function applyInlineImages(messages: ExportMessage[], mode: ImageMode, withDate 
       const baseName = (withDate ? imageDateStamp(ts) : '') + (sanitizeBase(labelBase || fallback) || fallback);
       filename = ensureUniqueName(`${baseName}.${ext}`, usedNames);
       dataToName.set(dataUrl, filename);
-      inlineImages.push({ filename: `images/${filename}`, dataUrl });
+      // mtime is first-seen too (computed only in this !filename branch), matching
+      // the dedup. undefined when off or the timestamp is unusable.
+      inlineImages.push({ filename: `images/${filename}`, dataUrl, mtime: withMtime ? imageMtime(ts) : undefined });
     }
     return { ...base, href: `images/${filename}` };
   };
@@ -292,7 +314,7 @@ function prepareMessages(messages: ExportMessage[], meta: ExportMeta, format: Bu
 }
 
 function buildExportInternal(options: BuildExportOptions, imageMode: ImageMode): BuiltExport {
-  const { messages = [], meta = {}, format = 'json', embedAvatars = false, imageFilenameDate = false } = options;
+  const { messages = [], meta = {}, format = 'json', embedAvatars = false, imageFilenameDate = false, imageModifiedDate = false } = options;
   const { processedMessages, enrichedMeta } = prepareMessages(messages, meta, format, embedAvatars);
 
   const rangeLabel = formatRangeLabel(meta.startAt, meta.endAt);
@@ -309,7 +331,7 @@ function buildExportInternal(options: BuildExportOptions, imageMode: ImageMode):
 
   if (format === 'html') {
     const mode: ImageMode = imageMode;
-    const applied = applyInlineImages(processedMessages, mode, imageFilenameDate);
+    const applied = applyInlineImages(processedMessages, mode, imageFilenameDate, imageModifiedDate);
     finalMessages = applied.messages;
     inlineImages = applied.inlineImages;
     filename = mode === 'files' ? 'index.html' : `${base}.html`;
@@ -355,7 +377,7 @@ export async function buildAndDownload(
   deps: BuildDownloadDeps,
   options: BuildExportOptions,
 ) {
-  const { messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false, downloadImages = false, imageFilenameDate = false } = options;
+  const { messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false, downloadImages = false, imageFilenameDate = false, imageModifiedDate = false } = options;
   const { downloads, onStatus, onArtifact } = deps;
 
   // PDF is fundamentally different from the text formats — it produces
@@ -394,7 +416,7 @@ export async function buildAndDownload(
       if (m.attachments) for (const a of m.attachments) { if (a.dataUrl) totalDataBytes += a.dataUrl.length; }
     }
     if (totalDataBytes > 5_000_000 || (downloadImages && messages.length > 500)) {
-      return buildAndDownloadZip(deps, { messages, meta, embedAvatars, downloadImages, imageFilenameDate });
+      return buildAndDownloadZip(deps, { messages, meta, embedAvatars, downloadImages, imageFilenameDate, imageModifiedDate });
     }
   }
 
@@ -405,7 +427,7 @@ export async function buildAndDownload(
   // with large embedded data, the stripe stays visible for the full build.
   onStatus?.({ phase: 'build', messages: messages.length });
   await Promise.resolve();
-  const built = buildExportInternal({ messages, meta, format, embedAvatars, downloadImages, imageFilenameDate }, mode);
+  const built = buildExportInternal({ messages, meta, format, embedAvatars, downloadImages, imageFilenameDate, imageModifiedDate }, mode);
   onStatus?.({ phase: 'build', filename: built.filename, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
 
   const blob = new Blob(Array.isArray(built.content) ? built.content : [built.content], { type: built.mime });
@@ -445,7 +467,7 @@ export async function buildAndDownload(
 
 export async function buildAndDownloadZip(
   deps: BuildDownloadDeps,
-  { messages = [], meta = {}, embedAvatars = false, downloadImages = false, imageFilenameDate = false, avatarMode = 'inline' }: BuildExportOptions,
+  { messages = [], meta = {}, embedAvatars = false, downloadImages = false, imageFilenameDate = false, imageModifiedDate = false, avatarMode = 'inline' }: BuildExportOptions,
 ) {
   const { downloads, onStatus, onArtifact } = deps;
   // Show segment 4 active before the synchronous build/zip work begins so the
@@ -460,14 +482,14 @@ export async function buildAndDownloadZip(
   const avatarCollect = embedAvatars && avatarMode === 'files' ? collectAvatarFiles(meta) : { files: [], meta };
 
   const built = buildExportInternal(
-    { messages, meta: avatarCollect.meta, format: 'html', embedAvatars, downloadImages, imageFilenameDate },
+    { messages, meta: avatarCollect.meta, format: 'html', embedAvatars, downloadImages, imageFilenameDate, imageModifiedDate },
     downloadImages ? 'files' : 'none',
   );
 
   onStatus?.({ phase: 'build', filename: `${built.baseFolder}.zip`, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
 
   const encoder = new TextEncoder();
-  const files: { path: string; data: Uint8Array }[] = [];
+  const files: { path: string; data: Uint8Array; mtime?: Date }[] = [];
 
   // Place avatar files first so they group together in the zip listing.
   for (const a of avatarCollect.files) {
@@ -497,6 +519,7 @@ export async function buildAndDownloadZip(
     files.push({
       path: `${built.baseFolder}/${img.filename}`,
       data: bytes,
+      mtime: img.mtime,
     });
   }
 
@@ -534,7 +557,7 @@ export async function buildAndDownloadBundle(
   deps: BuildDownloadDeps,
   options: BuildBundleOptions,
 ) {
-  const { messages = [], meta = {}, formats, embedAvatars = false, downloadImages = false, imageFilenameDate = false, avatarMode = 'inline' } = options;
+  const { messages = [], meta = {}, formats, embedAvatars = false, downloadImages = false, imageFilenameDate = false, imageModifiedDate = false, avatarMode = 'inline' } = options;
   const { downloads, onStatus, onArtifact } = deps;
   if (!formats.length) throw new Error('buildAndDownloadBundle: formats is empty');
 
@@ -562,7 +585,7 @@ export async function buildAndDownloadBundle(
   // URLs from the JSON payload (otherwise base64 blobs would inflate it).
   // PDF takes a separate async path below.
   const htmlImageMode: ImageMode = downloadImages ? 'files' : 'none';
-  const files: { path: string; data: Uint8Array }[] = [];
+  const files: { path: string; data: Uint8Array; mtime?: Date }[] = [];
   const imagePaths = new Set<string>();
   const encoder = new TextEncoder();
 
@@ -600,7 +623,7 @@ export async function buildAndDownloadBundle(
     // get the original inline-avatars meta (they don't read the flag,
     // but the JSON path emits the avatars map either way).
     const formatMeta = format === 'html' ? htmlMeta : meta;
-    const built = buildExportInternal({ messages, meta: formatMeta, format, embedAvatars, downloadImages, imageFilenameDate }, mode);
+    const built = buildExportInternal({ messages, meta: formatMeta, format, embedAvatars, downloadImages, imageFilenameDate, imageModifiedDate }, mode);
 
     // Always rename to <baseFolder>.<ext> rather than reusing built.filename:
     //   - HTML in 'files' mode produces 'index.html' (only meaningful when
@@ -628,7 +651,7 @@ export async function buildAndDownloadBundle(
       const bytes = dataUrlToBytes(img.dataUrl);
       if (!bytes) continue;
       imagePaths.add(path);
-      files.push({ path, data: bytes });
+      files.push({ path, data: bytes, mtime: img.mtime });
     }
   }
 
@@ -677,7 +700,7 @@ export async function buildAndDownloadBundle(
 // Generic filenames (`messages.*`) instead of the single-chat-export
 // `<baseFolder>.<ext>` pattern keep paths short inside the bundle and
 // match the v1.4 plan's example layout.
-type PerChatFile = { relativePath: string; data: Uint8Array };
+type PerChatFile = { relativePath: string; data: Uint8Array; mtime?: Date };
 
 export type BuildOneChatBundleOptions = {
   messages: ExportMessage[];
@@ -686,6 +709,7 @@ export type BuildOneChatBundleOptions = {
   embedAvatars: boolean;
   downloadImages: boolean;
   imageFilenameDate?: boolean;
+  imageModifiedDate?: boolean;
   avatarMode: AvatarMode;
   // Reported as the per-chat build advances; the caller wraps these to
   // bubble bundle context (chat N of M) up to the popup.
@@ -698,7 +722,7 @@ export type OneChatBundleResult = { files: PerChatFile[]; formatFailures: PerCha
 export async function buildOneChatForBundle(
   options: BuildOneChatBundleOptions,
 ): Promise<OneChatBundleResult> {
-  const { messages, meta, formats, embedAvatars, downloadImages, imageFilenameDate = false, avatarMode, onPdfProgress } = options;
+  const { messages, meta, formats, embedAvatars, downloadImages, imageFilenameDate = false, imageModifiedDate = false, avatarMode, onPdfProgress } = options;
   if (!formats.length) throw new Error('buildOneChatForBundle: formats is empty');
 
   const needAvatarsAsFiles = embedAvatars && formats.includes('html') && avatarMode === 'files';
@@ -750,7 +774,7 @@ export async function buildOneChatForBundle(
 
       const mode: ImageMode = format === 'html' ? htmlImageMode : 'none';
       const formatMeta = format === 'html' ? htmlMeta : meta;
-      const built = buildExportInternal({ messages, meta: formatMeta, format, embedAvatars, downloadImages, imageFilenameDate }, mode);
+      const built = buildExportInternal({ messages, meta: formatMeta, format, embedAvatars, downloadImages, imageFilenameDate, imageModifiedDate }, mode);
 
       const contentParts = Array.isArray(built.content) ? built.content : [built.content];
       const encodedParts = contentParts.map(part => encoder.encode(part));
@@ -769,7 +793,7 @@ export async function buildOneChatForBundle(
         const bytes = dataUrlToBytes(img.dataUrl);
         if (!bytes) continue;
         imagePaths.add(img.filename);
-        out.push({ relativePath: img.filename, data: bytes });
+        out.push({ relativePath: img.filename, data: bytes, mtime: img.mtime });
       }
     } catch (e: unknown) {
       // Per-format resilience: record this format's failure and keep building

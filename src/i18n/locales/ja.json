@@ -297,5 +297,9 @@
   "settings.imageDate": "画像ファイル名に日付を付与",
   "settings.imageDate.hint": "並べ替えや整理のため、保存する画像のファイル名に共有時刻（UTC）を付けます。",
   "settings.imageDate.tooltip": "保存する各画像のファイル名にメッセージの共有時刻を付けます（例: 20260628T104615Z__photo.png）。エクスポートから取り出した画像を日付で整理するのに便利です。images/ フォルダーのみに影響します。既定ではオフです。",
-  "settings.imageDate.enable": "有効にする"
+  "settings.imageDate.enable": "有効にする",
+  "settings.imageMtime": "保存画像の更新日時",
+  "settings.imageMtime.hint": "保存した画像の更新日時を共有時刻に設定します（ほとんどの解凍ツールが保持します）。",
+  "settings.imageMtime.tooltip": "保存する各画像の更新日時をメッセージの共有時刻に設定し、取り出した画像をファイルマネージャーで日付順に並べられるようにします。保持されるかは解凍ツール次第です。7-Zip、WinRAR、macOS、Linux は保持します。Windows Explorer の Extract All やクラウド・Android の解凍では保持されないことがあります。images フォルダーのみに影響します。既定ではオフです。",
+  "settings.imageMtime.enable": "有効にする"
 }

@@ -297,5 +297,9 @@
   "settings.imageDate": "Datum in afbeeldingsbestandsnamen",
   "settings.imageDate.hint": "Voegt de deeltijd (UTC) toe aan de namen van opgeslagen afbeeldingen, voor sorteren en catalogiseren.",
   "settings.imageDate.tooltip": "Voegt de deeltijd van het bericht toe aan de naam van elke opgeslagen afbeelding, bijv. 20260628T104615Z__photo.png. Handig voor het catalogiseren van uit de export gehaalde afbeeldingen. Heeft alleen invloed op de map images/; standaard uit.",
-  "settings.imageDate.enable": "Inschakelen"
+  "settings.imageDate.enable": "Inschakelen",
+  "settings.imageMtime": "Wijzigingsdatum van opgeslagen afbeeldingen",
+  "settings.imageMtime.hint": "Stelt de wijzigingsdatum van opgeslagen afbeeldingen in op hun deeltijd (behouden door de meeste uitpaktools).",
+  "settings.imageMtime.tooltip": "Stelt de wijzigingsdatum van elke opgeslagen afbeelding in op de deeltijd van het bericht, zodat uitgepakte afbeeldingen op datum sorteren in de bestandsbeheerder. Of het behouden blijft, hangt af van de uitpaktool: 7-Zip, WinRAR, macOS en Linux behouden het; Windows Explorer Extract All en cloud- of Android-tools mogelijk niet. Heeft alleen invloed op de map images; standaard uit.",
+  "settings.imageMtime.enable": "Inschakelen"
 }

@@ -297,5 +297,9 @@
   "settings.imageDate": "التاريخ في أسماء ملفات الصور",
   "settings.imageDate.hint": "إضافة وقت المشاركة (UTC) إلى أسماء ملفات الصور المحفوظة، للترتيب والفهرسة.",
   "settings.imageDate.tooltip": "يضيف وقت مشاركة الرسالة إلى اسم كل صورة محفوظة، مثل 20260628T104615Z__photo.png. مفيد لفهرسة الصور المستخرجة من التصدير. يؤثر على مجلد images/ فقط؛ معطّل افتراضيًا.",
-  "settings.imageDate.enable": "تفعيل"
+  "settings.imageDate.enable": "تفعيل",
+  "settings.imageMtime": "تاريخ التعديل على الصور المحفوظة",
+  "settings.imageMtime.hint": "تعيين تاريخ تعديل الصور المحفوظة إلى وقت مشاركتها (تحتفظ به معظم أدوات فك الضغط).",
+  "settings.imageMtime.tooltip": "يعيّن تاريخ تعديل كل صورة محفوظة إلى وقت مشاركة الرسالة، لترتيب الصور المستخرجة حسب التاريخ في مدير الملفات. بقاء التاريخ يعتمد على أداة فك الضغط: 7-Zip و WinRAR و macOS و Linux تحتفظ به؛ أما Windows Explorer Extract All وأدوات السحابة أو Android فقد لا تحتفظ به. يؤثر على مجلد images فقط؛ معطّل افتراضيًا.",
+  "settings.imageMtime.enable": "تفعيل"
 }

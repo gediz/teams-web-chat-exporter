@@ -297,5 +297,9 @@
   "settings.imageDate": "Dátum a képfájlnevekben",
   "settings.imageDate.hint": "A megosztás idejét (UTC) hozzáadja a mentett képfájlnevekhez, rendezéshez és katalogizáláshoz.",
   "settings.imageDate.tooltip": "Minden mentett képfájlnévhez hozzáadja az üzenet megosztási idejét, pl. 20260628T104615Z__photo.png. Hasznos az exportból kinyert képek katalogizálásához. Csak az images/ mappát érinti; alapból kikapcsolva.",
-  "settings.imageDate.enable": "Engedélyezés"
+  "settings.imageDate.enable": "Engedélyezés",
+  "settings.imageMtime": "Mentett képek módosítási dátuma",
+  "settings.imageMtime.hint": "A mentett képek módosítási dátumát a megosztás idejére állítja (a legtöbb kicsomagoló megőrzi).",
+  "settings.imageMtime.tooltip": "Minden mentett kép módosítási dátumát az üzenet megosztási idejére állítja, hogy a kicsomagolt képek dátum szerint rendeződjenek a fájlkezelőben. Hogy megmarad-e, a kicsomagolótól függ: a 7-Zip, WinRAR, macOS és Linux megőrzi; a Windows Explorer Extract All és a felhő- vagy Android-kicsomagolók esetleg nem. Csak az images mappát érinti; alapból kikapcsolva.",
+  "settings.imageMtime.enable": "Engedélyezés"
 }

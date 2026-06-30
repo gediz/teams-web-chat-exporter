@@ -297,5 +297,9 @@
   "settings.imageDate": "이미지 파일 이름에 날짜 포함",
   "settings.imageDate.hint": "정렬과 분류를 위해 저장되는 이미지 파일 이름에 공유 시각(UTC)을 추가합니다.",
   "settings.imageDate.tooltip": "저장되는 각 이미지 파일 이름에 메시지 공유 시각을 추가합니다(예: 20260628T104615Z__photo.png). 내보내기에서 추출한 이미지를 날짜로 분류할 때 유용합니다. images/ 폴더에만 적용되며 기본값은 꺼짐입니다.",
-  "settings.imageDate.enable": "사용"
+  "settings.imageDate.enable": "사용",
+  "settings.imageMtime": "저장된 이미지의 수정한 날짜",
+  "settings.imageMtime.hint": "저장된 이미지의 수정한 날짜를 공유 시각으로 설정합니다(대부분의 압축 해제 도구가 유지함).",
+  "settings.imageMtime.tooltip": "저장되는 각 이미지의 수정한 날짜를 메시지 공유 시각으로 설정하여, 추출한 이미지를 파일 관리자에서 날짜순으로 정렬할 수 있게 합니다. 유지 여부는 압축 해제 도구에 따라 다릅니다. 7-Zip, WinRAR, macOS, Linux는 유지하지만 Windows 탐색기 Extract All과 클라우드·Android 도구는 유지하지 않을 수 있습니다. images 폴더에만 적용되며 기본값은 꺼짐입니다.",
+  "settings.imageMtime.enable": "사용"
 }

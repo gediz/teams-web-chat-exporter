@@ -297,5 +297,9 @@
   "settings.imageDate": "Datum v názvech souborů obrázků",
   "settings.imageDate.hint": "Přidá k názvům uložených obrázků čas sdílení (UTC) pro řazení a katalogizaci.",
   "settings.imageDate.tooltip": "Přidá k názvu každého uloženého obrázku čas sdílení zprávy, např. 20260628T104615Z__photo.png. Užitečné pro katalogizaci obrázků vytažených z exportu. Týká se pouze složky images/; ve výchozím nastavení vypnuto.",
-  "settings.imageDate.enable": "Povolit"
+  "settings.imageDate.enable": "Povolit",
+  "settings.imageMtime": "Datum úpravy uložených obrázků",
+  "settings.imageMtime.hint": "Nastaví datum úpravy uložených obrázků na čas jejich sdílení (zachová většina nástrojů pro rozbalení).",
+  "settings.imageMtime.tooltip": "Nastaví datum úpravy každého uloženého obrázku na čas sdílení zprávy, aby se rozbalené obrázky řadily podle data ve správci souborů. Zda se zachová, závisí na nástroji pro rozbalení: 7-Zip, WinRAR, macOS a Linux je zachovají; Windows Explorer Extract All a cloudové nebo Android nástroje nemusí. Týká se pouze složky images; ve výchozím nastavení vypnuto.",
+  "settings.imageMtime.enable": "Povolit"
 }

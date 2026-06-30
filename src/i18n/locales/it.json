@@ -297,5 +297,9 @@
   "settings.imageDate": "Data nei nomi dei file immagine",
   "settings.imageDate.hint": "Aggiunge l'ora di condivisione (UTC) ai nomi delle immagini salvate, per l'ordinamento e la catalogazione.",
   "settings.imageDate.tooltip": "Aggiunge l'ora di condivisione del messaggio al nome di ogni immagine salvata, ad es. 20260628T104615Z__photo.png. Utile per catalogare le immagini estratte dall'esportazione. Riguarda solo la cartella images/; disattivato per impostazione predefinita.",
-  "settings.imageDate.enable": "Attiva"
+  "settings.imageDate.enable": "Attiva",
+  "settings.imageMtime": "Data di modifica delle immagini salvate",
+  "settings.imageMtime.hint": "Imposta la data di modifica delle immagini salvate sull'ora di condivisione (mantenuta dalla maggior parte dei programmi di estrazione).",
+  "settings.imageMtime.tooltip": "Imposta la data di modifica di ogni immagine salvata sull'ora di condivisione del messaggio, così le immagini estratte si ordinano per data nel gestore file. Che venga mantenuta dipende dal programma di estrazione: 7-Zip, WinRAR, macOS e Linux la mantengono; Windows Explorer Extract All e gli estrattori cloud o Android potrebbero non farlo. Riguarda solo la cartella images; disattivato per impostazione predefinita.",
+  "settings.imageMtime.enable": "Attiva"
 }

@@ -968,6 +968,7 @@ function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
             embedAvatars: Boolean(buildOptions.embedAvatars),
             downloadImages,
             imageFilenameDate: Boolean(buildOptions.imageFilenameDate),
+            imageModifiedDate: Boolean(buildOptions.imageModifiedDate),
             ...pdfKnobs,
         };
         // 2+ formats -> always bundle.zip. The bundle path doesn't honor
@@ -1231,6 +1232,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                     embedAvatars,
                     downloadImages,
                     imageFilenameDate: Boolean(buildOptions.imageFilenameDate),
+                    imageModifiedDate: Boolean(buildOptions.imageModifiedDate),
                     avatarMode,
                     pdfPageSize: buildOptions.pdfPageSize,
                     pdfBodyFontSize: buildOptions.pdfBodyFontSize,
@@ -1279,7 +1281,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                     bundleZip = bundleZip ?? createZipStream('zip-outer-bundle');
                     try {
                         for (const f of files) {
-                            await bundleZip.add(`${folderName}/${f.relativePath}`, f.data);
+                            await bundleZip.add(`${folderName}/${f.relativePath}`, f.data, f.mtime);
                         }
                     } catch (zipErr) {
                         // A zip-stream error poisons the archive — fatal for the

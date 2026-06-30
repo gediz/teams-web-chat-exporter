@@ -297,5 +297,9 @@
   "settings.imageDate": "Date in image filenames",
   "settings.imageDate.hint": "Prefix saved image filenames with the share time (UTC), for sorting and cataloguing.",
   "settings.imageDate.tooltip": "Add the message share time to each saved image filename, e.g. 20260628T104615Z__photo.png. Useful for cataloguing images extracted out of the export. Only affects the images/ folder; off by default.",
-  "settings.imageDate.enable": "Enable"
+  "settings.imageDate.enable": "Enable",
+  "settings.imageMtime": "Date modified on saved images",
+  "settings.imageMtime.hint": "Set the modified date of saved images to their share time (kept by most unzip tools).",
+  "settings.imageMtime.tooltip": "Set each saved image's modified date to its message share time, so extracted images sort by date in your file manager. Whether it survives depends on the unzip tool: 7-Zip, WinRAR, macOS, and Linux keep it; Windows Explorer Extract All and cloud or Android extractors may not. Only affects the images folder; off by default.",
+  "settings.imageMtime.enable": "Enable"
 }

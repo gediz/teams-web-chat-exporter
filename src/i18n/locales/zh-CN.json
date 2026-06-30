@@ -297,5 +297,9 @@
   "settings.imageDate": "图片文件名中包含日期",
   "settings.imageDate.hint": "在保存的图片文件名中加入分享时间（UTC），便于排序和归档。",
   "settings.imageDate.tooltip": "为每个保存的图片文件名加入消息的分享时间，例如 20260628T104615Z__photo.png。便于归档从导出中提取的图片。仅影响 images/ 文件夹；默认关闭。",
-  "settings.imageDate.enable": "启用"
+  "settings.imageDate.enable": "启用",
+  "settings.imageMtime": "已保存图片的修改日期",
+  "settings.imageMtime.hint": "将已保存图片的修改日期设为分享时间（多数解压工具会保留）。",
+  "settings.imageMtime.tooltip": "将每个已保存图片的修改日期设为消息的分享时间，使解压后的图片在文件管理器中按日期排序。能否保留取决于解压工具：7-Zip、WinRAR、macOS 和 Linux 会保留；Windows 资源管理器的 Extract All 以及云端或 Android 工具可能不会。仅影响 images 文件夹；默认关闭。",
+  "settings.imageMtime.enable": "启用"
 }

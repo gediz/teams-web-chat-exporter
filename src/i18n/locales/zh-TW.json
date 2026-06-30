@@ -297,5 +297,9 @@
   "settings.imageDate": "圖片檔名中包含日期",
   "settings.imageDate.hint": "在儲存的圖片檔名中加入分享時間（UTC），便於排序與編目。",
   "settings.imageDate.tooltip": "為每個儲存的圖片檔名加入訊息的分享時間，例如 20260628T104615Z__photo.png。便於編目從匯出中擷取的圖片。僅影響 images/ 資料夾；預設關閉。",
-  "settings.imageDate.enable": "啟用"
+  "settings.imageDate.enable": "啟用",
+  "settings.imageMtime": "已儲存圖片的修改日期",
+  "settings.imageMtime.hint": "將已儲存圖片的修改日期設為分享時間（多數解壓縮工具會保留）。",
+  "settings.imageMtime.tooltip": "將每個已儲存圖片的修改日期設為訊息的分享時間，使解壓縮後的圖片在檔案管理員中依日期排序。能否保留取決於解壓縮工具：7-Zip、WinRAR、macOS 與 Linux 會保留；Windows 檔案總管的 Extract All 以及雲端或 Android 工具可能不會。僅影響 images 資料夾；預設關閉。",
+  "settings.imageMtime.enable": "啟用"
 }

@@ -1,6 +1,14 @@
 import { Zip, ZipPassThrough, deflateSync } from 'fflate';
 
-type ZipFile = { path: string; data: Uint8Array };
+// `mtime` (optional) sets the entry's archived modified-date. fflate packs it
+// into the DOS date field using LOCAL getters, so a Date is written as the user's
+// local wall-clock. NOTE: whether the extracted file actually keeps this date is
+// EXTRACTOR-DEPENDENT — Info-ZIP unzip / 7-Zip / WinRAR / macOS / Linux honor it,
+// but Windows File Explorer "Extract All" re-stamps Mark-of-the-Web downloads to
+// extraction time, and cloud/Android extractors drop it. The Date must be in
+// fflate's DOS range (year 1980-2099) and valid, or fflate throws / writes junk;
+// callers pass only validated dates.
+type ZipFile = { path: string; data: Uint8Array; mtime?: Date };
 
 // CRC-32 (fflate doesn't export one). Used to stamp pre-deflated entries.
 const CRC_T = (() => {
@@ -29,11 +37,15 @@ class PreDeflatedEntry {
   compression = 8;
   crc: number;
   size: number;
+  // fflate reads `mtime` off the entry object generically (at zip.add time), so
+  // declaring it here is enough for the DOS date to be written — no other plumbing.
+  mtime?: Date;
   ondata!: (err: unknown, dat: Uint8Array, final: boolean) => void;
-  constructor(filename: string, crc: number, size: number) {
+  constructor(filename: string, crc: number, size: number, mtime?: Date) {
     this.filename = filename;
     this.crc = crc;
     this.size = size;
+    this.mtime = mtime;
   }
   push(data: Uint8Array, final: boolean) { this.ondata(null, data, final); }
 }
@@ -59,14 +71,16 @@ class PreDeflatedEntry {
 // stays stored.)
 const ALREADY_COMPRESSED_RE = /\.(zip|pdf|jpe?g|png|gif|webp|mp[34]|webm|gz|7z|rar|bz2|xz)$/i;
 
-function addEntry(zip: Zip, path: string, data: Uint8Array): void {
+function addEntry(zip: Zip, path: string, data: Uint8Array, mtime?: Date): void {
+  // mtime must be set BEFORE zip.add() — fflate writes the local header there.
   if (ALREADY_COMPRESSED_RE.test(path)) {
     const item = new ZipPassThrough(path);
+    if (mtime) item.mtime = mtime;
     zip.add(item);
     item.push(data, true);
   } else {
     const compressed = deflateSync(data, { level: 6 });   // one-shot; working mem freed on return
-    const item = new PreDeflatedEntry(path, crc32(data), data.length) as unknown as ZipPassThrough;
+    const item = new PreDeflatedEntry(path, crc32(data), data.length, mtime) as unknown as ZipPassThrough;
     zip.add(item);
     item.push(compressed, true);
   }
@@ -108,7 +122,7 @@ export function buildZipAsync(files: ZipFile[], label = 'zip'): Promise<Blob> {
   console.log(`[${label}] start: files=${files.length} inputBytes=${totalInputBytes}`);
   const stream = createZipStream(label);
   return (async () => {
-    for (const file of files) await stream.add(file.path, file.data);
+    for (const file of files) await stream.add(file.path, file.data, file.mtime);
     return stream.finish();
   })();
 }
@@ -131,8 +145,9 @@ export function buildZipAsync(files: ZipFile[], label = 'zip'): Promise<Blob> {
 // finish(): ~the compressed output + ~1x the uncompressed TEXT, roughly half the
 // old peak and far less for media-heavy exports — but not zero.
 export interface ZipStream {
-  /** Compress + append one file. Yields to the event loop first (popup tick). */
-  add(path: string, data: Uint8Array): Promise<void>;
+  /** Compress + append one file. Yields to the event loop first (popup tick).
+   *  Optional `mtime` sets the entry's archived modified-date (see ZipFile). */
+  add(path: string, data: Uint8Array, mtime?: Date): Promise<void>;
   /** Close the archive and resolve the final multi-source Blob. */
   finish(): Promise<Blob>;
 }
@@ -166,13 +181,13 @@ export function createZipStream(label = 'zip'): ZipStream {
   });
 
   return {
-    async add(path: string, data: Uint8Array): Promise<void> {
+    async add(path: string, data: Uint8Array, mtime?: Date): Promise<void> {
       if (zipError) throw zipError;
       // Yield BEFORE compressing so the popup mount / message handlers get a
       // tick. Per-file compression (deflateSync) is still synchronous.
       await new Promise<void>(r => setTimeout(r, 0));
       if (zipError) throw zipError;
-      addEntry(zip, path.replace(/\\/g, '/'), data);
+      addEntry(zip, path.replace(/\\/g, '/'), data, mtime);
       fileCount += 1;
       inputBytes += data.byteLength;
       if (fileCount % 50 === 0) {

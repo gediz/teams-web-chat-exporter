@@ -297,5 +297,9 @@
   "settings.imageDate": "Fecha en los nombres de archivo de imagen",
   "settings.imageDate.hint": "Añade la hora de compartición (UTC) a los nombres de las imágenes guardadas, para ordenar y catalogar.",
   "settings.imageDate.tooltip": "Añade la hora de compartición del mensaje al nombre de cada imagen guardada, p. ej. 20260628T104615Z__photo.png. Útil para catalogar imágenes extraídas de la exportación. Solo afecta a la carpeta images/; desactivado por defecto.",
-  "settings.imageDate.enable": "Activar"
+  "settings.imageDate.enable": "Activar",
+  "settings.imageMtime": "Fecha de modificación de las imágenes guardadas",
+  "settings.imageMtime.hint": "Establece la fecha de modificación de las imágenes guardadas a su hora de compartición (la conservan la mayoría de los descompresores).",
+  "settings.imageMtime.tooltip": "Establece la fecha de modificación de cada imagen guardada a la hora de compartición del mensaje, para que las imágenes extraídas se ordenen por fecha en el explorador de archivos. Que se conserve depende del descompresor: 7-Zip, WinRAR, macOS y Linux la conservan; Windows Explorer Extract All y los descompresores en la nube o Android puede que no. Solo afecta a la carpeta images; desactivado por defecto.",
+  "settings.imageMtime.enable": "Activar"
 }

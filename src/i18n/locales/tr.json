@@ -297,5 +297,9 @@
   "settings.imageDate": "Görsel dosya adlarında tarih",
   "settings.imageDate.hint": "Sıralama ve kataloglama için kaydedilen görsel dosya adlarına paylaşım saatini (UTC) ekler.",
   "settings.imageDate.tooltip": "Kaydedilen her görsel dosya adına iletinin paylaşım saatini ekler, ör. 20260628T104615Z__photo.png. Dışa aktarmadan çıkarılan görselleri kataloglamak için kullanışlıdır. Yalnızca images/ klasörünü etkiler; varsayılan olarak kapalıdır.",
-  "settings.imageDate.enable": "Etkinleştir"
+  "settings.imageDate.enable": "Etkinleştir",
+  "settings.imageMtime": "Kaydedilen görsellerde değiştirilme tarihi",
+  "settings.imageMtime.hint": "Kaydedilen görsellerin değiştirilme tarihini paylaşım saatine ayarlar (çoğu arşiv açma aracı korur).",
+  "settings.imageMtime.tooltip": "Kaydedilen her görselin değiştirilme tarihini iletinin paylaşım saatine ayarlar, böylece çıkarılan görseller dosya yöneticisinde tarihe göre sıralanır. Korunup korunmaması arşiv açma aracına bağlıdır: 7-Zip, WinRAR, macOS ve Linux korur; Windows Explorer Extract All ile bulut veya Android araçları korumayabilir. Yalnızca images klasörünü etkiler; varsayılan olarak kapalıdır.",
+  "settings.imageMtime.enable": "Etkinleştir"
 }

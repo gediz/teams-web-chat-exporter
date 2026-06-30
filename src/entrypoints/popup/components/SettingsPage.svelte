@@ -52,6 +52,7 @@
   export let imageFetchFallback = false;
   export let fullResImages = false;
   export let imageFilenameDate = false;
+  export let imageModifiedDate = false;
 
   const dispatch = createEventDispatcher<{
     back: void;
@@ -66,6 +67,7 @@
     imageFetchFallbackChange: boolean;
     fullResImagesChange: boolean;
     imageFilenameDateChange: boolean;
+    imageModifiedDateChange: boolean;
     replayTour: void;
     openDiagnostics: void;
   }>();
@@ -105,6 +107,10 @@
 
   function onImageFilenameDateChange(e: Event) {
     dispatch('imageFilenameDateChange', (e.target as HTMLInputElement).checked);
+  }
+
+  function onImageModifiedDateChange(e: Event) {
+    dispatch('imageModifiedDateChange', (e.target as HTMLInputElement).checked);
   }
 
   function onPdfIncludeAvatarsChange(e: Event) {
@@ -359,6 +365,24 @@
     <label class="pdf-toggle">
       <input type="checkbox" checked={imageFilenameDate} on:change={onImageFilenameDateChange} />
       <span>{t('settings.imageDate.enable', {}, lang) || 'Enable'}</span>
+    </label>
+  </div>
+
+  <div class="card settings-card">
+    <div class="card-header">
+      <span class="card-icon"><Image size={16} /></span>
+      <span class="card-title">{t('settings.imageMtime', {}, lang) || 'Date modified on saved images'}</span>
+      <span
+        class="card-info"
+        title={t('settings.imageMtime.tooltip', {}, lang) || 'Set each saved image\'s modified date to its message share time, so extracted images sort by date in your file manager. Whether it survives depends on the unzip tool: 7-Zip, WinRAR, macOS, and Linux keep it; Windows Explorer Extract All and cloud or Android extractors may not. Only affects the images folder; off by default.'}
+        aria-label={t('settings.imageMtime.tooltip', {}, lang) || 'Tooltip'}
+        role="note"
+      >ⓘ</span>
+    </div>
+    <div class="settings-subtitle">{t('settings.imageMtime.hint', {}, lang) || 'Set the modified date of saved images to their share time (kept by most unzip tools).'}</div>
+    <label class="pdf-toggle">
+      <input type="checkbox" checked={imageModifiedDate} on:change={onImageModifiedDateChange} />
+      <span>{t('settings.imageMtime.enable', {}, lang) || 'Enable'}</span>
     </label>
   </div>
 

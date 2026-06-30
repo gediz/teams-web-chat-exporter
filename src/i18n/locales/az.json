@@ -297,5 +297,9 @@
   "settings.imageDate": "Şəkil fayl adlarında tarix",
   "settings.imageDate.hint": "Çeşidləmə və kataloqlaşdırma üçün saxlanan şəkil fayl adlarına paylaşma vaxtını (UTC) əlavə edin.",
   "settings.imageDate.tooltip": "Hər saxlanan şəkil fayl adına mesajın paylaşma vaxtını əlavə edir, məsələn 20260628T104615Z__photo.png. İxracdan çıxarılan şəkilləri kataloqlaşdırmaq üçün faydalıdır. Yalnız images/ qovluğuna təsir edir; standart olaraq sönülüdür.",
-  "settings.imageDate.enable": "Aktiv et"
+  "settings.imageDate.enable": "Aktiv et",
+  "settings.imageMtime": "Saxlanan şəkillərdə dəyişdirilmə tarixi",
+  "settings.imageMtime.hint": "Saxlanan şəkillərin dəyişdirilmə tarixini paylaşma vaxtına təyin edin (əksər arxiv açma alətləri saxlayır).",
+  "settings.imageMtime.tooltip": "Hər saxlanan şəklin dəyişdirilmə tarixini mesajın paylaşma vaxtına təyin edir ki, çıxarılan şəkillər fayl menecerində tarixə görə sıralansın. Qalıb-qalmaması arxiv açma alətindən asılıdır: 7-Zip, WinRAR, macOS və Linux saxlayır; Windows Explorer Extract All, bulud və ya Android alətləri saxlamaya bilər. Yalnız images qovluğuna təsir edir; standart olaraq sönülüdür.",
+  "settings.imageMtime.enable": "Aktiv et"
 }

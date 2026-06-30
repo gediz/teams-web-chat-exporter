@@ -297,5 +297,9 @@
   "settings.imageDate": "תאריך בשמות קובצי התמונות",
   "settings.imageDate.hint": "הוספת זמן השיתוף (UTC) לשמות התמונות השמורות, למיון ולקיטלוג.",
   "settings.imageDate.tooltip": "מוסיף את זמן שיתוף ההודעה לשם של כל תמונה שמורה, למשל 20260628T104615Z__photo.png. שימושי לקיטלוג תמונות שחולצו מהייצוא. משפיע רק על התיקייה images/; כבוי כברירת מחדל.",
-  "settings.imageDate.enable": "הפעל"
+  "settings.imageDate.enable": "הפעל",
+  "settings.imageMtime": "תאריך שינוי בתמונות השמורות",
+  "settings.imageMtime.hint": "מגדיר את תאריך השינוי של התמונות השמורות לזמן השיתוף שלהן (נשמר ברוב כלי החילוץ).",
+  "settings.imageMtime.tooltip": "מגדיר את תאריך השינוי של כל תמונה שמורה לזמן שיתוף ההודעה, כדי שהתמונות שחולצו ימוינו לפי תאריך במנהל הקבצים. אם זה נשמר תלוי בכלי החילוץ: 7-Zip, WinRAR, macOS ו-Linux שומרים; Windows Explorer Extract All וכלי ענן או Android עשויים לא לשמור. משפיע רק על התיקייה images; כבוי כברירת מחדל.",
+  "settings.imageMtime.enable": "הפעל"
 }

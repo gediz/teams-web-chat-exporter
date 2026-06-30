@@ -297,5 +297,9 @@
   "settings.imageDate": "Datum in Bilddateinamen",
   "settings.imageDate.hint": "Fügt den gespeicherten Bilddateinamen die Freigabezeit (UTC) hinzu, zum Sortieren und Katalogisieren.",
   "settings.imageDate.tooltip": "Fügt jedem gespeicherten Bilddateinamen die Freigabezeit der Nachricht hinzu, z. B. 20260628T104615Z__photo.png. Nützlich zum Katalogisieren von aus dem Export extrahierten Bildern. Betrifft nur den Ordner images/; standardmäßig aus.",
-  "settings.imageDate.enable": "Aktivieren"
+  "settings.imageDate.enable": "Aktivieren",
+  "settings.imageMtime": "Änderungsdatum gespeicherter Bilder",
+  "settings.imageMtime.hint": "Setzt das Änderungsdatum gespeicherter Bilder auf ihre Freigabezeit (von den meisten Entpackern beibehalten).",
+  "settings.imageMtime.tooltip": "Setzt das Änderungsdatum jedes gespeicherten Bildes auf die Freigabezeit der Nachricht, damit entpackte Bilder im Dateimanager nach Datum sortieren. Ob es erhalten bleibt, hängt vom Entpacker ab: 7-Zip, WinRAR, macOS und Linux behalten es; Windows Explorer Extract All sowie Cloud- oder Android-Entpacker möglicherweise nicht. Betrifft nur den Ordner images; standardmäßig aus.",
+  "settings.imageMtime.enable": "Aktivieren"
 }

@@ -297,5 +297,9 @@
   "settings.imageDate": "Tarikh dalam nama fail imej",
   "settings.imageDate.hint": "Tambah masa kongsi (UTC) pada nama fail imej yang disimpan, untuk pengisihan dan pengkatalogan.",
   "settings.imageDate.tooltip": "Menambah masa kongsi mesej pada nama setiap fail imej yang disimpan, cth. 20260628T104615Z__photo.png. Berguna untuk mengkatalogkan imej yang diekstrak daripada eksport. Hanya menjejaskan folder images/; dimatikan secara lalai.",
-  "settings.imageDate.enable": "Aktifkan"
+  "settings.imageDate.enable": "Aktifkan",
+  "settings.imageMtime": "Tarikh diubah suai pada imej tersimpan",
+  "settings.imageMtime.hint": "Tetapkan tarikh ubah suai imej tersimpan kepada masa kongsi (dikekalkan oleh kebanyakan alat nyahzip).",
+  "settings.imageMtime.tooltip": "Menetapkan tarikh ubah suai setiap imej tersimpan kepada masa kongsi mesej, supaya imej yang diekstrak diisih mengikut tarikh dalam pengurus fail. Sama ada ia kekal bergantung pada alat nyahzip: 7-Zip, WinRAR, macOS dan Linux mengekalkannya; Windows Explorer Extract All serta alat awan atau Android mungkin tidak. Hanya menjejaskan folder images; dimatikan secara lalai.",
+  "settings.imageMtime.enable": "Aktifkan"
 }

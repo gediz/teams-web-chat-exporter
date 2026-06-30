@@ -297,5 +297,9 @@
   "settings.imageDate": "Data nos nomes de arquivo de imagem",
   "settings.imageDate.hint": "Adiciona a hora de compartilhamento (UTC) aos nomes das imagens salvas, para ordenar e catalogar.",
   "settings.imageDate.tooltip": "Adiciona a hora de compartilhamento da mensagem ao nome de cada imagem salva, por ex. 20260628T104615Z__photo.png. Útil para catalogar imagens extraídas da exportação. Afeta apenas a pasta images/; desativado por padrão.",
-  "settings.imageDate.enable": "Ativar"
+  "settings.imageDate.enable": "Ativar",
+  "settings.imageMtime": "Data de modificação das imagens salvas",
+  "settings.imageMtime.hint": "Define a data de modificação das imagens salvas para a hora de compartilhamento (mantida pela maioria dos extratores).",
+  "settings.imageMtime.tooltip": "Define a data de modificação de cada imagem salva para a hora de compartilhamento da mensagem, para que as imagens extraídas sejam ordenadas por data no gerenciador de arquivos. Se será mantida depende do extrator: 7-Zip, WinRAR, macOS e Linux mantêm; Windows Explorer Extract All e extratores na nuvem ou Android podem não manter. Afeta apenas a pasta images; desativado por padrão.",
+  "settings.imageMtime.enable": "Ativar"
 }

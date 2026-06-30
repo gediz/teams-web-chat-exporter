@@ -297,5 +297,9 @@
   "settings.imageDate": "Data w nazwach plików obrazów",
   "settings.imageDate.hint": "Dodaje czas udostępnienia (UTC) do nazw zapisanych obrazów, na potrzeby sortowania i katalogowania.",
   "settings.imageDate.tooltip": "Dodaje czas udostępnienia wiadomości do nazwy każdego zapisanego obrazu, np. 20260628T104615Z__photo.png. Przydatne do katalogowania obrazów wyodrębnionych z eksportu. Dotyczy tylko folderu images/; domyślnie wyłączone.",
-  "settings.imageDate.enable": "Włącz"
+  "settings.imageDate.enable": "Włącz",
+  "settings.imageMtime": "Data modyfikacji zapisanych obrazów",
+  "settings.imageMtime.hint": "Ustawia datę modyfikacji zapisanych obrazów na czas ich udostępnienia (zachowywaną przez większość narzędzi do rozpakowywania).",
+  "settings.imageMtime.tooltip": "Ustawia datę modyfikacji każdego zapisanego obrazu na czas udostępnienia wiadomości, aby rozpakowane obrazy sortowały się według daty w menedżerze plików. To, czy zostanie zachowana, zależy od narzędzia do rozpakowywania: 7-Zip, WinRAR, macOS i Linux ją zachowują; Windows Explorer Extract All oraz narzędzia w chmurze lub Android mogą nie zachować. Dotyczy tylko folderu images; domyślnie wyłączone.",
+  "settings.imageMtime.enable": "Włącz"
 }
