@@ -16,6 +16,7 @@
   --color-accent-hover: #1d4ed8;
   --color-accent-light: rgba(37, 99, 235, 0.1);
   --color-danger: #dc2626;
+  --color-warn: #b45309;
   --radius-lg: 12px;
   --radius-md: 10px;
   --gap: 12px;
@@ -33,6 +34,7 @@ body[data-theme='dark'] {
   --color-accent-hover: #3b82f6;
   --color-accent-light: rgba(96, 165, 250, 0.15);
   --color-danger: #f87171;
+  --color-warn: #fbbf24;
 }
 
 * {

@@ -812,7 +812,7 @@
     to { transform: rotate(360deg); }
   }
   .subtitle {
-    color: var(--muted, #6b7280);
+    color: var(--color-subtle);
     font-size: 12px;
     margin: 0 4px 12px;
     line-height: 1.4;
@@ -820,16 +820,16 @@
   .status {
     padding: 14px;
     text-align: center;
-    color: var(--muted, #6b7280);
+    color: var(--color-subtle);
     font-size: 13px;
   }
-  .status.err { color: #b91c1c; }
+  .status.err { color: var(--color-danger); }
   .section-title {
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--muted, #6b7280);
+    color: var(--color-subtle);
     margin: 14px 6px 6px;
   }
   .section-title-with-action {
@@ -839,7 +839,7 @@
   }
   .section-action {
     font-size: 12px;
-    color: var(--accent, #3b82f6);
+    color: var(--color-accent);
     background: transparent;
     border: 0;
     padding: 0;
@@ -848,12 +848,12 @@
     letter-spacing: 0;
   }
   .section-action[disabled] {
-    color: var(--muted, #6b7280);
+    color: var(--color-subtle);
     cursor: default;
   }
   .probes-empty {
     font-size: 12px;
-    color: var(--muted, #6b7280);
+    color: var(--color-subtle);
     padding: 4px 6px;
   }
   .probe-row {
@@ -881,21 +881,21 @@
     color: inherit;
   }
   .probe-detail {
-    color: var(--muted, #6b7280);
+    color: var(--color-subtle);
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     font-size: 11px;
     text-align: right;
   }
   .probe-ms {
-    color: var(--muted, #6b7280);
+    color: var(--color-subtle);
     font-size: 11px;
     flex: 0 0 auto;
     min-width: 50px;
     text-align: right;
   }
   .card {
-    background: var(--card-bg, #ffffff);
-    border: 1px solid var(--card-border, #e5e7eb);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
     border-radius: 10px;
     box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     margin: 0 4px 12px;
@@ -904,12 +904,12 @@
   .stack .row {
     display: flex; gap: 10px;
     padding: 8px 12px;
-    border-bottom: 1px solid var(--card-border, #e5e7eb);
+    border-bottom: 1px solid var(--color-border);
     font-size: 13px;
   }
   .stack .row:last-child { border-bottom: 0; }
   .stack .label {
-    color: var(--muted, #6b7280);
+    color: var(--color-subtle);
     font-size: 12px;
     min-width: 100px;
   }
@@ -919,7 +919,7 @@
     font-size: 12px;
     word-break: break-all;
   }
-  .stack .row.warn .val { color: #b45309; }
+  .stack .row.warn .val { color: var(--color-warn); }
   .actions {
     display: flex; align-items: center; gap: 8px;
     padding: 0 4px;
@@ -930,13 +930,13 @@
   .raw-toggle {
     display: inline-flex; align-items: center; gap: 6px;
     font-size: 12px;
-    color: var(--muted, #6b7280);
+    color: var(--color-subtle);
     cursor: pointer;
   }
   .btn {
-    background: var(--card-bg, #ffffff);
+    background: var(--color-surface);
     color: inherit;
-    border: 1px solid var(--card-border, #e5e7eb);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
     padding: 6px 12px;
     cursor: pointer;
@@ -945,13 +945,13 @@
   }
   .btn:hover { filter: brightness(1.05); }
   .btn.primary {
-    background: var(--accent, #3b82f6);
+    background: var(--color-accent);
     color: white;
-    border-color: var(--accent, #3b82f6);
+    border-color: var(--color-accent);
   }
   .preview {
-    background: var(--code-bg, #f3f4f6);
-    border: 1px solid var(--card-border, #e5e7eb);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
     border-radius: 8px;
     margin: 6px 4px 10px;
     padding: 10px;
@@ -965,13 +965,13 @@
   }
   .footer-note {
     font-size: 11px;
-    color: var(--muted, #6b7280);
+    color: var(--color-subtle);
     margin: 10px 4px 0;
     line-height: 1.4;
   }
   .inline-error {
     font-size: 12px;
-    color: #b91c1c;
+    color: var(--color-danger);
     margin: 4px 4px 8px;
     line-height: 1.4;
   }
@@ -985,7 +985,7 @@
   .persist-label { font-weight: 500; }
   .persist-hint {
     font-size: 12px;
-    color: var(--muted, #6b7280);
+    color: var(--color-subtle);
     line-height: 1.4;
   }
   .persist-storage {
@@ -996,7 +996,7 @@
   .storage-label {
     flex: 1;
     font-size: 12px;
-    color: var(--muted, #6b7280);
+    color: var(--color-subtle);
   }
   .btn-small {
     padding: 4px 8px;
