@@ -1,6 +1,9 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { ArrowLeft, Sun, Moon, Globe, FolderOpen, CircleUserRound, Printer, Info, ExternalLink, Bug, Star, GraduationCap, Image, Stethoscope } from 'lucide-svelte';
+  import {
+    ArrowLeft, Palette, Download, Image, FileText,
+    LifeBuoy, Info, ChevronRight, ExternalLink, Stethoscope, Search,
+  } from 'lucide-svelte';
   import { t } from '../../../i18n/i18n';
   import { getReviewStoreUrl } from '../../../utils/store-urls';
 
@@ -16,9 +19,9 @@
   // whether the inline one-liner ever fires for them.
   const REVIEW_STORE_URL = getReviewStoreUrl();
 
-  // Version shown in the About card. Falls back to an empty string if
+  // Version shown in the version footer. Falls back to an empty string if
   // chrome.runtime isn't available (e.g. unit-test harness), so the
-  // header still renders cleanly.
+  // footer still renders cleanly.
   const extensionVersion = (() => {
     try { return chrome?.runtime?.getManifest?.()?.version || ''; }
     catch { return ''; }
@@ -87,14 +90,16 @@
     dispatch('pdfPageSizeChange', value);
   }
 
-  function onPdfBodyFontSizeChange(e: Event) {
-    const raw = Number((e.target as HTMLInputElement).value);
-    // Clamp on the way out so a user typing "999" doesn't propagate a
-    // crazy value to the builder. The input's min/max attrs handle
-    // most cases, but typing past them or pasting doesn't trigger them.
-    if (!Number.isFinite(raw)) return;
-    const clamped = Math.max(PDF_FONT_MIN, Math.min(PDF_FONT_MAX, Math.round(raw)));
-    dispatch('pdfBodyFontSizeChange', clamped);
+  // Body font size is a −/+ stepper. Step by 1 pt and clamp to
+  // [MIN, MAX]; the buttons also disable at the bounds so the value can
+  // never leave range. Kept as a stepper (not a free-type field) so
+  // there's no invalid intermediate state to sanitise.
+  function stepFontSize(delta: number) {
+    const next = Math.max(
+      PDF_FONT_MIN,
+      Math.min(PDF_FONT_MAX, Math.round(pdfBodyFontSize) + delta),
+    );
+    if (next !== pdfBodyFontSize) dispatch('pdfBodyFontSizeChange', next);
   }
 
   function onPdfShowPageNumbersChange(e: Event) {
@@ -168,344 +173,771 @@
       imageFetchFallbackBusy = false;
     }
   }
+
+  // Language picker is a drill-in sub-page rather than an inline grid:
+  // 24 languages as pills doubled the settings height and pushed every
+  // other card down. The drill-in keeps the main list stable and gives
+  // the language list room + a search box. 'view' swaps the whole page
+  // body; the header morphs to a Language header with its own back arrow.
+  let view: 'main' | 'lang' = 'main';
+  let langQuery = '';
+
+  // Current language's native name, shown as the value on the Language
+  // row. Falls back to the label then the raw code so the row always
+  // shows something even if `languages` is empty (unit-test harness).
+  $: currentLangNative =
+    languages.find((l) => l.value === lang)?.native ??
+    languages.find((l) => l.value === lang)?.label ??
+    lang;
+
+  $: filteredLanguages = (() => {
+    const q = langQuery.trim().toLowerCase();
+    if (!q) return languages;
+    return languages.filter(
+      (l) =>
+        l.native.toLowerCase().includes(q) ||
+        l.label.toLowerCase().includes(q) ||
+        l.code.toLowerCase().includes(q) ||
+        l.value.toLowerCase().includes(q),
+    );
+  })();
+
+  function openLang() {
+    langQuery = '';
+    view = 'lang';
+  }
+  function closeLang() {
+    view = 'main';
+    langQuery = '';
+  }
+  function pickLanguage(value: string) {
+    dispatch('langChange', value);
+    closeLang();
+  }
 </script>
 
 <div class="settings-page">
-  <div class="settings-header">
-    <button class="icon-btn" title={t('common.back', {}, lang)} on:click={() => dispatch('back')}>
-      <ArrowLeft size={18} />
-    </button>
-    <h1>{t('settings.title', {}, lang)}</h1>
-    <!-- Stethoscope at the right edge mirrors the main popup's
-         right-side icon idiom (history + gear). Diagnostics is a
-         tool, not a setting, so it sits in the chrome of the page
-         rather than as a card or a link in the body. -->
-    <button
-      class="icon-btn settings-header-right"
-      title={t('settings.diagnostics.link', {}, lang)}
-      aria-label={t('settings.diagnostics.link', {}, lang)}
-      on:click={() => dispatch('openDiagnostics')}
-    >
-      <Stethoscope size={18} />
-    </button>
-  </div>
-
-  <!-- Theme Card -->
-  <div class="card settings-card">
-    <div class="card-header">
-      <span class="card-icon">
-        {#if theme === 'dark'}<Moon size={16} />{:else}<Sun size={16} />{/if}
-      </span>
-      <span class="card-title">{t('settings.theme', {}, lang)}</span>
-    </div>
-    <div class="theme-toggle">
-      <button
-        class="theme-option"
-        class:active={theme === 'light'}
-        on:click={() => dispatch('themeChange', 'light')}
-      >
-        <Sun size={16} /> {t('settings.theme.light', {}, lang)}
+  {#if view === 'lang'}
+    <!-- Language drill-in sub-page -->
+    <div class="settings-header">
+      <button class="icon-btn" title={t('common.back', {}, lang)} on:click={closeLang}>
+        <ArrowLeft size={18} />
       </button>
-      <button
-        class="theme-option"
-        class:active={theme === 'dark'}
-        on:click={() => dispatch('themeChange', 'dark')}
-      >
-        <Moon size={16} /> {t('settings.theme.dark', {}, lang)}
-      </button>
+      <h1>{t('lang.label', {}, lang)}</h1>
     </div>
-  </div>
 
-  <!-- After export card -->
-  <div class="card settings-card">
-    <div class="card-header">
-      <span class="card-icon"><FolderOpen size={16} /></span>
-      <span class="card-title">{t('settings.afterExport', {}, lang) || 'After export'}</span>
-    </div>
-    <div class="settings-subtitle">{t('settings.afterExport.hint', {}, lang) || 'What happens once the file is saved.'}</div>
-    <select
-      class="after-export-select"
-      value={afterExport}
-      on:change={onAfterExportChange}
-    >
-      <option value="manual">{t('settings.afterExport.manual', {}, lang) || 'Let me decide'}</option>
-      <option value="show">{t('settings.afterExport.show', {}, lang) || 'Show in folder automatically'}</option>
-    </select>
-  </div>
-
-  <!-- Avatar mode card. The select is disabled when embedAvatars is
-       off — pick 'inline' or 'files' only means something when avatars
-       are actually being saved. The subtitle also swaps to a hint
-       pointing at the Include section so the user knows how to enable it. -->
-  <div class="card settings-card" class:disabled-card={!embedAvatars}>
-    <div class="card-header">
-      <span class="card-icon"><CircleUserRound size={16} /></span>
-      <span class="card-title">{t('settings.avatarMode', {}, lang) || 'Avatars in HTML'}</span>
-    </div>
-    <div class="settings-subtitle">
-      {#if embedAvatars}
-        {t('settings.avatarMode.hint', {}, lang) || 'How avatar images are packaged in HTML exports.'}
-      {:else}
-        {t('settings.avatarMode.disabledHint', {}, lang) || 'Enable "Embed avatars" in the main page to choose how they are packaged.'}
-      {/if}
-    </div>
-    <select
-      class="after-export-select"
-      value={avatarMode}
-      disabled={!embedAvatars}
-      on:change={onAvatarModeChange}
-    >
-      <option value="inline">{t('settings.avatarMode.inline', {}, lang) || 'Embed in HTML file (larger single file)'}</option>
-      <option value="files">{t('settings.avatarMode.files', {}, lang) || 'Save as separate files (requires .zip)'}</option>
-    </select>
-  </div>
-
-  <!-- PDF export card -->
-  <div class="card settings-card">
-    <div class="card-header">
-      <span class="card-icon"><Printer size={16} /></span>
-      <span class="card-title">{t('settings.pdf', {}, lang) || 'PDF export'}</span>
-    </div>
-    <div class="settings-subtitle">{t('settings.pdf.hint', {}, lang) || 'Layout preferences applied when exporting as PDF.'}</div>
-
-    <!-- Page size -->
-    <label class="pdf-row">
-      <span class="pdf-row-label">{t('settings.pdf.pageSize', {}, lang) || 'Page size'}</span>
-      <select
-        class="after-export-select"
-        value={pdfPageSize}
-        on:change={onPdfPageSizeChange}
-      >
-        <option value="a4">{t('settings.pdf.pageSize.a4', {}, lang) || 'A4'}</option>
-        <option value="letter">{t('settings.pdf.pageSize.letter', {}, lang) || 'US Letter'}</option>
-      </select>
-    </label>
-
-    <!-- Body font size — numeric input 8–16 pt -->
-    <label class="pdf-row">
-      <span class="pdf-row-label">{t('settings.pdf.fontSize', {}, lang) || 'Body font size (pt)'}</span>
+    <div class="lang-search">
+      <Search size={15} />
+      <!-- svelte-ignore a11y-autofocus -->
       <input
-        class="pdf-num"
-        type="number"
-        min={PDF_FONT_MIN}
-        max={PDF_FONT_MAX}
-        step="1"
-        value={pdfBodyFontSize}
-        on:change={onPdfBodyFontSizeChange}
+        type="text"
+        bind:value={langQuery}
+        placeholder={t('common.search', {}, lang)}
+        aria-label={t('common.search', {}, lang)}
       />
-    </label>
-    <div class="pdf-hint">{t('settings.pdf.fontSize.hint', {}, lang) || 'Typical 10. Compact 9. Large 12.'}</div>
-
-    <!-- Page numbers -->
-    <label class="pdf-toggle">
-      <input type="checkbox" checked={pdfShowPageNumbers} on:change={onPdfShowPageNumbersChange} />
-      <span>{t('settings.pdf.pageNumbers', {}, lang) || 'Show page numbers'}</span>
-    </label>
-
-    <!-- Avatars in PDF -->
-    <label class="pdf-toggle">
-      <input type="checkbox" checked={pdfIncludeAvatars} on:change={onPdfIncludeAvatarsChange} />
-      <span>{t('settings.pdf.avatars', {}, lang) || 'Include avatars in PDF'}</span>
-    </label>
-  </div>
-
-  <!-- Image fetch fallback card. Off by default. Flipping ON triggers
-       a runtime permission prompt for <all_urls>; copy is intentionally
-       restrained about the broad permission so users opting in are
-       making an informed choice. Tooltip on the ⓘ explains the
-       use case + the permission cost. -->
-  <div class="card settings-card">
-    <div class="card-header">
-      <span class="card-icon"><Image size={16} /></span>
-      <span class="card-title">{t('settings.imageFallback', {}, lang) || 'Image fetch fallback'}</span>
-      <span
-        class="card-info"
-        title={t('settings.imageFallback.tooltip', {}, lang) || 'Sometimes Teams\' image proxy fails to load external images (link previews, repo cards, article thumbnails). When enabled, the extension falls back to fetching them directly from the source. Requires permission to access all websites.'}
-        aria-label={t('settings.imageFallback.tooltip', {}, lang) || 'Tooltip'}
-        role="note"
-      >ⓘ</span>
     </div>
-    <div class="settings-subtitle">{t('settings.imageFallback.hint', {}, lang) || 'Try to get images directly when Teams\' proxy fails.'}</div>
-    <label class="pdf-toggle">
-      <input type="checkbox" checked={imageFetchFallback} on:click={onImageFetchFallbackClick} />
-      <span>{t('settings.imageFallback.enable', {}, lang) || 'Enable'}</span>
-    </label>
-  </div>
 
-  <div class="card settings-card">
-    <div class="card-header">
-      <span class="card-icon"><Image size={16} /></span>
-      <span class="card-title">{t('settings.fullRes', {}, lang) || 'Full-resolution images'}</span>
-      <span
-        class="card-info"
-        title={t('settings.fullRes.tooltip', {}, lang) || 'Save the original image instead of Teams\' downscaled view. Files get much larger, especially PDF, for the same on-screen size. Images that are too large or unavailable fall back to the downscaled view, so none are dropped.'}
-        aria-label={t('settings.fullRes.tooltip', {}, lang) || 'Tooltip'}
-        role="note"
-      >ⓘ</span>
+    <section class="ac">
+      <div class="group">
+        {#each filteredLanguages as language (language.value)}
+          <button
+            class="srow rowlink lang-item"
+            class:cur={lang === language.value}
+            aria-current={lang === language.value ? 'true' : undefined}
+            on:click={() => pickLanguage(language.value)}
+          >
+            <span class="txt">
+              <span class="label">{language.native}</span>
+              <span class="sub">{language.label}</span>
+            </span>
+            {#if lang === language.value}<span class="chk" aria-hidden="true">✓</span>{/if}
+          </button>
+        {:else}
+          <div class="lang-empty">—</div>
+        {/each}
+      </div>
+    </section>
+  {:else}
+    <div class="settings-header">
+      <button class="icon-btn" title={t('common.back', {}, lang)} on:click={() => dispatch('back')}>
+        <ArrowLeft size={18} />
+      </button>
+      <h1>{t('settings.title', {}, lang)}</h1>
+      <!-- Stethoscope at the right edge mirrors the main popup's
+           right-side icon idiom (history + gear). Diagnostics is a
+           tool, not a setting, so it sits in the chrome of the page
+           rather than as a card or a link in the body. -->
+      <button
+        class="icon-btn settings-header-right"
+        title={t('settings.diagnostics.link', {}, lang)}
+        aria-label={t('settings.diagnostics.link', {}, lang)}
+        on:click={() => dispatch('openDiagnostics')}
+      >
+        <Stethoscope size={18} />
+      </button>
     </div>
-    <div class="settings-subtitle">{t('settings.fullRes.hint', {}, lang) || 'Save original-quality images instead of the downscaled view. Much larger files.'}</div>
-    <label class="pdf-toggle">
-      <input type="checkbox" checked={fullResImages} on:change={onFullResImagesChange} />
-      <span>{t('settings.fullRes.enable', {}, lang) || 'Enable'}</span>
-    </label>
-  </div>
 
-  <div class="card settings-card">
-    <div class="card-header">
-      <span class="card-icon"><Image size={16} /></span>
-      <span class="card-title">{t('settings.imageDate', {}, lang) || 'Date in image filenames'}</span>
-      <span
-        class="card-info"
-        title={t('settings.imageDate.tooltip', {}, lang) || 'Add the message share time to each saved image filename, e.g. 20260628T104615Z__photo.png. Useful for cataloguing images extracted out of the export. Only affects the images/ folder; off by default.'}
-        aria-label={t('settings.imageDate.tooltip', {}, lang) || 'Tooltip'}
-        role="note"
-      >ⓘ</span>
-    </div>
-    <div class="settings-subtitle">{t('settings.imageDate.hint', {}, lang) || 'Prefix saved image filenames with the share time (UTC), for sorting and cataloguing.'}</div>
-    <label class="pdf-toggle">
-      <input type="checkbox" checked={imageFilenameDate} on:change={onImageFilenameDateChange} />
-      <span>{t('settings.imageDate.enable', {}, lang) || 'Enable'}</span>
-    </label>
-  </div>
-
-  <div class="card settings-card">
-    <div class="card-header">
-      <span class="card-icon"><Image size={16} /></span>
-      <span class="card-title">{t('settings.imageMtime', {}, lang) || 'Date modified on saved images'}</span>
-      <span
-        class="card-info"
-        title={t('settings.imageMtime.tooltip', {}, lang) || 'Set each saved image\'s modified date to its message share time, so extracted images sort by date in your file manager. Whether it survives depends on the unzip tool: 7-Zip, WinRAR, macOS, and Linux keep it; Windows Explorer Extract All and cloud or Android extractors may not. Only affects the images folder; off by default.'}
-        aria-label={t('settings.imageMtime.tooltip', {}, lang) || 'Tooltip'}
-        role="note"
-      >ⓘ</span>
-    </div>
-    <div class="settings-subtitle">{t('settings.imageMtime.hint', {}, lang) || 'Set the modified date of saved images to their share time (kept by most unzip tools).'}</div>
-    <label class="pdf-toggle">
-      <input type="checkbox" checked={imageModifiedDate} on:change={onImageModifiedDateChange} />
-      <span>{t('settings.imageMtime.enable', {}, lang) || 'Enable'}</span>
-    </label>
-  </div>
-
-  <!-- Language Card -->
-  <div class="card settings-card">
-    <div class="card-header">
-      <span class="card-icon"><Globe size={16} /></span>
-      <span class="card-title">{t('lang.label', {}, lang)}</span>
-    </div>
-    <div class="settings-subtitle">{t('lang.subtitle', {}, lang)}</div>
-    <div class="lang-grid">
-      {#each languages as language}
-        <button
-          class="lang-pill"
-          class:active={lang === language.value}
-          on:click={() => dispatch('langChange', language.value)}
-          title={language.label}
-        >
-          <span class="lang-code">{language.code}</span>
-          <span class="lang-native">{language.native}</span>
+    <!-- Appearance: theme + language -->
+    <section class="ac">
+      <div class="ah"><Palette size={14} /> {t('settings.grp.appearance', {}, lang)}</div>
+      <div class="group">
+        <div class="srow">
+          <span class="txt"><span class="label">{t('settings.theme', {}, lang)}</span></span>
+          <span class="seg">
+            <button
+              class="seg-btn"
+              class:sel={theme === 'light'}
+              on:click={() => dispatch('themeChange', 'light')}
+            >
+              {t('settings.theme.light', {}, lang)}
+            </button>
+            <button
+              class="seg-btn"
+              class:sel={theme === 'dark'}
+              on:click={() => dispatch('themeChange', 'dark')}
+            >
+              {t('settings.theme.dark', {}, lang)}
+            </button>
+          </span>
+        </div>
+        <button class="srow rowlink" on:click={openLang}>
+          <span class="txt"><span class="label">{t('lang.label', {}, lang)}</span></span>
+          <span class="val">{currentLangNative}</span>
+          <span class="chev"><ChevronRight size={16} /></span>
         </button>
-      {/each}
-    </div>
-  </div>
+      </div>
+    </section>
 
-  <!-- Replay tour card. Lives just before About so it's near the
-       version / help affordances; users tend to look for "show help
-       again" near "About". The button just dispatches; App.svelte
-       closes the settings page and shows the overlay (it deliberately
-       leaves onboardingDismissed=true since the user already saw the
-       tour once — replay is a manual reopen, not a re-onboarding). -->
-  <div class="card settings-card">
-    <div class="card-header">
-      <span class="card-icon"><GraduationCap size={16} /></span>
-      <span class="card-title">{t('settings.replayTour', {}, lang) || 'Replay tour'}</span>
-    </div>
-    <div class="settings-subtitle">{t('settings.replayTour.hint', {}, lang) || 'Walk through the introduction tour again.'}</div>
-    <button
-      type="button"
-      class="replay-tour-btn"
-      on:click={() => dispatch('replayTour')}
-    >
-      <GraduationCap size={14} />
-      {t('settings.replayTour.btn', {}, lang) || 'Replay tour'}
-    </button>
-  </div>
+    <!-- Export: after-export behaviour + HTML avatar packaging.
+         Both use long option labels, so they stack (label above a
+         full-width select) rather than sitting flush-right. -->
+    <section class="ac">
+      <div class="ah"><Download size={14} /> {t('settings.grp.export', {}, lang)}</div>
+      <div class="group">
+        <div class="srow stacked">
+          <span class="txt">
+            <span class="label">{t('settings.afterExport', {}, lang)}</span>
+            <span class="sub">{t('settings.afterExport.hint', {}, lang)}</span>
+          </span>
+          <select class="field" value={afterExport} on:change={onAfterExportChange}>
+            <option value="manual">{t('settings.afterExport.manual', {}, lang)}</option>
+            <option value="show">{t('settings.afterExport.show', {}, lang)}</option>
+          </select>
+        </div>
 
-  <!-- About Card. Links open in a new tab via target=_blank so the
-       popup doesn't close under the user. rel=noopener keeps the new
-       tab's window.opener null — standard hygiene for external links. -->
-  <div class="card settings-card about-card">
-    <div class="card-header">
-      <span class="card-icon"><Info size={16} /></span>
-      <span class="card-title">{t('settings.about', {}, lang) || 'About'}</span>
+        <!-- Avatar mode dims + disables when embedAvatars is off — the
+             inline/files choice is meaningless when no avatars are saved.
+             The sub-line swaps to a hint pointing back to the main page. -->
+        <div class="srow stacked" class:is-disabled={!embedAvatars}>
+          <span class="txt">
+            <span class="label">{t('settings.avatarMode', {}, lang)}</span>
+            <span class="sub">
+              {#if embedAvatars}
+                {t('settings.avatarMode.hint', {}, lang)}
+              {:else}
+                {t('settings.avatarMode.disabledHint', {}, lang)}
+              {/if}
+            </span>
+          </span>
+          <select
+            class="field"
+            value={avatarMode}
+            disabled={!embedAvatars}
+            on:change={onAvatarModeChange}
+          >
+            <option value="inline">{t('settings.avatarMode.inline', {}, lang)}</option>
+            <option value="files">{t('settings.avatarMode.files', {}, lang)}</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- Images: four toggles consolidated into one section. Each row shows
+         a short hint as the sub-line and a visible ⓘ next to the label; the
+         ⓘ carries the full detail via title (hover) and aria-label (focus /
+         screen reader). The ⓘ is a <button> so tabbing reaches it and its
+         accessible name is read.
+
+         Each label carries an explicit for=/id= to its checkbox: <button>
+         is itself a labelable element, so without for= the wrapping label
+         would associate with the ⓘ (first labelable descendant) instead of
+         the checkbox and the row would stop toggling. for= pins the label
+         to the checkbox; clicking the ⓘ (interactive content) is still
+         suppressed, and stopPropagation is belt-and-suspenders. -->
+    <section class="ac">
+      <div class="ah"><Image size={14} /> {t('settings.grp.images', {}, lang)}</div>
+      <div class="group">
+        <label class="srow toggle" for="opt-full-res">
+          <span class="txt">
+            <span class="label-row">
+              <span class="label">{t('settings.fullRes', {}, lang)}</span>
+              <button
+                type="button"
+                class="info-btn"
+                title={t('settings.fullRes.tooltip', {}, lang)}
+                aria-label={t('settings.fullRes.tooltip', {}, lang)}
+                on:click|stopPropagation|preventDefault={() => {}}
+              >ⓘ</button>
+            </span>
+            <span class="sub">{t('settings.fullRes.hint', {}, lang)}</span>
+          </span>
+          <span class="switch">
+            <input id="opt-full-res" type="checkbox" checked={fullResImages} on:change={onFullResImagesChange} />
+            <span class="track"></span>
+          </span>
+        </label>
+
+        <!-- Image fetch fallback: on:click (not on:change) drives the
+             permission-gated two-phase flow. Do not switch to on:change. -->
+        <label class="srow toggle" for="opt-img-fallback">
+          <span class="txt">
+            <span class="label-row">
+              <span class="label">{t('settings.imageFallback', {}, lang)}</span>
+              <button
+                type="button"
+                class="info-btn"
+                title={t('settings.imageFallback.tooltip', {}, lang)}
+                aria-label={t('settings.imageFallback.tooltip', {}, lang)}
+                on:click|stopPropagation|preventDefault={() => {}}
+              >ⓘ</button>
+            </span>
+            <span class="sub">{t('settings.imageFallback.hint', {}, lang)}</span>
+          </span>
+          <span class="switch">
+            <input id="opt-img-fallback" type="checkbox" checked={imageFetchFallback} on:click={onImageFetchFallbackClick} />
+            <span class="track"></span>
+          </span>
+        </label>
+
+        <label class="srow toggle" for="opt-img-date">
+          <span class="txt">
+            <span class="label-row">
+              <span class="label">{t('settings.imageDate', {}, lang)}</span>
+              <button
+                type="button"
+                class="info-btn"
+                title={t('settings.imageDate.tooltip', {}, lang)}
+                aria-label={t('settings.imageDate.tooltip', {}, lang)}
+                on:click|stopPropagation|preventDefault={() => {}}
+              >ⓘ</button>
+            </span>
+            <span class="sub">{t('settings.imageDate.hint', {}, lang)}</span>
+          </span>
+          <span class="switch">
+            <input id="opt-img-date" type="checkbox" checked={imageFilenameDate} on:change={onImageFilenameDateChange} />
+            <span class="track"></span>
+          </span>
+        </label>
+
+        <label class="srow toggle" for="opt-img-mtime">
+          <span class="txt">
+            <span class="label-row">
+              <span class="label">{t('settings.imageMtime', {}, lang)}</span>
+              <button
+                type="button"
+                class="info-btn"
+                title={t('settings.imageMtime.tooltip', {}, lang)}
+                aria-label={t('settings.imageMtime.tooltip', {}, lang)}
+                on:click|stopPropagation|preventDefault={() => {}}
+              >ⓘ</button>
+            </span>
+            <span class="sub">{t('settings.imageMtime.hint', {}, lang)}</span>
+          </span>
+          <span class="switch">
+            <input id="opt-img-mtime" type="checkbox" checked={imageModifiedDate} on:change={onImageModifiedDateChange} />
+            <span class="track"></span>
+          </span>
+        </label>
+      </div>
+    </section>
+
+    <!-- PDF: compact controls flush-right (short values). -->
+    <section class="ac">
+      <div class="ah"><FileText size={14} /> {t('settings.pdf', {}, lang)}</div>
+      <div class="group">
+        <div class="srow">
+          <span class="txt"><span class="label">{t('settings.pdf.pageSize', {}, lang)}</span></span>
+          <select class="field mini" value={pdfPageSize} on:change={onPdfPageSizeChange}>
+            <option value="a4">{t('settings.pdf.pageSize.a4', {}, lang)}</option>
+            <option value="letter">{t('settings.pdf.pageSize.letter', {}, lang)}</option>
+          </select>
+        </div>
+
+        <div class="srow">
+          <span class="txt">
+            <span class="label">{t('settings.pdf.fontSize', {}, lang)}</span>
+            <span class="sub">{t('settings.pdf.fontSize.hint', {}, lang)}</span>
+          </span>
+          <!-- role=group + the field name as the group's accessible label
+               so assistive tech announces what the ± buttons control. Each
+               button's name comes from its visible − / + glyph. -->
+          <span class="stepper" role="group" aria-label={t('settings.pdf.fontSize', {}, lang)}>
+            <button
+              type="button"
+              class="step-btn"
+              on:click={() => stepFontSize(-1)}
+              disabled={pdfBodyFontSize <= PDF_FONT_MIN}
+            >−</button>
+            <span class="step-val">{pdfBodyFontSize}</span>
+            <button
+              type="button"
+              class="step-btn"
+              on:click={() => stepFontSize(1)}
+              disabled={pdfBodyFontSize >= PDF_FONT_MAX}
+            >+</button>
+          </span>
+        </div>
+
+        <label class="srow toggle">
+          <span class="txt"><span class="label">{t('settings.pdf.pageNumbers', {}, lang)}</span></span>
+          <span class="switch">
+            <input type="checkbox" checked={pdfShowPageNumbers} on:change={onPdfShowPageNumbersChange} />
+            <span class="track"></span>
+          </span>
+        </label>
+
+        <label class="srow toggle">
+          <span class="txt"><span class="label">{t('settings.pdf.avatars', {}, lang)}</span></span>
+          <span class="switch">
+            <input type="checkbox" checked={pdfIncludeAvatars} on:change={onPdfIncludeAvatarsChange} />
+            <span class="track"></span>
+          </span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Help & feedback: replay (in-app, chevron) + external links (↗).
+         External links open in a new tab so the popup doesn't close under
+         the user; rel=noopener keeps window.opener null. -->
+    <section class="ac">
+      <div class="ah"><LifeBuoy size={14} /> {t('settings.grp.help', {}, lang)}</div>
+      <div class="group">
+        <button class="srow rowlink" on:click={() => dispatch('replayTour')}>
+          <span class="txt"><span class="label">{t('settings.replayTour.btn', {}, lang)}</span></span>
+          <span class="chev"><ChevronRight size={16} /></span>
+        </button>
+        <a class="srow rowlink" href={ISSUES_URL} target="_blank" rel="noopener">
+          <span class="txt"><span class="label">{t('settings.about.feedback', {}, lang)}</span></span>
+          <span class="chev"><ExternalLink size={14} /></span>
+        </a>
+        <a class="srow rowlink" href={REVIEW_STORE_URL} target="_blank" rel="noopener">
+          <span class="txt"><span class="label">{t('review.rate', {}, lang)}</span></span>
+          <span class="chev"><ExternalLink size={14} /></span>
+        </a>
+      </div>
+    </section>
+
+    <!-- About: source code + author attribution. -->
+    <section class="ac">
+      <div class="ah"><Info size={14} /> {t('settings.about', {}, lang)}</div>
+      <div class="group">
+        <a class="srow rowlink" href={REPO_URL} target="_blank" rel="noopener">
+          <span class="txt"><span class="label">{t('settings.about.source', {}, lang)}</span></span>
+          <span class="chev"><ExternalLink size={14} /></span>
+        </a>
+        <div class="srow author">
+          <span class="txt"><span class="label">{t('settings.about.author', {}, lang)}</span></span>
+          <a class="author-link" href={AUTHOR_LINKEDIN_URL} target="_blank" rel="noopener">
+            {AUTHOR_NAME}<ExternalLink size={11} />
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Muted app/version footer — conventional bottom-of-settings. The
+         separator + version live in their own spans so the gap renders
+         reliably (Svelte collapses whitespace at an {#if} boundary). -->
+    <div class="verfoot">
+      <span class="nm">{t('appName', {}, lang)}</span>{#if extensionVersion}<span class="sep">·</span><span class="ver">v{extensionVersion}</span>{/if}
     </div>
-    <div class="about-body">
-      <div class="about-name">
-        {t('appName', {}, lang) || 'Teams Chat Exporter'}
-        {#if extensionVersion}<span class="about-version">v{extensionVersion}</span>{/if}
-      </div>
-      <div class="about-links">
-        <a class="about-link" href={REPO_URL} target="_blank" rel="noopener">
-          <ExternalLink size={12} />
-          <span>{t('settings.about.source', {}, lang) || 'Source code'}</span>
-        </a>
-        <a class="about-link" href={ISSUES_URL} target="_blank" rel="noopener">
-          <Bug size={12} />
-          <span>{t('settings.about.feedback', {}, lang) || 'Report an issue'}</span>
-        </a>
-        <a class="about-link" href={REVIEW_STORE_URL} target="_blank" rel="noopener">
-          <Star size={12} />
-          <span>{t('review.rate', {}, lang) || 'Rate on store'}</span>
-        </a>
-      </div>
-      <!-- Author line: short name + external link to LinkedIn profile.
-           No icon — the attribution sits below the two action links
-           and reads cleanest as plain "Author: Gediz →". -->
-      <div class="about-author">
-        <span class="about-author-label">{t('settings.about.author', {}, lang) || 'Author'}:</span>
-        <a class="about-author-link" href={AUTHOR_LINKEDIN_URL} target="_blank" rel="noopener">
-          {AUTHOR_NAME}<ExternalLink size={10} />
-        </a>
-      </div>
-    </div>
-  </div>
+  {/if}
 </div>
 
 <style>
-  .replay-tour-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    margin-top: 6px;
-    border: 1px solid var(--color-border);
+  /* Accent-titled section card. Tinted uppercase header band + a
+     bordered body of rows. All colours resolve from the real popup
+     tokens so light/dark track automatically. */
+  .ac {
     background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    margin-bottom: var(--gap);
+  }
+  .ah {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--color-accent);
+    background: var(--color-accent-light);
+  }
+  .ah :global(svg) {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+    flex: 0 0 auto;
+  }
+
+  .group {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* One setting row. Also used for <button>/<a> rows (link/drill-in),
+     hence the explicit resets. */
+  .srow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 11px 12px;
+    border: 0;
+    border-bottom: 1px solid var(--color-border);
+    background: transparent;
     color: var(--color-text);
     font: inherit;
-    font-size: 12px;
-    font-weight: 500;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    /* Logical `start` so button/link row text mirrors correctly when the
+       app switches to dir=rtl for Arabic / Hebrew. */
+    text-align: start;
+    text-decoration: none;
+    box-sizing: border-box;
   }
-  .replay-tour-btn:hover {
+  .srow:last-child {
+    border-bottom: 0;
+  }
+  .rowlink {
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .rowlink:hover {
     background: var(--color-accent-light);
-    border-color: var(--color-accent);
+  }
+  .toggle {
+    cursor: pointer;
+  }
+  /* Stacked variant: label block above a full-width control. */
+  .srow.stacked {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .txt {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .label {
+    font-size: 13px;
+    color: var(--color-text);
+    line-height: 1.3;
+  }
+  /* Label + inline ⓘ on one line, hint below. */
+  .label-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  /* Visible info affordance. Muted glyph, accent on hover/focus; carries
+     the full explanation via title (hover) + aria-label (focus / AT). */
+  .info-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--color-subtle);
+    font-size: 12px;
+    line-height: 1;
+    cursor: help;
+    transition: color 0.15s ease;
+  }
+  .info-btn:hover {
     color: var(--color-accent);
   }
-  .replay-tour-btn :global(svg) {
+  .info-btn:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+    color: var(--color-accent);
+  }
+  .sub {
+    font-size: 11px;
+    color: var(--color-subtle);
+    line-height: 1.35;
+  }
+  .val {
+    flex: 0 0 auto;
+    font-size: 12px;
+    color: var(--color-subtle);
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chev {
+    flex: 0 0 auto;
+    display: inline-flex;
+    color: var(--color-subtle);
+  }
+  .chev :global(svg) {
     stroke: currentColor;
     fill: none;
     stroke-width: 2;
   }
 
-  /* Inline ⓘ next to a card title — same affordance as the
-     bundle.zip pill in FormatSection. Native title= tooltip on
-     hover; no custom popover. */
-  .card-info {
-    margin-left: 4px;
+  /* Dimmed row (avatar mode while 'Embed avatars' is off). */
+  .srow.is-disabled {
+    opacity: 0.6;
+  }
+  .srow.is-disabled .sub {
+    font-style: italic;
+  }
+
+  /* Segmented theme control. */
+  .seg {
+    display: inline-flex;
+    flex: 0 0 auto;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .seg-btn {
+    padding: 6px 14px;
+    border: 0;
+    background: var(--color-bg);
+    color: var(--color-subtle);
+    font: inherit;
     font-size: 12px;
-    color: var(--color-muted);
-    cursor: help;
-    user-select: none;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .seg-btn + .seg-btn {
+    border-left: 1px solid var(--color-border);
+  }
+  .seg-btn:hover:not(.sel) {
+    background: var(--color-accent-light);
+    color: var(--color-accent);
+  }
+  .seg-btn.sel {
+    background: var(--color-accent);
+    color: #fff;
+  }
+
+  /* Toggle switch (styled native checkbox). */
+  .switch {
+    position: relative;
+    width: 38px;
+    height: 22px;
+    flex: 0 0 auto;
+    display: inline-block;
+  }
+  .switch input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .track {
+    position: absolute;
+    inset: 0;
+    background: var(--color-border);
+    border-radius: 999px;
+    transition: background 0.15s ease;
+  }
+  .track::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    transition: transform 0.15s ease;
+  }
+  .switch input:checked + .track {
+    background: var(--color-accent);
+  }
+  .switch input:checked + .track::after {
+    transform: translateX(16px);
+  }
+
+  /* Selects + number input. */
+  .field {
+    width: 100%;
+    font: inherit;
+    font-size: 13px;
+    padding: 8px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-text);
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+  }
+  .field:focus {
+    outline: none;
+    border-color: var(--color-accent);
+  }
+  .field:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .field.mini {
+    width: auto;
+    flex: 0 0 auto;
+    min-width: 96px;
+  }
+  /* −/+ font-size stepper, pinned right. */
+  .stepper {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background: var(--color-bg);
+  }
+  .step-btn {
+    width: 30px;
+    height: 32px;
+    border: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font: inherit;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .step-btn:hover:not(:disabled) {
+    background: var(--color-accent-light);
+    color: var(--color-accent);
+  }
+  .step-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .step-val {
+    min-width: 34px;
+    text-align: center;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text);
+    border-left: 1px solid var(--color-border);
+    border-right: 1px solid var(--color-border);
+    padding: 6px 4px;
+  }
+
+  /* Author attribution row — plain underlined link, no pill. */
+  .srow.author .txt {
+    flex: 1;
+  }
+  .author-link {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 13px;
+    color: var(--color-text);
+    text-decoration: underline;
+    text-decoration-color: var(--color-border);
+    text-underline-offset: 2px;
+    transition: color 0.15s ease, text-decoration-color 0.15s ease;
+  }
+  .author-link:hover {
+    color: var(--color-accent);
+    text-decoration-color: var(--color-accent);
+  }
+  .author-link :global(svg) {
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+  }
+
+  /* Version footer. */
+  .verfoot {
+    text-align: center;
+    color: var(--color-subtle);
+    font-size: 12px;
+    padding: 16px 12px 6px;
+    line-height: 1.6;
+  }
+  .verfoot .nm {
+    font-weight: 600;
+    color: var(--color-text);
+  }
+  .verfoot .sep {
+    margin: 0 6px;
+    opacity: 0.6;
+  }
+
+  /* Language drill-in. */
+  .lang-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    margin-bottom: var(--gap);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    transition: border-color 0.15s ease;
+  }
+  .lang-search:focus-within {
+    border-color: var(--color-accent);
+  }
+  .lang-search :global(svg) {
+    width: 15px;
+    height: 15px;
+    stroke: var(--color-subtle);
+    fill: none;
+    stroke-width: 2;
+    flex: 0 0 auto;
+  }
+  .lang-search input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-text);
+    font: inherit;
+    font-size: 13px;
+    outline: none;
+  }
+  .lang-item.cur .label {
+    color: var(--color-accent);
+    font-weight: 600;
+  }
+  .chk {
+    flex: 0 0 auto;
+    margin-inline-start: auto;
+    color: var(--color-accent);
+    font-weight: 700;
+  }
+  .lang-empty {
+    padding: 14px 12px;
+    font-size: 12px;
+    color: var(--color-subtle);
+    text-align: center;
   }
 </style>
