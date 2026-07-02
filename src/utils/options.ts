@@ -76,7 +76,6 @@ export type Options = {
   // otherwise kept as links. Files that can't be resolved (cross-tenant, guest,
   // consumer OneDrive, expired auth) stay as links.
   downloadFiles: boolean;
-  showHud: boolean;
   theme: Theme;
   afterExport: AfterExport;
   // Controls how avatar images are packaged in HTML exports. Only
@@ -212,7 +211,6 @@ export const DEFAULT_OPTIONS: Options = {
   imageFilenameDate: false,
   imageModifiedDate: false,
   downloadFiles: false,
-  showHud: false,
   theme: 'light',
   afterExport: 'manual',
   avatarMode: 'inline',

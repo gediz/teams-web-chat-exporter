@@ -4,7 +4,7 @@ import { $ } from '../utils/dom';
 import { uint8ToBase64 } from '../utils/base64';
 import { makeDayDivider as buildDayDivider } from '../utils/messages';
 import { cssEscape, isPlaceholderText, textFrom } from '../utils/text';
-import { formatElapsed, parseTimeStamp } from '../utils/time';
+import { parseTimeStamp } from '../utils/time';
 import { extractAttachments } from '../content/attachments';
 import { extractReactions } from '../content/reactions';
 import { extractReplyContext } from '../content/replies';
@@ -230,7 +230,6 @@ export default defineContentScript({
             }
         }
 
-        let hudEnabled = true;
         let currentRunStartedAt: number | null = null;
         // One scrape can be active per content script. Holding the controller
         // here lets the STOP_SCRAPE handler abort whatever fetch loop is in
@@ -270,40 +269,6 @@ export default defineContentScript({
             }
             if (hasChatMessageSurface()) return { ok: true };
             return { ok: false, reason: 'Open a chat conversation before exporting.' };
-        }
-
-        function clearHUD() {
-            const existing = document.getElementById("__teamsExporterHUD");
-            if (existing) existing.remove();
-        }
-
-        // HUD -----------------------------------------------------------
-        function ensureHUD() {
-            if (!hudEnabled) return null;
-            let hud = document.getElementById("__teamsExporterHUD");
-            if (!hud) {
-                hud = document.createElement("div");
-                hud.id = "__teamsExporterHUD";
-                hud.style.cssText = "position:fixed;right:12px;top:12px;z-index:999999;font:12px/1.3 system-ui,sans-serif;color:#111;background:rgba(255,255,255,.92);border:1px solid #ddd;border-radius:8px;padding:8px 10px;box-shadow:0 2px 8px rgba(0,0,0,.15);pointer-events:none;";
-                hud.textContent = "Teams Exporter: idle";
-                document.body.appendChild(hud);
-            }
-            return hud;
-        }
-        function hud(text: string, { includeElapsed = true }: { includeElapsed?: boolean } = {}) {
-            if (!hudEnabled) return;
-            const hudNode = ensureHUD();
-            if (hudNode) {
-                let final = `Teams Exporter: ${text}`;
-                if (includeElapsed !== false && currentRunStartedAt) {
-                    final += ` • elapsed ${formatElapsed(Date.now() - currentRunStartedAt)}`;
-                }
-                hudNode.textContent = final;
-            }
-            try {
-                const msgPromise = runtime.sendMessage({ type: "SCRAPE_PROGRESS", payload: { phase: "hud", text } });
-                if (msgPromise && msgPromise.catch) msgPromise.catch(() => { });
-            } catch (e) { /* ignore */ }
         }
 
         // Core DOM hooks ------------------------------------------------
@@ -3229,7 +3194,6 @@ export default defineContentScript({
           
               replies = await autoScrollAggregateHelper(
                 {
-                  hud,
                   runtime,
                   extractOne,
                   hydrateSparseMessages: async () => {},
@@ -3664,7 +3628,6 @@ export default defineContentScript({
                         if (currentAbortController) {
                             console.log('[Teams Exporter] STOP_SCRAPE received — aborting active scrape');
                             currentAbortController.abort();
-                            hud('cancelling…');
                             sendResponse({ ok: true, cancelling: true });
                         } else {
                             sendResponse({ ok: false, reason: 'no-active-scrape' });
@@ -3673,10 +3636,8 @@ export default defineContentScript({
                     }
                     if (msg.type === 'SCRAPE_TEAMS') {
                         console.log(`[Teams Exporter] export start build=${__BUILD_STAMP__}`);
-                        const { startAt, endAt, includeReactions, includeSystem, includeReplies, showHud, exportTarget, formats, embedAvatars, downloadImages, fullResImages, conversationId, conversationTitle, noDomFallback } = msg.options || {};
+                        const { startAt, endAt, includeReactions, includeSystem, includeReplies, exportTarget, formats, embedAvatars, downloadImages, fullResImages, conversationId, conversationTitle, noDomFallback } = msg.options || {};
                         const target = exportTarget === 'team' ? 'team' : 'chat';
-                        hudEnabled = showHud !== false;
-                        if (!hudEnabled) clearHUD();
                         const scrapeOpts = { startAtISO: startAt, endAtISO: endAt, includeSystem, includeReactions, includeReplies: includeReplies !== false };
                         // Skip expensive fetches none of the selected formats
                         // would render (see ScrapeOptions in types/shared.ts).
@@ -3697,7 +3658,6 @@ export default defineContentScript({
                         // and Graph photo fetches via signal checks they share.
                         currentAbortController = new AbortController();
                         const abortSignal = currentAbortController.signal;
-                        hud('starting…');
 
                         // ── API Mode (fast, no scrolling) ──────────────────
                         let messages: ExportMessage[] | null = null;
@@ -3717,13 +3677,7 @@ export default defineContentScript({
                         let partialReason: 'network' | 'truncation' | null = null;
 
                         try {
-                            hud('trying API mode…');
                             const apiResult = await apiScrape((p) => {
-                                if (p.phase === 'discover') {
-                                    hud('discovering API endpoint…');
-                                } else {
-                                    hud(`API: page ${p.page}, ${p.messagesSoFar} messages`);
-                                }
                                 try {
                                     const mp = runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'api-fetch', messagesVisible: p.messagesSoFar, passes: p.page } });
                                     if (mp && mp.catch) mp.catch(() => {});
@@ -3752,10 +3706,8 @@ export default defineContentScript({
                                     // Fetch inline images (content script has auth cookies, URLs expire).
                                     // Skipped when the target format won't render them.
                                     if (needImages) {
-                                        hud(`fetching inline images…`);
                                         try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length } }); } catch {}
                                         await fetchInlineImages(converted, (done, total) => {
-                                            hud(`images: ${done}/${total}`);
                                             if (done % 10 === 0 || done === total) {
                                                 try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length, imagesDone: done, imagesTotal: total } }); } catch {}
                                             }
@@ -3766,7 +3718,6 @@ export default defineContentScript({
                                     // Fetch profile photos via Graph API.
                                     // Skipped when the format/options don't render avatars.
                                     if (needAvatars) {
-                                        hud(`fetching avatars…`);
                                         try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'avatars', messagesVisible: converted.length } }); } catch {}
                                         await fetchApiAvatars(converted, apiResult.messages);
                                     } else {
@@ -3784,7 +3735,6 @@ export default defineContentScript({
                                     if (Array.isArray(apiResult.participants)) participants = apiResult.participants;
                                     if (typeof apiResult.memberCount === 'number') memberCount = apiResult.memberCount;
                                     console.log(`[Teams Exporter] API mode: ${converted.length} messages from ${apiResult.messages.length} raw; ${participants.length} participants`);
-                                    hud(`API: ${converted.length} messages`);
                                 } else {
                                     console.log('[Teams Exporter] API returned messages but all filtered out, trying DOM scroll');
                                 }
@@ -3802,7 +3752,6 @@ export default defineContentScript({
                             if (abortSignal.aborted) {
                                 currentRunStartedAt = null;
                                 currentAbortController = null;
-                                hud('cancelled');
                                 sendResponse({ ok: false, cancelled: true });
                                 return;
                             }
@@ -3831,11 +3780,9 @@ export default defineContentScript({
                                 console.log('[Teams Exporter] API failed and noDomFallback is set (multi-chat) — reporting failure without DOM scroll');
                                 currentRunStartedAt = null;
                                 currentAbortController = null;
-                                hud('api failed');
                                 sendResponse({ ok: false, error: 'API scrape failed; DOM fallback disabled in multi-chat mode' });
                                 return;
                             }
-                            hud('scrolling…');
                             const replyCollector = createReplyCollector();
                             const includeRepliesEnabled = includeReplies !== false;
 
@@ -3857,7 +3804,6 @@ export default defineContentScript({
 
                             let scrollMessages = await autoScrollAggregateHelper(
                                 {
-                                    hud,
                                     runtime,
                                     extractOne: target === 'team' && includeRepliesEnabled ? extractWithReplies : extractOne,
                                     hydrateSparseMessages,
@@ -3888,7 +3834,6 @@ export default defineContentScript({
                             const msgPromise = runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'extract', messagesExtracted: messages.length } });
                             if (msgPromise && msgPromise.catch) msgPromise.catch(() => { });
                         } catch (e) { /* ignore */ }
-                        hud(`extracted ${messages.length} messages`);
 
                         // Patch missing avatars using UUID identity. This covers two cases:
                         //   - Grouped message follow-ups (Teams omits the avatar <img> for consecutive
@@ -3950,7 +3895,6 @@ export default defineContentScript({
                         // the resulting avatars map.
                         let normalizedMessages: ExtractedMessage[];
                         if (needAvatars) {
-                            hud('fetching avatars...');
                             const messagesForAvatar = messages.map(m => ({
                                 id: m.id || '',
                                 threadId: m.threadId ?? null,
@@ -3997,7 +3941,6 @@ export default defineContentScript({
                             avatars = {};
                             currentRunStartedAt = null;
                             currentAbortController = null;
-                            hud('cancelled');
                             console.log('[Teams Exporter] Scrape cancelled — discarded collected data');
                             sendResponse({ ok: false, cancelled: true });
                             return;
@@ -4169,14 +4112,12 @@ export default defineContentScript({
                     if (currentAbortController?.signal.aborted) {
                         currentRunStartedAt = null;
                         currentAbortController = null;
-                        hud('cancelled');
                         console.log('[Teams Exporter] Scrape cancelled');
                         sendResponse({ ok: false, cancelled: true });
                         return;
                     }
                     currentAbortController = null;
                     console.error('[Teams Exporter] Error:', e);
-                    hud(`error: ${e?.message || e}`);
                     currentRunStartedAt = null;
                     sendResponse({ error: e?.message || String(e) });
                 }

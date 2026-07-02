@@ -174,7 +174,6 @@ export type ScrapeOptions = {
   includeReplies?: boolean;
   includeReactions?: boolean;
   includeSystem?: boolean;
-  showHud?: boolean;
   exportTarget?: 'chat' | 'team';
   // Downstream build options surfaced to the scraper so it can skip
   // expensive fetches none of the selected formats will actually use:

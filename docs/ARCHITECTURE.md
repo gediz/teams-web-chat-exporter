@@ -164,7 +164,6 @@ Authoritative definition: `Options` in `src/utils/options.ts`.
 | `includeSystem` | `boolean` |
 | `embedAvatars` | `boolean` |
 | `downloadImages` | `boolean` |
-| `showHud` | `boolean` |
 | `theme` | `'light' \| 'dark'` |
 | `afterExport` | `'manual' \| 'show'` |
 | `avatarMode` | `'inline' \| 'files'` (HTML only) |

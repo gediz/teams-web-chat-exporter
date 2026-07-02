@@ -1292,7 +1292,6 @@
         fullResImages,
         imageFilenameDate,
         imageModifiedDate,
-        showHud,
         exportTarget,
       } = options;
       setStatus(t("status.running", {}, currentLang()));
@@ -1317,7 +1316,6 @@
             includeReplies,
             includeReactions,
             includeSystem,
-            showHud,
             exportTarget,
             formats,
             embedAvatars,
@@ -1390,7 +1388,6 @@
           includeReplies,
           includeReactions,
           includeSystem,
-          showHud,
           exportTarget,
           // Let the scraper skip image/avatar fetches that none of the
           // selected formats would render. The SW reads the same array

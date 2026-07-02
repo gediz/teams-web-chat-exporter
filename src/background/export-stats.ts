@@ -15,7 +15,7 @@
 // progress phases collapse onto these so the log matches what the user sees.
 export type ButtonStage = 'messages' | 'images' | 'people' | 'file';
 
-// Raw progress phase -> button stage. Phases not listed here (e.g. 'hud',
+// Raw progress phase -> button stage. Phases not listed here (e.g.
 // 'scrape:start', 'complete') carry no stage time and are ignored by
 // markPhase. 'scroll'/'extract' are the DOM-fallback equivalents of the
 // API 'api-fetch' phase, so they fold into 'messages'.

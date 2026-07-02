@@ -5,7 +5,6 @@ import type { AggregatedItem, ExportMessage, OrderContext, ScrapeOptions } from 
 type ContentAggregated<M extends ExportMessage> = AggregatedItem & { message?: M };
 
 export type ScrollDeps<M extends ExportMessage> = {
-  hud: (text: string, opts?: { includeElapsed?: boolean }) => void;
   runtime: typeof chrome.runtime;
   extractOne: (item: Element, opts: ScrapeOptions, lastAuthorRef: { value: string }, orderCtx: OrderContext & { seq?: number }) => Promise<ContentAggregated<M> | null>;
   hydrateSparseMessages: (agg: Map<string, ContentAggregated<M>>, opts: ScrapeOptions) => Promise<void>;
@@ -51,7 +50,7 @@ export async function autoScrollAggregate<M extends ExportMessage>(
   currentRunStartedAt: number | null,
   signal?: AbortSignal,
 ): Promise<M[]> {
-  const { hud, runtime, extractOne, hydrateSparseMessages, getScroller } = deps;
+  const { runtime, extractOne, hydrateSparseMessages, getScroller } = deps;
   const getItems = deps.getItems || defaultGetItems;
   const getItemId = deps.getItemId || defaultGetItemId;
   const isLoading = deps.isLoading || (() => false);
@@ -287,7 +286,6 @@ const forceScrollUp = (el: HTMLElement, multiplier = 2) => {
         });
         if (msgPromise && msgPromise.catch) msgPromise.catch(() => {});
       } catch {}
-      hud(`scroll pass ${passes} • seen ${filteredSeen}`);
 
       if (startLimit != null && oldestTs != null && oldestTs <= startLimit) {
         console.log('[Teams Exporter] scroll stop: startAt date reached', { oldestTimeAttr, startAtISO });
