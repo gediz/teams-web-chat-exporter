@@ -914,10 +914,11 @@ function handleExportWithScrape(
                             resolveShare: makeResolveShare(tabId),
                         },
                         filesAbort.signal,
-                        // Firefox does not cap concurrent downloads; bound them so a
-                        // large set doesn't burst SharePoint into throttling. Chrome
-                        // caps per host, so it stays fire-and-forget (undefined).
-                        { maxConcurrent: isFirefox ? 6 : undefined },
+                        // Bound concurrent downloads on BOTH engines: a burst of
+                        // real transfers (a huge file starving the rest) was
+                        // seen to cause NETWORK_FAILED en masse; the bounded pool
+                        // plus per-item retry recovers those.
+                        { maxConcurrent: 6 },
                     );
                 } finally {
                     untrackFetch(tabId, filesAbort);
@@ -1682,9 +1683,8 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                             resolveShare: makeResolveShare(tabId),
                         },
                         filesAbort.signal,
-                        // Bound concurrency on Firefox (no per-host cap there) so the
-                        // bundle's many files don't burst SharePoint into throttling.
-                        { maxConcurrent: isFirefox ? 6 : undefined },
+                        // Bound concurrent downloads on both engines (see single-chat).
+                        { maxConcurrent: 6 },
                     );
                 } finally {
                     untrackFetch(tabId, filesAbort);

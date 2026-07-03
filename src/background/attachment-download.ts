@@ -324,9 +324,10 @@ export type SettleKind = 'saved' | 'failed' | 'cancelled';
 interface VerifyMeta {
   name: string; href: string; chatFolder: string; exportFolder: string; markup?: boolean;
   // Set by the dispatching run so it can tally outcomes and know when every
-  // download settled. Optional: entries without it (a run that already
-  // returned) still get the junk-page cleanup below.
-  onSettled?: (kind: SettleKind) => void;
+  // download settled. `reason` carries the InterruptReason on a failure so the
+  // run can decide whether it is worth a retry. Optional: entries without it
+  // (a run that already returned) still get the junk-page cleanup below.
+  onSettled?: (kind: SettleKind, reason?: string) => void;
 }
 // All maps below are keyed so concurrent per-tab exports can't clobber each
 // other: pendingVerify by (unique) download id, the rest by the folder key
@@ -349,12 +350,32 @@ const failuresWriteTimer = new Map<string, ReturnType<typeof setTimeout>>(); // 
 // well under the MV3 service-worker idle timeout so the trailing write always runs.
 const FAILURES_WRITE_DEBOUNCE_MS = 1500;
 
+// While an active Files phase is running, FAILURES.txt writes are suppressed so
+// the file is not created mid-phase (confusing, and it would show entries a
+// retry is about to remove). The in-memory lists still update; the run flushes
+// once at the end. Late verifier events (after the run returns) are not
+// suppressed, so an eviction-and-late-settle still persists its record.
+let failuresWriteSuppressed = false;
+
+/** Write FAILURES.txt once for every folder under exportFolder that has any
+ *  recorded failure/cancel. Called at the true end of a Files phase. */
+async function flushFailures(deps: { downloads: DownloadsApi }, exportFolder: string): Promise<void> {
+  const folders = new Set<string>();
+  for (const key of verifiedFailures.keys()) if (key.startsWith(exportFolder + ' ')) folders.add(key.slice(exportFolder.length + 1));
+  for (const key of verifiedCancels.keys()) if (key.startsWith(exportFolder + ' ')) folders.add(key.slice(exportFolder.length + 1));
+  for (const chatFolder of folders) {
+    const key = `${exportFolder} ${chatFolder}`;
+    await writeFailuresFile(deps.downloads, exportFolder, chatFolder, verifiedFailures.get(key) || [], verifiedCancels.get(key) || [], key);
+  }
+}
+
 /**
  * (Re)schedule the debounced FAILURES.txt write for a chat folder. The in-memory
  * lists update immediately at the call site; this coalesces a burst of records
  * into a single download once it goes quiet (see FAILURES_WRITE_DEBOUNCE_MS).
  */
 function scheduleFailuresWrite(deps: { downloads: DownloadsApi }, meta: VerifyMeta): void {
+  if (failuresWriteSuppressed) return; // flushed once at phase end instead
   const key = `${meta.exportFolder} ${meta.chatFolder}`;
   const prev = failuresWriteTimer.get(key);
   if (prev) clearTimeout(prev);
@@ -374,6 +395,18 @@ function recordFailure(deps: { downloads: DownloadsApi; log?: (m: string) => voi
   list.push({ name: meta.name, href: meta.href });
   verifiedFailures.set(key, list);
   scheduleFailuresWrite(deps, meta);
+}
+
+/** Remove a previously-recorded failure for a file (by href), used when a retry
+ *  of a transiently-failed download eventually succeeds so its stale entry does
+ *  not remain in FAILURES.txt. chatFolder is unknown here, so all folder lists
+ *  are checked. */
+function removeRecordedFailure(item: { href: string }, exportFolder: string): void {
+  for (const [key, list] of verifiedFailures) {
+    if (!key.startsWith(exportFolder + ' ')) continue;
+    const next = list.filter(e => e.href !== item.href);
+    if (next.length !== list.length) verifiedFailures.set(key, next);
+  }
 }
 
 /** Record a file stopped mid-download (user cancel or aborted export) into the
@@ -405,7 +438,7 @@ export async function verifyDownloadOnChanged(
   pendingVerify.delete(delta.id);
   // Every path below settles this download exactly once so the dispatching
   // run's tally always adds up to its candidate count.
-  const settle = (kind: SettleKind) => { try { meta.onSettled?.(kind); } catch { /* run already gone */ } };
+  const settle = (kind: SettleKind, reason?: string) => { try { meta.onSettled?.(kind, reason); } catch { /* run already gone */ } };
 
   let item: chrome.downloads.DownloadItem | undefined;
   try {
@@ -445,7 +478,7 @@ export async function verifyDownloadOnChanged(
     }
     deps.log?.(`attachment no-access: ${meta.name} (${item.error})`);
     recordFailure(deps, meta);
-    settle('failed');
+    settle('failed', item.error);
     return;
   }
 
@@ -457,7 +490,21 @@ export async function verifyDownloadOnChanged(
   try { await deps.downloads.erase({ id: delta.id }); } catch { /* noop */ }
   deps.log?.(`attachment no-access: removed request-access page for ${meta.name}`);
   recordFailure(deps, meta);
-  settle('failed');
+  // A request-access page is a permanent access failure, not a transient one.
+  settle('failed', 'REQUEST_ACCESS_PAGE');
+}
+
+// Interrupt reasons worth retrying: transient network/server conditions where a
+// second attempt (after backoff, and after a bandwidth-hogging sibling
+// download finishes) plausibly succeeds. NOT retried: access denials
+// (SERVER_UNAUTHORIZED/FORBIDDEN), the request-access page, or a user cancel.
+function isTransientReason(reason?: string): boolean {
+  if (!reason) return false;
+  // Network-layer conditions where a retry after backoff plausibly succeeds
+  // (this is the NETWORK_FAILED-during-a-burst case seen live). Deliberately
+  // NOT SERVER_BAD_CONTENT (a bad response body, usually a permanent error
+  // page) nor SERVER_UNAUTHORIZED/FORBIDDEN (access denials).
+  return /NETWORK_FAILED|NETWORK_TIMEOUT|NETWORK_DISCONNECTED|NETWORK_SERVER_DOWN|SERVER_FAILED|SERVER_UNREACHABLE|SERVER_NO_RANGE|CONNECTION|TIMED_OUT|CRASH/i.test(reason);
 }
 
 /**
@@ -496,6 +543,8 @@ export async function downloadAttachments(
 ): Promise<AttachmentDownloadSummary> {
   const summary: AttachmentDownloadSummary = { total: items.length, saved: 0, links: 0, failed: 0, cancelled: 0, failures: [] };
   if (!items.length) return summary;
+  // Suppress mid-phase FAILURES.txt writes; flush once at the end (below).
+  failuresWriteSuppressed = true;
 
   deps.log?.(`attachment phase: ${items.length} candidate(s)` + (opts.maxConcurrent ? `, max ${opts.maxConcurrent} concurrent` : ''));
 
@@ -527,13 +576,61 @@ export async function downloadAttachments(
     report();
     notifySettle?.();
   };
-  const onDownloadSettled = (id: number, kind: SettleKind) => {
-    if (runEnded) { pendingIds.delete(id); return; }
+  // Retry state. A transient download failure (NETWORK_FAILED etc., common when
+  // a huge sibling download saturates the connection) is re-dispatched instead
+  // of settling: the item stays "pending" so the settlement wait naturally
+  // covers the retry, and no accounting has to be un-done. The verifier already
+  // recorded the failed attempt in FAILURES.txt; on eventual success we remove
+  // that record. Access denials and cancels are never retried.
+  const enrolledItem = new Map<number, AttachmentCandidate>(); // id -> candidate (for retry)
+  const retryCount = new Map<string, number>();                 // href -> attempts used
+  const MAX_RETRIES = 2;
+  const RETRY_BACKOFF_MS = 3_000;
+  const keyOf = (it: AttachmentCandidate) => it.href;
+
+  const onDownloadSettled = (id: number, kind: SettleKind, reason?: string) => {
+    if (runEnded) { pendingIds.delete(id); enrolledItem.delete(id); return; }
     if (!pendingIds.delete(id)) return; // event+poll double delivery guard
-    if (kind === 'saved') summary.saved++;
-    else if (kind === 'cancelled') summary.cancelled++;
+    const item = enrolledItem.get(id);
+    enrolledItem.delete(id);
+    if (kind === 'failed' && item && !signal.aborted && isTransientReason(reason)
+        && (retryCount.get(keyOf(item)) ?? 0) < MAX_RETRIES) {
+      // Re-dispatch after a backoff; do NOT settle (item stays pending).
+      retryCount.set(keyOf(item), (retryCount.get(keyOf(item)) ?? 0) + 1);
+      deps.log?.(`attachment retry (${reason}): ${item.name} [attempt ${retryCount.get(keyOf(item))}]`);
+      scheduleRetry(item);
+      return;
+    }
+    if (kind === 'saved') {
+      summary.saved++;
+      // A prior attempt of a retried file left a stale FAILURES.txt entry.
+      if (item && (retryCount.get(keyOf(item)) ?? 0) > 0) removeRecordedFailure(item, exportFolder);
+    } else if (kind === 'cancelled') summary.cancelled++;
     else summary.failed++;
     settledOne();
+  };
+
+  // Re-resolve + re-dispatch a transiently-failed item after a backoff. Any
+  // failure to even re-dispatch settles it as failed (never leaves it pending).
+  const scheduleRetry = (item: AttachmentCandidate) => {
+    const attempt = retryCount.get(keyOf(item)) ?? 1;
+    setTimeout(async () => {
+      if (runEnded || signal.aborted) { if (!runEnded) { summary.failed++; settledOne(); } return; }
+      item.resolvedUrl = undefined; // force a fresh pre-authenticated URL
+      let spec: NonNullable<ReturnType<typeof prep>> | undefined;
+      try {
+        const p = await prepAsync(item);
+        if (p.kind !== 'spec') { summary.failed++; settledOne(); return; }
+        spec = p.spec;
+      } catch { summary.failed++; settledOne(); return; }
+      if (runEnded || signal.aborted) { if (!runEnded) { summary.failed++; settledOne(); } return; }
+      let id: number | undefined;
+      try {
+        id = await Promise.resolve(deps.downloads.download({ url: spec.url, filename: spec.filename, saveAs: false, conflictAction: 'uniquify' }));
+      } catch (e) { dispatchFailed(spec.name, errMsg(e)); return; }
+      if (typeof id !== 'number') { dispatchFailed(spec.name, 'no download id'); return; }
+      enroll(id, item, spec.name, spec.markup);
+    }, RETRY_BACKOFF_MS * attempt);
   };
   const dispatchFailed = (name: string, reason: string) => {
     if (runEnded) return;
@@ -573,14 +670,11 @@ export async function downloadAttachments(
 
   // Async prep: resolve the sharing link to a fresh pre-authenticated URL right
   // before dispatch. Returns a kind:
-  //   'link'    — host-gated, kept as a link (counted as such);
-  //   'blocked' — the access oracle says the user cannot download it (skip the
-  //               doomed attempt, record as a failure);
-  //   'spec'    — a download spec (resolved URL when available, else raw URL).
+  //   'link' — host-gated, kept as a link (counted as such);
+  //   'spec' — a download spec (resolved URL when available, else raw URL).
   // Any resolve failure leaves the raw-URL spec, so nothing regresses.
   type Prepped =
     | { kind: 'link' }
-    | { kind: 'blocked'; item: AttachmentCandidate; name: string }
     | { kind: 'spec'; spec: NonNullable<ReturnType<typeof prep>> };
   const prepAsync = async (item: AttachmentCandidate): Promise<Prepped> => {
     const base = prep(item);
@@ -588,11 +682,14 @@ export async function downloadAttachments(
     if (needResolve && deps.resolveShare && item.shareUrl && !item.resolvedUrl) {
       try {
         const r = await deps.resolveShare(item.shareUrl);
-        if (r?.blocksDownload === true) return { kind: 'blocked', item, name: base.name };
-        // Only adopt the resolved URL if it is a plausible SharePoint file URL
-        // (https + gated host) — the pre-auth URL is server-controlled, so gate
-        // it the same as the raw href before handing it to chrome.downloads.
-        if (r?.downloadUrl && isSharePointFileHost(r.downloadUrl)) {
+        // Adopt the resolved pre-auth URL only when the role does NOT block
+        // download AND the URL is a gated SharePoint host (the URL is
+        // server-controlled, so gate it like the raw href). blocksDownload is
+        // NOT a hard skip: its meaning ("server refuses" vs "UI hides button")
+        // is uncertain across clouds, so a blocked file still falls through to
+        // the raw-URL path, which may work via the session cookie — never worse
+        // than not resolving at all.
+        if (r?.downloadUrl && r.blocksDownload !== true && isSharePointFileHost(r.downloadUrl)) {
           item.resolvedUrl = r.downloadUrl;
           const url = r.downloadUrl;
           return { kind: 'spec', spec: { ...base, url, viaDownloadAspx: isDownloadAspxUrl(url) } };
@@ -601,21 +698,14 @@ export async function downloadAttachments(
     }
     return { kind: 'spec', spec: base };
   };
-  // Record a file the access oracle flagged as un-downloadable, without a doomed
-  // dispatch. Uses the verifier's failure recorder so it lands in the right
-  // per-chat FAILURES.txt.
-  const recordBlocked = (item: AttachmentCandidate, name: string) => {
-    deps.log?.(`attachment no-access (oracle): ${name}`);
-    recordFailure(deps, { name, href: item.href, chatFolder: item.chatFolder, exportFolder });
-    if (!runEnded) { summary.failed++; summary.failures.push({ name, reason: 'no access (blocked by policy)' }); settledOne(); }
-  };
   const enroll = (id: number, item: AttachmentCandidate, name: string, markup: boolean) => {
     // pendingIds BEFORE pendingVerify: the terminal event can fire the moment
     // the entry exists, and onDownloadSettled only counts ids it knows.
     pendingIds.add(id);
+    enrolledItem.set(id, item);
     pendingVerify.set(id, {
       name, href: item.href, chatFolder: item.chatFolder, exportFolder, markup,
-      onSettled: kind => onDownloadSettled(id, kind),
+      onSettled: (kind, reason) => onDownloadSettled(id, kind, reason),
     });
     if (signal.aborted) {
       // A STOP raced this enrollment: stop the transfer now; the verifier
@@ -657,7 +747,6 @@ export async function downloadAttachments(
         const item = items[cursor++];
         const p = await prepAsync(item);
         if (p.kind === 'link') { summary.links++; settledOne(); continue; }
-        if (p.kind === 'blocked') { recordBlocked(p.item, p.name); continue; }
         const spec = p.spec;
         let id: number | undefined;
         try {
@@ -681,7 +770,6 @@ export async function downloadAttachments(
         const item = items[cursor++];
         const p = await prepAsync(item);
         if (p.kind === 'link') { summary.links++; settledOne(); continue; }
-        if (p.kind === 'blocked') { recordBlocked(p.item, p.name); continue; }
         fireAndForget(item, p.spec);
       }
     };
@@ -735,6 +823,11 @@ export async function downloadAttachments(
     const meta = pendingVerify.get(id);
     if (meta?.onSettled) pendingVerify.set(id, { ...meta, onSettled: undefined });
   }
+
+  // Flush FAILURES.txt once, now that retries are done and the failure lists
+  // are final. Late verifier events (after this) write normally again.
+  failuresWriteSuppressed = false;
+  await flushFailures(deps, exportFolder);
 
   deps.log?.(`attachment downloads settled: ${summary.saved} saved, ${summary.links} link(s), ${summary.failed} failed, ${summary.cancelled} cancelled of ${summary.total}` + (viaAspx ? ` (${viaAspx} via download.aspx)` : ''));
   return summary;

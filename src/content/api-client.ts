@@ -231,7 +231,12 @@ export async function getSharePointToken(fileHost: string): Promise<string | nul
     const tok = await findValidToken(c);
     if (tok) return tok;
   }
-  return null;
+  // Last resort: the SharePoint Online first-party resource GUID. Some clouds
+  // (GCC-High/DoD/China, guest sessions) cache the SharePoint token keyed by
+  // this resource id rather than a host-containing scope, so a host match would
+  // miss it. The token is still audience-checked by SharePoint server-side, so
+  // a wrong-resource match just 401s and the raw-URL fallback takes over.
+  return await findValidToken('00000003-0000-0ff1-ce00-000000000000');
 }
 
 /**
