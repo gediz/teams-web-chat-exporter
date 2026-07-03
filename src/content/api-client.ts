@@ -205,6 +205,36 @@ export async function getGraphToken(): Promise<string | null> {
 }
 
 /**
+ * Get a valid SharePoint/OneDrive access token for a specific file host.
+ * Teams authenticates its /_api/v2.0/shares resolve with a Bearer token
+ * scoped to the file's SharePoint resource (verified via CDP: the working
+ * request carries an Authorization header; the tokenless one 401s). MSAL
+ * caches these under a scope containing the resource host, so we match by
+ * host. Tries the exact host, then the site-root form (some tenants issue the
+ * token for `<tenant>.sharepoint.com` rather than the `-my` OneDrive host),
+ * then the bare tenant label as a last resort.
+ */
+export async function getSharePointToken(fileHost: string): Promise<string | null> {
+  const host = (fileHost || '').toLowerCase().replace(/\.$/, '');
+  if (!host.endsWith('.sharepoint.com') && !host.endsWith('.sharepoint.us')
+      && !host.endsWith('.sharepoint-mil.us') && !host.endsWith('.sharepoint.cn')) {
+    return null;
+  }
+  const candidates: string[] = [host];
+  // OneDrive host `<tenant>-my.sharepoint.com` -> site root `<tenant>.sharepoint.com`.
+  const root = host.replace(/-my\./, '.');
+  if (root !== host) candidates.push(root);
+  // Bare tenant label (e.g. `amlogicglobaleur`) — broadest, still resource-specific.
+  const label = host.split('.')[0].replace(/-my$/, '');
+  if (label) candidates.push(label);
+  for (const c of candidates) {
+    const tok = await findValidToken(c);
+    if (tok) return tok;
+  }
+  return null;
+}
+
+/**
  * Extract the user's UUID from an MSAL access token cache key.
  * Cache key format: msal.2|<userUuid>.<tenantId>|<env>|accesstoken|...
  *

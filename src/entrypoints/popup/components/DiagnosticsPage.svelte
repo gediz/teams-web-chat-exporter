@@ -52,6 +52,19 @@
   // The probe section renders rows once a run completes.
   let probesRunning = false;
   let probes: ProbesSection = { state: 'not-run' };
+  // File-access probe: paste a SharePoint file link (e.g. from FAILURES.txt),
+  // resolve it via the shares API in the Teams tab's content script, then hand
+  // the pre-authenticated downloadUrl to the background for a real download.
+  // Row labels/values are raw English like the probe details above.
+  let fileProbeUrl = '';
+  let fileProbeRunning = false;
+  let fileProbeRows: { label: string; value: string; warn?: boolean }[] = [];
+  let fileProbeError = '';
+  // Raw file-field dump: shows which fields the open chat's file attachments
+  // carry (to check for a sharing-link field). Field NAMES only.
+  let fieldDumpRunning = false;
+  let fieldDumpRows: { label: string; value: string; warn?: boolean }[] = [];
+  let fieldDumpError = '';
   // Persistence state mirrored from the loaded options. Toggling
   // updates both the storage option AND tells BG to flip its runtime
   // flag without waiting for an SW restart.
@@ -346,6 +359,82 @@
     'page_world_helper',
     'canary_image_fetch',
   ];
+
+  async function runFieldDump() {
+    if (fieldDumpRunning) return;
+    fieldDumpRunning = true;
+    fieldDumpError = '';
+    fieldDumpRows = [];
+    try {
+      const activeTab = await getActiveTab();
+      if (!activeTab?.id || !isTeamsUrl(activeTab.url ?? '')) {
+        fieldDumpError = t('diagnostics.fileProbeNoTab', {}, lang);
+        return;
+      }
+      const r = (await tabs.sendMessage(activeTab.id, { type: 'DUMP_FILE_FIELDS' })) as
+        | { ok?: boolean; messages?: number; fileRecords?: number; keys?: string[]; linkFields?: string[]; error?: string }
+        | undefined;
+      if (!r?.ok) {
+        fieldDumpError = r?.error || 'no response';
+        return;
+      }
+      fieldDumpRows = [
+        { label: 'messages scanned', value: String(r.messages ?? 0) },
+        { label: 'file records', value: String(r.fileRecords ?? 0), warn: (r.fileRecords ?? 0) === 0 },
+        { label: 'link-ish fields', value: (r.linkFields && r.linkFields.length ? r.linkFields.join(', ') : 'none'), warn: !(r.linkFields && r.linkFields.length) },
+        { label: 'all fields', value: (r.keys && r.keys.length ? r.keys.join(', ') : '-') },
+      ];
+    } catch (e) {
+      fieldDumpError = e instanceof Error ? e.message : String(e);
+    } finally {
+      fieldDumpRunning = false;
+    }
+  }
+
+  async function runFileProbe() {
+    const href = fileProbeUrl.trim();
+    if (!href || fileProbeRunning) return;
+    fileProbeRunning = true;
+    fileProbeError = '';
+    fileProbeRows = [];
+    try {
+      const activeTab = await getActiveTab();
+      if (!activeTab?.id || !isTeamsUrl(activeTab.url ?? '')) {
+        fileProbeError = t('diagnostics.fileProbeNoTab', {}, lang);
+        return;
+      }
+      const resolve = (await tabs.sendMessage(activeTab.id, { type: 'RESOLVE_SHARE_FILE', href })) as
+        | { ok?: boolean; status?: number; name?: string; mimeType?: string; downloadUrl?: string; blocksDownload?: boolean; error?: string; via?: string; matchedName?: string; mode?: string }
+        | undefined;
+      const r = resolve ?? {};
+      const rows: { label: string; value: string; warn?: boolean }[] = [
+        { label: 'via', value: r.via === 'shareUrl' ? `sharing link (${r.matchedName || 'matched'})` : 'raw URL (no chat match)', warn: r.via !== 'shareUrl' },
+        { label: 'resolve', value: `${r.ok ? `ok (HTTP ${r.status})` : `failed (HTTP ${r.status || 0}${r.error ? `: ${r.error}` : ''})`}${r.mode ? ` [creds: ${r.mode}]` : ''}`, warn: !r.ok },
+        { label: 'token', value: r.error && r.error.includes('no SharePoint token') ? 'not found in MSAL cache' : 'found', warn: !!(r.error && r.error.includes('no SharePoint token')) },
+      ];
+      if (r.ok) {
+        rows.push({ label: 'name', value: r.name || '-' });
+        rows.push({ label: 'mimeType', value: r.mimeType || '-' });
+        rows.push({ label: 'blocksDownload', value: r.blocksDownload == null ? 'unknown' : String(r.blocksDownload), warn: r.blocksDownload === true });
+        // Presence only — the URL embeds a short-lived token, never shown.
+        rows.push({ label: 'downloadUrl', value: r.downloadUrl ? 'present (short-lived)' : 'absent', warn: !r.downloadUrl });
+      }
+      fileProbeRows = rows;
+      if (r.ok && r.downloadUrl) {
+        const dl = await runtimeSend(runtime, { type: 'PROBE_FILE_DOWNLOAD', url: r.downloadUrl, name: r.name });
+        fileProbeRows = [
+          ...rows,
+          dl && 'ok' in dl && dl.ok
+            ? { label: 'download', value: `${dl.outcome} (${dl.mime || '?'}, ${dl.bytes ?? '?'} bytes -> Downloads/TCE-probe/${dl.filename || ''})`, warn: dl.outcome !== 'complete' }
+            : { label: 'download', value: `failed: ${dl && 'error' in dl ? dl.error : 'no response'}`, warn: true },
+        ];
+      }
+    } catch (e) {
+      fileProbeError = e instanceof Error ? e.message : String(e);
+    } finally {
+      fileProbeRunning = false;
+    }
+  }
 
   async function runProbes() {
     if (probesRunning) return;
@@ -700,6 +789,74 @@
       <div class="inline-error">{probesError}</div>
     {/if}
 
+    <div class="section-title section-title-with-action">
+      <span>{t('diagnostics.fieldDump', {}, lang)}</span>
+      <button
+        class="section-action"
+        on:click={runFieldDump}
+        disabled={fieldDumpRunning}
+        title={t('diagnostics.fieldDumpRun', {}, lang)}
+      >
+        {fieldDumpRunning ? t('diagnostics.probesRunning', {}, lang) : t('diagnostics.fieldDumpRun', {}, lang)}
+      </button>
+    </div>
+    <div class="card stack">
+      <div class="row">
+        <div class="probes-empty">{t('diagnostics.fieldDumpHint', {}, lang)}</div>
+      </div>
+      {#each fieldDumpRows as row (row.label)}
+        <div class="row" class:warn={row.warn}>
+          <div class="label">{row.label}</div>
+          <div class="val">{row.value}</div>
+        </div>
+      {/each}
+      {#if fieldDumpError}
+        <div class="row warn">
+          <div class="label">error</div>
+          <div class="val">{fieldDumpError}</div>
+        </div>
+      {/if}
+    </div>
+
+    <div class="section-title section-title-with-action">
+      <span>{t('diagnostics.fileProbe', {}, lang)}</span>
+      <button
+        class="section-action"
+        on:click={runFileProbe}
+        disabled={fileProbeRunning || !fileProbeUrl.trim()}
+        title={t('diagnostics.fileProbeRun', {}, lang)}
+      >
+        {fileProbeRunning ? t('diagnostics.probesRunning', {}, lang) : t('diagnostics.fileProbeRun', {}, lang)}
+      </button>
+    </div>
+    <div class="card stack">
+      <div class="row">
+        <div class="probes-empty">{t('diagnostics.fileProbeHint', {}, lang)}</div>
+      </div>
+      <div class="row">
+        <input
+          class="file-probe-input"
+          type="text"
+          placeholder="https://…sharepoint.com/…"
+          bind:value={fileProbeUrl}
+          disabled={fileProbeRunning}
+          spellcheck="false"
+        />
+      </div>
+      {#each fileProbeRows as row (row.label)}
+        <div class="row" class:warn={row.warn}>
+          <div class="label">{row.label}</div>
+          <div class="val">{row.value}</div>
+        </div>
+      {/each}
+      {#if fileProbeError}
+        <div class="row warn">
+          <div class="label">error</div>
+          <div class="val">{fileProbeError}</div>
+        </div>
+      {/if}
+    </div>
+
     <div class="actions">
       <label class="raw-toggle" title={t('diagnostics.includeRawIds.tooltip', {}, lang)}>
         <input type="checkbox" checked={includeRawIds} on:change={onRawIdsToggle} />
@@ -855,6 +1012,17 @@
     font-size: 12px;
     color: var(--color-subtle);
     padding: 4px 6px;
+  }
+  .file-probe-input {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 12px;
+    font-family: ui-monospace, monospace;
+    color: var(--color-text);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 6px 8px;
   }
   .probe-row {
     align-items: center;

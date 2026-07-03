@@ -134,7 +134,10 @@ export default defineConfig({
     // can't be loaded from unrelated pages.
     web_accessible_resources: [
       {
-        resources: ['page-helpers/urlp-fetcher.js'],
+        // urlp-fetcher.js: cookie-partition image fetches.
+        // share-resolver.js: cookie-partition SharePoint /shares resolve
+        // (same reason — the page world owns the SharePoint session cookie).
+        resources: ['page-helpers/urlp-fetcher.js', 'page-helpers/share-resolver.js'],
         matches: TEAMS_MATCH_PATTERNS,
       },
     ],

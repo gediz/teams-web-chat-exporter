@@ -21,6 +21,8 @@ import {
   type AttachmentDownloadSummary,
 } from '../background/attachment-download';
 import { waitForDownloadSettled, type SettledOutcome } from '../background/download-wait';
+import { isSharePointFileHost } from '../utils/teams-urls';
+import { sanitizeFileName } from '../utils/messages';
 import { revokeDownloadUrl, textToDownloadUrl } from '../background/builders';
 import { createZipStream, type ZipStream } from '../background/zip';
 import { beginExportStats, endExportStats, getExportStats } from '../background/export-stats';
@@ -2101,6 +2103,58 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
         // waiting for an SW restart. No buffer side effects.
         diagVerboseStatsEnabled = !!msg.enabled;
         sendResponse({ ok: true });
+        return true;
+    }
+
+    if (msg.type === 'PROBE_FILE_DOWNLOAD') {
+        // File-access probe (Diagnostics page), second hop: the content script
+        // resolved a pre-authenticated downloadUrl via the shares API; hand it
+        // to chrome.downloads and report the SETTLED outcome (not the dispatch)
+        // so the probe result reflects what actually landed on disk. The URL is
+        // attacker-influenceable in principle, so it gets the same SharePoint
+        // host gate as the download feature. Never logged: it embeds a token.
+        (async () => {
+            const url = String(msg.url || '');
+            if (!isSharePointFileHost(url)) {
+                let host = '?';
+                try { host = new URL(url).host; } catch { /* keep ? */ }
+                sendResponse({ ok: false, error: `resolved URL host not gated: ${host}` });
+                return;
+            }
+            const leaf = sanitizeFileName(String(msg.name || '') || 'probe.bin');
+            let id: number | undefined;
+            try {
+                id = await downloads.download({
+                    url,
+                    filename: `TCE-probe/${leaf}`,
+                    saveAs: false,
+                    conflictAction: 'uniquify',
+                });
+            } catch (e: any) {
+                sendResponse({ ok: false, error: e?.message || String(e) });
+                return;
+            }
+            if (typeof id !== 'number') {
+                sendResponse({ ok: false, error: 'no download id' });
+                return;
+            }
+            const outcome = await waitForDownloadSettled(
+                { downloads, onChanged: downloads.onChanged },
+                id,
+                { pollMs: 1_000, stallMs: 60_000 },
+            );
+            let mime: string | undefined;
+            let bytes: number | undefined;
+            let filename: string | undefined;
+            try {
+                const r = await downloads.search({ id });
+                const item = Array.isArray(r) ? r[0] : undefined;
+                mime = item?.mime || undefined;
+                bytes = item?.bytesReceived ?? undefined;
+                filename = item?.filename?.split(/[\\/]/).pop() || undefined;
+            } catch { /* report outcome without item details */ }
+            sendResponse({ ok: true, outcome, mime, bytes, filename });
+        })();
         return true;
     }
 

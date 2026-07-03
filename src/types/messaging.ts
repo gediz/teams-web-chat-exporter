@@ -185,6 +185,43 @@ export type RunProbesContentResponse =
   | { ok: true; results: DiagnosticsProbeResult[]; totalMs: number }
   | { ok: false; reason: string };
 
+// File-access probe (Diagnostics page). Two hops:
+//   popup -> content:  RESOLVE_SHARE_FILE resolves a SharePoint file URL via
+//                      the shares API (must run with the Teams page origin).
+//   popup -> bg:       PROBE_FILE_DOWNLOAD hands the resolved pre-auth
+//                      downloadUrl to chrome.downloads and reports the settled
+//                      outcome. The downloadUrl embeds a short-lived token —
+//                      transported over internal messaging only, never logged.
+// Diagnostics: dump the raw field names of the open chat's file attachments
+// (values never leave the page), to check for a sharing-link field.
+export type DumpFileFieldsRequest = { type: 'DUMP_FILE_FIELDS' };
+export type DumpFileFieldsResponse =
+  | { ok: true; messages: number; fileRecords: number; keys: string[]; linkFields: string[] }
+  | { ok: false; error: string };
+export type ResolveShareFileRequest = { type: 'RESOLVE_SHARE_FILE'; href: string };
+export type ResolveShareFileResponse = {
+  ok: boolean;
+  status: number;
+  name?: string;
+  mimeType?: string;
+  downloadUrl?: string;
+  blocksDownload?: boolean;
+  allowEdit?: boolean;
+  readOnly?: boolean;
+  itemId?: string;
+  error?: string;
+  // Whether the resolve used the matched file's sharing link or fell back to
+  // the pasted raw URL; matchedName is the file record we matched.
+  via?: 'shareUrl' | 'rawUrl';
+  matchedName?: string;
+  // Credentials mode the page-world helper used (diagnostic).
+  mode?: string;
+};
+export type ProbeFileDownloadRequest = { type: 'PROBE_FILE_DOWNLOAD'; url: string; name?: string };
+export type ProbeFileDownloadResponse =
+  | { ok: true; outcome: string; mime?: string; bytes?: number; filename?: string }
+  | { ok: false; error: string };
+
 export type GetDiagnosticsContentRequest = { type: 'GET_DIAGNOSTICS_CONTENT' };
 export type DiagnosticsIdbStore = { name: string; count: number; error?: string };
 export type DiagnosticsIdbDatabase = {
@@ -236,6 +273,7 @@ export type RuntimeRequest =
   | ListConversationsQuickRequest
   | GetDiagnosticsBgRequest
   | RunProbesBgRequest
+  | ProbeFileDownloadRequest
   | ClearDiagnosticsLogsRequest
   | SetDiagLogPersistRequest
   | SetDiagVerboseStatsRequest;
@@ -256,6 +294,7 @@ export type BackgroundIncomingMessage =
   | ListConversationsQuickRequest
   | GetDiagnosticsBgRequest
   | RunProbesBgRequest
+  | ProbeFileDownloadRequest
   | DiagLogForwardRequest
   | ClearDiagnosticsLogsRequest
   | SetDiagLogPersistRequest
@@ -271,6 +310,7 @@ export type RuntimeResponse<T extends RuntimeRequest> =
   T extends ListConversationsQuickRequest ? ListConversationsQuickResponse :
   T extends GetDiagnosticsBgRequest ? GetDiagnosticsBgResponse :
   T extends RunProbesBgRequest ? RunProbesBgResponse :
+  T extends ProbeFileDownloadRequest ? ProbeFileDownloadResponse :
   T extends ClearDiagnosticsLogsRequest ? ClearDiagnosticsLogsResponse :
   T extends SetDiagLogPersistRequest ? SetDiagLogPersistResponse :
   T extends SetDiagVerboseStatsRequest ? SetDiagVerboseStatsResponse :

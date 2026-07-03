@@ -6,6 +6,7 @@ import { makeDayDivider as buildDayDivider } from '../utils/messages';
 import { cssEscape, isPlaceholderText, textFrom } from '../utils/text';
 import { parseTimeStamp } from '../utils/time';
 import { extractAttachments } from '../content/attachments';
+import { resolveShareFile } from '../content/share-resolver';
 import { extractReactions } from '../content/reactions';
 import { extractReplyContext } from '../content/replies';
 import { cleanAltText, extractTables, extractTextWithEmojis, normalizeMentions } from '../content/text';
@@ -3563,6 +3564,102 @@ export default defineContentScript({
                             sendResponse({ ok: true, results, totalMs });
                         } catch (e) {
                             sendResponse({ ok: false, reason: e instanceof Error ? e.message : String(e) });
+                        }
+                        return;
+                    }
+                    if (msg.type === 'DUMP_FILE_FIELDS') {
+                        // Diagnostics: scrape the open chat's first message page
+                        // and report the raw field NAMES (never values) of each
+                        // file attachment record, so we can see whether Teams'
+                        // message data carries a sharing-link field (shareUrl /
+                        // defaultEncodingURL / ...) that the shares resolver
+                        // needs. Read-only; nothing is saved.
+                        try {
+                            const convId = (await extractConversationId()) || undefined;
+                            const res = await apiScrape(undefined, { conversationId: convId });
+                            // Walk a file record collecting DOTTED key paths (names
+                            // only, never values), 3 levels deep, so a sharing link
+                            // nested in fileInfo/providerData/etc. is visible too.
+                            const allPaths = new Set<string>();
+                            const linkFieldNames = new Set<string>();
+                            const walk = (o: unknown, prefix: string, depth: number) => {
+                                if (!o || typeof o !== 'object' || depth > 3) return;
+                                for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
+                                    const path = prefix ? `${prefix}.${k}` : k;
+                                    allPaths.add(path);
+                                    if (/url|link|share|encoding|relative|path/i.test(k)) linkFieldNames.add(path);
+                                    if (v && typeof v === 'object') walk(v, path, depth + 1);
+                                }
+                            };
+                            let fileRecords = 0;
+                            for (const m of res?.messages || []) {
+                                const rawFiles = (m.properties as Record<string, unknown> | undefined)?.files;
+                                if (!rawFiles) continue;
+                                let files: Array<Record<string, unknown>>;
+                                try { files = typeof rawFiles === 'string' ? JSON.parse(rawFiles) : rawFiles as typeof files; } catch { continue; }
+                                if (!Array.isArray(files)) continue;
+                                for (const f of files) {
+                                    if (!f || typeof f !== 'object') continue;
+                                    walk(f, '', 0);
+                                    fileRecords++;
+                                    if (fileRecords >= 8) break;
+                                }
+                                if (fileRecords >= 8) break;
+                            }
+                            sendResponse({
+                                ok: true,
+                                messages: res?.messages?.length ?? 0,
+                                fileRecords,
+                                keys: Array.from(allPaths).sort(),
+                                linkFields: Array.from(linkFieldNames).sort(),
+                            });
+                        } catch (e) {
+                            sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
+                        }
+                        return;
+                    }
+                    if (msg.type === 'RESOLVE_SHARE_FILE') {
+                        // File-access probe (Diagnostics page): resolve a file to
+                        // its pre-authenticated downloadUrl the way Teams does —
+                        // via the SHARING LINK (fileInfo.shareUrl), not the raw
+                        // file path (which needs host cookies and 401s when the
+                        // session is stale). Given a pasted file link, scrape the
+                        // open chat, match the file record by name, and resolve
+                        // its shareUrl. Falls back to resolving the pasted URL
+                        // directly if no match is found. Runs here because the
+                        // shares fetch needs the Teams page origin.
+                        try {
+                            const pasted = String(msg.href || '');
+                            const wantName = decodeURIComponent((pasted.split('?')[0].split('/').pop() || '')).toLowerCase();
+                            let shareUrl: string | undefined;
+                            let matchedName: string | undefined;
+                            try {
+                                const convId = (await extractConversationId()) || undefined;
+                                const res = await apiScrape(undefined, { conversationId: convId });
+                                for (const m of res?.messages || []) {
+                                    const rawFiles = (m.properties as Record<string, unknown> | undefined)?.files;
+                                    if (!rawFiles) continue;
+                                    let files: Array<Record<string, unknown>>;
+                                    try { files = typeof rawFiles === 'string' ? JSON.parse(rawFiles) : rawFiles as typeof files; } catch { continue; }
+                                    if (!Array.isArray(files)) continue;
+                                    for (const f of files) {
+                                        const info = (f?.fileInfo || {}) as Record<string, unknown>;
+                                        const nm = String(f?.fileName || '').toLowerCase();
+                                        const objName = decodeURIComponent(String(f?.objectUrl || '').split('?')[0].split('/').pop() || '').toLowerCase();
+                                        if (typeof info.shareUrl === 'string' && (nm === wantName || objName === wantName || (wantName && nm && wantName.startsWith(nm.slice(0, 40))))) {
+                                            shareUrl = info.shareUrl;
+                                            matchedName = String(f?.fileName || '');
+                                            break;
+                                        }
+                                    }
+                                    if (shareUrl) break;
+                                }
+                            } catch { /* scrape failed — fall through to direct resolve */ }
+                            const target = shareUrl || pasted;
+                            const out = await resolveShareFile(target);
+                            sendResponse({ ...out, via: shareUrl ? 'shareUrl' : 'rawUrl', matchedName });
+                        } catch (e) {
+                            sendResponse({ ok: false, status: 0, error: e instanceof Error ? e.message : String(e) });
                         }
                         return;
                     }
