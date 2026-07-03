@@ -592,6 +592,12 @@ export async function downloadAttachments(
   const MAX_RETRIES = 2;
   const RETRY_BACKOFF_MS = 3_000;
   const keyOf = (it: AttachmentCandidate) => it.href;
+  // Live in-flight download count (enrolled, not-yet-settled). A retry waits for
+  // a free slot before re-dispatching so retries respect the same concurrency
+  // ceiling as the initial pool instead of piling on top of it (which added
+  // contention and more NETWORK_FAILED). MAX_INFLIGHT tracks opts.maxConcurrent.
+  let activeDownloads = 0;
+  const MAX_INFLIGHT = opts.maxConcurrent && opts.maxConcurrent > 0 ? opts.maxConcurrent : 6;
 
   // Best-effort removal of an interrupted download's leftover partial (Chrome's
   // "Unconfirmed NNN.crdownload"): cancel drops the resumable partial, erase
@@ -610,6 +616,7 @@ export async function downloadAttachments(
   const onDownloadSettled = (id: number, kind: SettleKind, reason?: string) => {
     if (runEnded) { pendingIds.delete(id); enrolledItem.delete(id); return; }
     if (!pendingIds.delete(id)) return; // event+poll double delivery guard
+    activeDownloads = Math.max(0, activeDownloads - 1);
     const item = enrolledItem.get(id);
     enrolledItem.delete(id);
     if (kind === 'failed' && item && !signal.aborted && isTransientReason(reason)
@@ -644,6 +651,10 @@ export async function downloadAttachments(
         if (p.kind !== 'spec') { summary.failed++; settledOne(); return; }
         spec = p.spec;
       } catch { summary.failed++; settledOne(); return; }
+      // Wait for a free download slot so retries don't exceed the pool ceiling.
+      while (activeDownloads >= MAX_INFLIGHT && !runEnded && !signal.aborted) {
+        await new Promise<void>(res => setTimeout(res, 250));
+      }
       if (runEnded || signal.aborted) { if (!runEnded) { summary.failed++; settledOne(); } return; }
       let id: number | undefined;
       try {
@@ -723,6 +734,7 @@ export async function downloadAttachments(
     // pendingIds BEFORE pendingVerify: the terminal event can fire the moment
     // the entry exists, and onDownloadSettled only counts ids it knows.
     pendingIds.add(id);
+    activeDownloads++;
     enrolledItem.set(id, item);
     pendingVerify.set(id, {
       name, href: item.href, chatFolder: item.chatFolder, exportFolder, markup,
