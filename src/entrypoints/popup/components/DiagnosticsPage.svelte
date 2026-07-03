@@ -60,6 +60,12 @@
   let fileProbeRunning = false;
   let fileProbeRows: { label: string; value: string; warn?: boolean }[] = [];
   let fileProbeError = '';
+  // Salvage: import a list of file links (e.g. a FAILURES.txt or the URL list),
+  // resolve + download each one serially into Downloads/TCE-salvage/.
+  let salvageRunning = false;
+  let salvageStatus = '';
+  let salvageRows: { label: string; value: string; warn?: boolean }[] = [];
+  let salvageError = '';
   // Raw file-field dump: shows which fields the open chat's file attachments
   // carry (to check for a sharing-link field). Field NAMES only.
   let fieldDumpRunning = false;
@@ -433,6 +439,50 @@
       fileProbeError = e instanceof Error ? e.message : String(e);
     } finally {
       fileProbeRunning = false;
+    }
+  }
+
+  // Salvage: import a file of links, resolve + download each serially.
+  async function runSalvage(ev: Event) {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file || salvageRunning) return;
+    salvageRunning = true;
+    salvageError = '';
+    salvageRows = [];
+    salvageStatus = '';
+    try {
+      const text = await file.text();
+      const hrefs = Array.from(new Set(text.match(/https?:\/\/\S+/g) || []));
+      if (!hrefs.length) { salvageError = t('diagnostics.salvageNoLinks', {}, lang); return; }
+      const activeTab = await getActiveTab();
+      if (!activeTab?.id || !isTeamsUrl(activeTab.url ?? '')) { salvageError = t('diagnostics.fileProbeNoTab', {}, lang); return; }
+      salvageStatus = t('diagnostics.salvageResolving', { n: hrefs.length }, lang);
+      const r = (await tabs.sendMessage(activeTab.id, { type: 'BATCH_RESOLVE_HREFS', hrefs })) as
+        | { ok?: boolean; error?: string; results?: Array<{ href: string; name: string; ok: boolean; downloadUrl?: string; blocksDownload?: boolean; error?: string }> }
+        | undefined;
+      if (!r?.ok) { salvageError = r?.error || 'resolve failed'; return; }
+      const results = r.results || [];
+      let saved = 0, unavailable = 0;
+      for (let i = 0; i < results.length; i++) {
+        const res = results[i];
+        salvageStatus = t('diagnostics.salvageDownloading', { i: i + 1, n: results.length }, lang);
+        if (!res.ok || !res.downloadUrl) { unavailable++; continue; }
+        const dl = await runtimeSend(runtime, { type: 'PROBE_FILE_DOWNLOAD', url: res.downloadUrl, name: res.name });
+        if (dl && 'ok' in dl && dl.ok && (dl as { outcome?: string }).outcome === 'complete') saved++;
+        else unavailable++;
+      }
+      salvageRows = [
+        { label: 'links', value: String(hrefs.length) },
+        { label: 'saved', value: String(saved) },
+        { label: 'unavailable', value: String(unavailable), warn: unavailable > 0 },
+      ];
+      salvageStatus = t('diagnostics.salvageDone', { n: saved }, lang);
+    } catch (e) {
+      salvageError = e instanceof Error ? e.message : String(e);
+    } finally {
+      salvageRunning = false;
+      input.value = ''; // allow re-importing the same file
     }
   }
 
@@ -857,6 +907,31 @@
       {/if}
     </div>
 
+    <div class="section-title section-title-with-action">
+      <span>{t('diagnostics.salvage', {}, lang)}</span>
+      <label class="section-action" class:disabled={salvageRunning}>
+        {salvageRunning ? t('diagnostics.probesRunning', {}, lang) : t('diagnostics.salvageImport', {}, lang)}
+        <input type="file" accept=".txt,text/plain" on:change={runSalvage} disabled={salvageRunning} style="display:none" />
+      </label>
+    </div>
+    <div class="card stack">
+      <div class="row">
+        <div class="probes-empty">{t('diagnostics.salvageHint', {}, lang)}</div>
+      </div>
+      {#if salvageStatus}
+        <div class="row"><div class="label">status</div><div class="val">{salvageStatus}</div></div>
+      {/if}
+      {#each salvageRows as row (row.label)}
+        <div class="row" class:warn={row.warn}>
+          <div class="label">{row.label}</div>
+          <div class="val">{row.value}</div>
+        </div>
+      {/each}
+      {#if salvageError}
+        <div class="row warn"><div class="label">error</div><div class="val">{salvageError}</div></div>
+      {/if}
+    </div>
+
     <div class="actions">
       <label class="raw-toggle" title={t('diagnostics.includeRawIds.tooltip', {}, lang)}>
         <input type="checkbox" checked={includeRawIds} on:change={onRawIdsToggle} />
@@ -1004,7 +1079,8 @@
     text-transform: none;
     letter-spacing: 0;
   }
-  .section-action[disabled] {
+  .section-action[disabled],
+  .section-action.disabled {
     color: var(--color-subtle);
     cursor: default;
   }

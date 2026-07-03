@@ -198,6 +198,13 @@ export type DumpFileFieldsRequest = { type: 'DUMP_FILE_FIELDS' };
 export type DumpFileFieldsResponse =
   | { ok: true; messages: number; fileRecords: number; keys: string[]; linkFields: string[] }
   | { ok: false; error: string };
+// Salvage tool (Diagnostics page): resolve a list of file links at once.
+export type BatchResolveHrefsRequest = { type: 'BATCH_RESOLVE_HREFS'; hrefs: string[] };
+export type BatchResolveHrefsResponse = {
+  ok: boolean;
+  error?: string;
+  results?: Array<{ href: string; name: string; ok: boolean; downloadUrl?: string; blocksDownload?: boolean; error?: string; via?: string }>;
+};
 export type ResolveShareFileRequest = { type: 'RESOLVE_SHARE_FILE'; href: string };
 export type ResolveShareFileResponse = {
   ok: boolean;

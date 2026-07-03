@@ -3650,6 +3650,46 @@ export default defineContentScript({
                         }
                         return;
                     }
+                    if (msg.type === 'BATCH_RESOLVE_HREFS') {
+                        // Salvage tool (Diagnostics page): resolve a LIST of file
+                        // links (e.g. from a FAILURES.txt) to pre-authenticated
+                        // download URLs. Scrapes the open chat ONCE, builds a
+                        // filename -> shareUrl map, then resolves each link. The
+                        // popup downloads the resolved URLs serially. downloadUrl
+                        // is short-lived — returned to the popup, never logged.
+                        try {
+                            const hrefs: string[] = Array.isArray(msg.hrefs) ? msg.hrefs.map((h: unknown) => String(h)) : [];
+                            const byName = new Map<string, { shareUrl: string; fileName: string }>();
+                            const convId = (await extractConversationId()) || undefined;
+                            const res = await apiScrape(undefined, { conversationId: convId });
+                            for (const m of res?.messages || []) {
+                                const rawFiles = (m.properties as Record<string, unknown> | undefined)?.files;
+                                if (!rawFiles) continue;
+                                let files: Array<Record<string, unknown>>;
+                                try { files = typeof rawFiles === 'string' ? JSON.parse(rawFiles) : rawFiles as typeof files; } catch { continue; }
+                                if (!Array.isArray(files)) continue;
+                                for (const f of files) {
+                                    const info = (f?.fileInfo || {}) as Record<string, unknown>;
+                                    if (typeof info.shareUrl !== 'string') continue;
+                                    const nm = String(f?.fileName || '').toLowerCase();
+                                    const objName = decodeURIComponent(String(f?.objectUrl || '').split('?')[0].split('/').pop() || '').toLowerCase();
+                                    if (nm && !byName.has(nm)) byName.set(nm, { shareUrl: info.shareUrl, fileName: String(f?.fileName || '') });
+                                    if (objName && !byName.has(objName)) byName.set(objName, { shareUrl: info.shareUrl, fileName: String(f?.fileName || '') });
+                                }
+                            }
+                            const results = await Promise.all(hrefs.map(href => withShareResolveSlot(async () => {
+                                const want = decodeURIComponent((href.split('?')[0].split('/').pop() || '')).toLowerCase();
+                                const match = byName.get(want);
+                                const target = match?.shareUrl || href;
+                                const out = await resolveShareFile(target);
+                                return { href, name: match?.fileName || want, ok: out.ok, downloadUrl: out.downloadUrl, blocksDownload: out.blocksDownload, error: out.error, via: match ? 'shareUrl' : 'rawUrl' };
+                            })));
+                            sendResponse({ ok: true, results });
+                        } catch (e) {
+                            sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
+                        }
+                        return;
+                    }
                     if (msg.type === 'RESOLVE_SHARE_FILE') {
                         // File-access probe (Diagnostics page): resolve a file to
                         // its pre-authenticated downloadUrl the way Teams does —
