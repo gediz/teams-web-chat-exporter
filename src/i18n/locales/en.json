@@ -41,7 +41,7 @@
   "include.avatars": "Avatars",
   "include.images": "Images",
   "include.files": "File attachments",
-  "include.filesHint": "Save document attachments (PDF, DOCX, and similar) to your Downloads folder. Each file downloads individually.",
+  "include.filesHint": "Save document attachments (PDF, DOCX, and similar) together with the export in its own folder in your Downloads. Each file downloads individually.",
   "summary.replies": "Replies",
   "summary.reactions": "Reactions",
   "summary.system": "System",

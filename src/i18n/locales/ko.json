@@ -21,7 +21,7 @@
   "include.avatars": "아바타",
   "include.images": "이미지",
   "include.files": "파일 첨부",
-  "include.filesHint": "문서 첨부 파일(PDF, DOCX 등)을 다운로드 폴더에 저장합니다. 각 파일은 개별적으로 다운로드됩니다.",
+  "include.filesHint": "문서 첨부 파일(PDF, DOCX 등)을 내보내기와 함께 다운로드 폴더 안의 전용 폴더에 저장합니다. 각 파일은 개별적으로 다운로드됩니다.",
   "summary.replies": "답글",
   "summary.reactions": "반응",
   "summary.system": "시스템",

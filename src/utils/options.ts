@@ -70,8 +70,10 @@ export type Options = {
   // images/ folder. Whether the date survives is extractor-dependent (see zip.ts).
   imageModifiedDate: boolean;
   // Opt-in: stream non-image file attachments (SharePoint documents like
-  // PDF/DOCX/XLSX) to disk via chrome.downloads, into an `attachments/` folder
-  // beside the export. Off by default. Inline images are handled separately by
+  // PDF/DOCX/XLSX) to disk via chrome.downloads. Also switches the export
+  // into package mode: the export file and its `attachments/` tree are saved
+  // together in one folder in Downloads (named after the export), with no
+  // Save As dialog. Off by default. Inline images are handled separately by
   // downloadImages; this covers the paperclip / shared-file documents that are
   // otherwise kept as links. Files that can't be resolved (cross-tenant, guest,
   // consumer OneDrive, expired auth) stay as links.

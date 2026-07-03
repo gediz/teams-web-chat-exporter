@@ -21,7 +21,7 @@
   "include.avatars": "頭像",
   "include.images": "圖片",
   "include.files": "檔案附件",
-  "include.filesHint": "將文件附件（PDF、DOCX 等）儲存到「下載」資料夾。每個檔案會個別下載。",
+  "include.filesHint": "將文件附件（PDF、DOCX 等）與匯出檔案一起儲存到「下載」資料夾中的專屬資料夾。每個檔案會個別下載。",
   "summary.replies": "回覆",
   "summary.reactions": "回應",
   "summary.system": "系統",

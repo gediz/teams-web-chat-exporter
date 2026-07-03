@@ -21,7 +21,7 @@
   "include.avatars": "אווטרים",
   "include.images": "תמונות",
   "include.files": "קבצים מצורפים",
-  "include.filesHint": "שמירת מסמכים מצורפים (PDF, DOCX וכדומה) בתיקיית ההורדות שלך. כל קובץ יורד בנפרד.",
+  "include.filesHint": "שמירת מסמכים מצורפים (PDF, DOCX וכדומה) יחד עם הייצוא בתיקייה משלו בתוך תיקיית ההורדות. כל קובץ יורד בנפרד.",
   "summary.replies": "תגובות",
   "summary.reactions": "תגובות",
   "summary.system": "מערכת",

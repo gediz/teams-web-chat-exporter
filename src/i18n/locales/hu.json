@@ -21,7 +21,7 @@
   "include.avatars": "Avatarok",
   "include.images": "Képek",
   "include.files": "Fájlmellékletek",
-  "include.filesHint": "Dokumentummellékletek (PDF, DOCX és hasonlók) mentése a Letöltések mappába. Minden fájl külön töltődik le.",
+  "include.filesHint": "Dokumentummellékletek (PDF, DOCX és hasonlók) mentése az exporttal együtt annak saját mappájába a Letöltések mappán belül. Minden fájl külön töltődik le.",
   "summary.replies": "Válaszok",
   "summary.reactions": "Reakciók",
   "summary.system": "Rendszer",

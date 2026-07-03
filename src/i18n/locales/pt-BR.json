@@ -21,7 +21,7 @@
   "include.avatars": "Avatares",
   "include.images": "Imagens",
   "include.files": "Anexos de arquivo",
-  "include.filesHint": "Salva os anexos de documentos (PDF, DOCX e similares) na sua pasta de downloads. Cada arquivo é baixado individualmente.",
+  "include.filesHint": "Salva os anexos de documentos (PDF, DOCX e similares) junto com a exportação em uma pasta própria dentro da pasta de downloads. Cada arquivo é baixado individualmente.",
   "summary.replies": "Respostas",
   "summary.reactions": "Reações",
   "summary.system": "Sistema",

@@ -21,7 +21,7 @@
   "include.avatars": "الصور الرمزية",
   "include.images": "الصور",
   "include.files": "الملفات المرفقة",
-  "include.filesHint": "حفظ المستندات المرفقة (PDF وDOCX وما شابهها) في مجلد التنزيلات. يُنزَّل كل ملف على حدة.",
+  "include.filesHint": "حفظ المستندات المرفقة (PDF وDOCX وما شابهها) مع التصدير في مجلد خاص به داخل مجلد التنزيلات. يُنزَّل كل ملف على حدة.",
   "summary.replies": "الردود",
   "summary.reactions": "التفاعلات",
   "summary.system": "النظام",

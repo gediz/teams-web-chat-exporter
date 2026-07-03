@@ -274,16 +274,20 @@ export type ExportStatusPayload = {
   bundleSuccessCount?: number;
   bundleFailedCount?: number;
   // Attachment-download phase ('downloading-files'): how many document
-  // attachments have been processed (resolved + handed to chrome.downloads)
-  // out of the total found for this export. Drives the "Downloading files:
-  // N / M" progress line. Only present while downloadFiles is on.
+  // attachments have SETTLED (download finished and verified, kept as a
+  // link, or failed to dispatch) out of the total found for this export.
+  // Drives the "Downloading files: N / M" progress line. Only present while
+  // downloadFiles is on.
   filesDone?: number;
   filesTotal?: number;
   // Final attachment-download tally, attached to the 'complete' status when
-  // downloadFiles is on. `saved` = downloaded to disk; `links` = kept as a
-  // link (cross-tenant / consumer / unresolved); `failed` = resolve or
-  // download error. Drives the post-export summary line.
-  filesSummary?: { total: number; saved: number; links: number; failed: number };
+  // downloadFiles is on. Counts are settled outcomes, not dispatches:
+  // `saved` = completed on disk and verified (request-access junk pages are
+  // verified out and counted as failed); `links` = kept as a link
+  // (cross-tenant / consumer / unresolved); `failed` = dispatch or download
+  // error, including verified no-access pages; `cancelled` = stopped before
+  // finishing (user cancel / STOP). Drives the post-export summary line.
+  filesSummary?: { total: number; saved: number; links: number; failed: number; cancelled?: number };
 };
 
 // One row in the export history. Written on phase='complete'|'cancelled'

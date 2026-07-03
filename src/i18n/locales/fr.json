@@ -21,7 +21,7 @@
   "include.avatars": "Avatars",
   "include.images": "Images",
   "include.files": "Pièces jointes",
-  "include.filesHint": "Enregistre les documents joints (PDF, DOCX et similaires) dans votre dossier Téléchargements. Chaque fichier est téléchargé séparément.",
+  "include.filesHint": "Enregistre les documents joints (PDF, DOCX et similaires) avec l'export dans son propre dossier de votre dossier Téléchargements. Chaque fichier est téléchargé séparément.",
   "summary.replies": "Réponses",
   "summary.reactions": "Réactions",
   "summary.system": "Système",

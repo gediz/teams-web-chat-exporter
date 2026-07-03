@@ -21,7 +21,7 @@
   "include.avatars": "头像",
   "include.images": "图片",
   "include.files": "文件附件",
-  "include.filesHint": "将文档附件（PDF、DOCX 等）保存到下载文件夹。每个文件单独下载。",
+  "include.filesHint": "将文档附件（PDF、DOCX 等）与导出文件一起保存到下载文件夹中的专属文件夹。每个文件单独下载。",
   "summary.replies": "回复",
   "summary.reactions": "反应",
   "summary.system": "系统",

@@ -21,7 +21,7 @@
   "include.avatars": "Avatar",
   "include.images": "Imej",
   "include.files": "Lampiran fail",
-  "include.filesHint": "Simpan lampiran dokumen (PDF, DOCX dan seumpamanya) ke folder Muat Turun anda. Setiap fail dimuat turun satu per satu.",
+  "include.filesHint": "Simpan lampiran dokumen (PDF, DOCX dan seumpamanya) bersama eksport dalam foldernya sendiri di dalam folder Muat Turun anda. Setiap fail dimuat turun satu per satu.",
   "summary.replies": "Balasan",
   "summary.reactions": "Reaksi",
   "summary.system": "Sistem",

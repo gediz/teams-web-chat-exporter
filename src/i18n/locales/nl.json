@@ -21,7 +21,7 @@
   "include.avatars": "Avatars",
   "include.images": "Afbeeldingen",
   "include.files": "Bestandsbijlagen",
-  "include.filesHint": "Documentbijlagen (PDF, DOCX en dergelijke) opslaan in je Downloads-map. Elk bestand wordt afzonderlijk gedownload.",
+  "include.filesHint": "Documentbijlagen (PDF, DOCX en dergelijke) samen met de export opslaan in een eigen map binnen je Downloads-map. Elk bestand wordt afzonderlijk gedownload.",
   "summary.replies": "Antwoorden",
   "summary.reactions": "Reacties",
   "summary.system": "Systeem",

@@ -23,7 +23,7 @@ Microsoft Teams has no end-user export button. The platform routes users to admi
 - Toggleable per export: replies, reactions, system messages, avatars, inline images
 - Picker filters: by kind (Chats / Groups / Meetings / Channels) and by Teams folder (Favorites + your custom folders), both axes persist across popup opens
 
-Every message includes text, timestamp, and author. Forwarded messages, mentions, reactions (with reactor names when available), and file metadata (name, type, size, link) are captured where the format supports it. Files themselves are not downloaded.
+Every message includes text, timestamp, and author. Forwarded messages, mentions, reactions (with reactor names when available), and file metadata (name, type, size, link) are captured where the format supports it. With the "File attachments" toggle on, shared SharePoint/OneDrive documents are also downloaded: the export and an `attachments/` folder are saved together in one folder in Downloads (named after the export), and files that could not be retrieved are listed in a `FAILURES.txt` inside the `attachments/` folder. With the toggle off, files stay links.
 
 Inline images, GIFs, and audio (voice messages) are embedded when the "Inline images" toggle is on. HTML embeds them via `<img src="data:...">` by default; Settings → Avatars in HTML → "Save as separate files" switches HTML output to a `.zip` that contains the HTML file plus `images/` and `avatars/` folders. PDF always embeds inline image attachments it can decode (PNG, JPEG) and rasterized Twemoji for emoji. Video thumbnails are embedded across formats; the video file itself is only linked.
 

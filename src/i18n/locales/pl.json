@@ -21,7 +21,7 @@
   "include.avatars": "Awatary",
   "include.images": "Obrazy",
   "include.files": "Załączone pliki",
-  "include.filesHint": "Zapisuje załączone dokumenty (PDF, DOCX i podobne) do folderu Pobrane. Każdy plik pobierany jest osobno.",
+  "include.filesHint": "Zapisuje załączone dokumenty (PDF, DOCX i podobne) razem z eksportem w jego własnym folderze w folderze Pobrane. Każdy plik pobierany jest osobno.",
   "summary.replies": "Odpowiedzi",
   "summary.reactions": "Reakcje",
   "summary.system": "Systemowe",

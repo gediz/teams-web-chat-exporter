@@ -21,7 +21,7 @@
   "include.avatars": "Avatare",
   "include.images": "Bilder",
   "include.files": "Dateianhänge",
-  "include.filesHint": "Speichert Dokumentanhänge (PDF, DOCX und Ähnliches) in deinem Downloads-Ordner. Jede Datei wird einzeln heruntergeladen.",
+  "include.filesHint": "Speichert Dokumentanhänge (PDF, DOCX und Ähnliches) zusammen mit dem Export in einem eigenen Ordner in deinem Downloads-Ordner. Jede Datei wird einzeln heruntergeladen.",
   "summary.replies": "Antworten",
   "summary.reactions": "Reaktionen",
   "summary.system": "System",

@@ -61,6 +61,12 @@ type BuildExportOptions = {
   // Only read by the zip paths; single-file HTML always inlines avatars
   // because one loose .html file can't reference a sibling folder.
   avatarMode?: AvatarMode;
+  // Package mode (the Files toggle): save the export INSIDE its base folder
+  // ('<base>/<base>.<ext>') with saveAs:false, so the document-attachment
+  // phase (which streams into '<base>/attachments/') lands beside it and the
+  // whole export is one folder in Downloads. Off (default) leaves the
+  // requested filename and saveAs exactly as before.
+  packageFolder?: boolean;
 } & PdfKnobs;
 
 type BuildBundleOptions = {
@@ -72,6 +78,7 @@ type BuildBundleOptions = {
   imageFilenameDate?: boolean;
   imageModifiedDate?: boolean;
   avatarMode?: AvatarMode;
+  packageFolder?: boolean;
 } & PdfKnobs;
 
 // Translate PdfKnobs -> buildPdf's PdfOptions shape. The property rename
@@ -102,6 +109,20 @@ function computeBaseName(meta: ExportMeta): string {
   // builders inject.
   const partial = meta.partial ? '-PARTIAL' : '';
   return `TeamsExport_${baseTitle}_${stamp}${partial}`;
+}
+
+// Package-mode path for a download request: '<leaf-minus-ext>/<leaf>', with
+// the folder reported back so the attachments phase can target the SAME
+// folder string (background.ts derives its exportFolder from this instead of
+// re-stripping the extension). Derived from the FINAL leaf at each dispatch
+// site — never precomputed — so retry/fallback filenames (which are not
+// computeBaseName-derived) still get a matching folder. With packageFolder
+// off the leaf passes through untouched and folder is undefined, which keeps
+// every non-Files export byte-identical to before.
+function packagePath(leaf: string, packageFolder: boolean | undefined): { filename: string; folder?: string } {
+  if (!packageFolder) return { filename: leaf };
+  const folder = leaf.replace(/\.[^.]+$/, '');
+  return { filename: `${folder}/${leaf}`, folder };
 }
 
 const DATA_URL_RE = /^data:([^;]+);base64,(.*)$/i;
@@ -377,7 +398,7 @@ export async function buildAndDownload(
   deps: BuildDownloadDeps,
   options: BuildExportOptions,
 ) {
-  const { messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false, downloadImages = false, imageFilenameDate = false, imageModifiedDate = false } = options;
+  const { messages = [], meta = {}, format = 'json', saveAs = true, embedAvatars = false, downloadImages = false, imageFilenameDate = false, imageModifiedDate = false, packageFolder = false } = options;
   const { downloads, onStatus, onArtifact } = deps;
 
   // PDF is fundamentally different from the text formats — it produces
@@ -395,12 +416,13 @@ export async function buildAndDownload(
     onStatus?.({ phase: 'build', filename, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
     onArtifact?.({ format: 'pdf', bytes: bytes.byteLength });
     const url = await blobToDownloadUrl(new Blob([bytes as BlobPart], { type: 'application/pdf' }), 'application/pdf');
+    const pp = packagePath(filename, packageFolder);
     try {
-      console.log(`[pdf-single] downloads.download calling: filename=${filename} bytes=${bytes.byteLength}`);
-      const id = await downloads.download({ url, filename, saveAs });
+      console.log(`[pdf-single] downloads.download calling: filename=${pp.filename} bytes=${bytes.byteLength}`);
+      const id = await downloads.download({ url, filename: pp.filename, saveAs: packageFolder ? false : saveAs });
       console.log(`[pdf-single] downloads.download resolved: id=${id}`);
       setTimeout(() => revokeDownloadUrl(url), 60_000);
-      return { ok: true, filename, id };
+      return { ok: true, filename: pp.filename, id, folder: pp.folder };
     } catch (e: any) {
       console.log(`[pdf-single] downloads.download rejected: ${e?.message || String(e)}`);
       revokeDownloadUrl(url);
@@ -416,7 +438,7 @@ export async function buildAndDownload(
       if (m.attachments) for (const a of m.attachments) { if (a.dataUrl) totalDataBytes += a.dataUrl.length; }
     }
     if (totalDataBytes > 5_000_000 || (downloadImages && messages.length > 500)) {
-      return buildAndDownloadZip(deps, { messages, meta, embedAvatars, downloadImages, imageFilenameDate, imageModifiedDate });
+      return buildAndDownloadZip(deps, { messages, meta, embedAvatars, downloadImages, imageFilenameDate, imageModifiedDate, packageFolder });
     }
   }
 
@@ -433,12 +455,13 @@ export async function buildAndDownload(
   const blob = new Blob(Array.isArray(built.content) ? built.content : [built.content], { type: built.mime });
   onArtifact?.({ format, bytes: blob.size });
   const url = await blobToDownloadUrl(blob, built.mime);
+  const pp = packagePath(built.filename, packageFolder);
   try {
-    console.log(`[text-single] downloads.download calling: filename=${built.filename} format=${format}`);
-    const id = await downloads.download({ url, filename: built.filename, saveAs });
+    console.log(`[text-single] downloads.download calling: filename=${pp.filename} format=${format}`);
+    const id = await downloads.download({ url, filename: pp.filename, saveAs: packageFolder ? false : saveAs });
     console.log(`[text-single] downloads.download resolved: id=${id}`);
     setTimeout(() => revokeDownloadUrl(url), 60_000);
-    return { ok: true, filename: built.filename, id };
+    return { ok: true, filename: pp.filename, id, folder: pp.folder };
   } catch (e: any) {
     console.log(`[text-single] downloads.download rejected: ${e?.message || String(e)} — retrying with sanitized filename`);
     const safe = `${sanitizeBase('teams-chat')}-${Date.now()}.${format === 'html' ? 'html' : format === 'csv' ? 'csv' : format === 'txt' ? 'txt' : 'json'}`;
@@ -453,10 +476,14 @@ export async function buildAndDownload(
         new Blob(Array.isArray(built.content) ? built.content : [built.content], { type: built.mime }),
         built.mime,
       );
-      const id2 = await downloads.download({ url: url2, filename: safe, saveAs });
+      // The retry leaf is NOT computeBaseName-derived, so its package folder
+      // must derive from the retry leaf itself or attachments would target a
+      // folder that doesn't match the saved file.
+      const pp2 = packagePath(safe, packageFolder);
+      const id2 = await downloads.download({ url: url2, filename: pp2.filename, saveAs: packageFolder ? false : saveAs });
       console.log(`[text-single] downloads.download retry resolved: id=${id2}`);
       setTimeout(() => revokeDownloadUrl(url2!), 60_000);
-      return { ok: true, filename: safe, id: id2 };
+      return { ok: true, filename: pp2.filename, id: id2, folder: pp2.folder };
     } catch (e2: any) {
       console.log(`[text-single] downloads.download retry rejected: ${e2?.message || String(e2)}`);
       if (url2) revokeDownloadUrl(url2);
@@ -467,7 +494,7 @@ export async function buildAndDownload(
 
 export async function buildAndDownloadZip(
   deps: BuildDownloadDeps,
-  { messages = [], meta = {}, embedAvatars = false, downloadImages = false, imageFilenameDate = false, imageModifiedDate = false, avatarMode = 'inline' }: BuildExportOptions,
+  { messages = [], meta = {}, embedAvatars = false, downloadImages = false, imageFilenameDate = false, imageModifiedDate = false, avatarMode = 'inline', packageFolder = false }: BuildExportOptions,
 ) {
   const { downloads, onStatus, onArtifact } = deps;
   // Show segment 4 active before the synchronous build/zip work begins so the
@@ -533,12 +560,13 @@ export async function buildAndDownloadZip(
   const zipBlob = await buildZipAsync(files, 'zip-html-images');
   const zipName = `${built.baseFolder}.zip`;
   const url = await blobToDownloadUrl(zipBlob, 'application/zip');
+  const pp = packagePath(zipName, packageFolder);
   try {
-    console.log(`[html-zip] downloads.download calling: filename=${zipName} zipBytes=${zipBlob.size}`);
-    const id = await downloads.download({ url, filename: zipName, saveAs: true });
+    console.log(`[html-zip] downloads.download calling: filename=${pp.filename} zipBytes=${zipBlob.size}`);
+    const id = await downloads.download({ url, filename: pp.filename, saveAs: !packageFolder });
     console.log(`[html-zip] downloads.download resolved: id=${id}`);
     setTimeout(() => revokeDownloadUrl(url), 60_000);
-    return { ok: true, filename: zipName, id };
+    return { ok: true, filename: pp.filename, id, folder: pp.folder };
   } catch (e: any) {
     console.log(`[html-zip] downloads.download rejected: ${e?.message || String(e)}`);
     revokeDownloadUrl(url);
@@ -557,7 +585,7 @@ export async function buildAndDownloadBundle(
   deps: BuildDownloadDeps,
   options: BuildBundleOptions,
 ) {
-  const { messages = [], meta = {}, formats, embedAvatars = false, downloadImages = false, imageFilenameDate = false, imageModifiedDate = false, avatarMode = 'inline' } = options;
+  const { messages = [], meta = {}, formats, embedAvatars = false, downloadImages = false, imageFilenameDate = false, imageModifiedDate = false, avatarMode = 'inline', packageFolder = false } = options;
   const { downloads, onStatus, onArtifact } = deps;
   if (!formats.length) throw new Error('buildAndDownloadBundle: formats is empty');
 
@@ -671,13 +699,14 @@ export async function buildAndDownloadBundle(
   const tUrl = performance.now();
   const url = await blobToDownloadUrl(zipBlob, 'application/zip');
   console.log(`[per-chat-zip] download-url created in ${Math.round(performance.now() - tUrl)}ms (zipBytes=${zipBlob.size}, scheme=${url.slice(0, 5)})`);
+  const pp = packagePath(zipName, packageFolder);
   try {
     const tDl = performance.now();
-    console.log(`[per-chat-zip] downloads.download calling: filename=${zipName}`);
-    const id = await downloads.download({ url, filename: zipName, saveAs: true });
+    console.log(`[per-chat-zip] downloads.download calling: filename=${pp.filename}`);
+    const id = await downloads.download({ url, filename: pp.filename, saveAs: !packageFolder });
     console.log(`[per-chat-zip] downloads.download resolved: id=${id} ms=${Math.round(performance.now() - tDl)}`);
     setTimeout(() => revokeDownloadUrl(url), 60_000);
-    return { ok: true, filename: zipName, id };
+    return { ok: true, filename: pp.filename, id, folder: pp.folder };
   } catch (e: any) {
     console.log(`[per-chat-zip] downloads.download rejected: ${e?.message || String(e)}`);
     revokeDownloadUrl(url);
@@ -882,6 +911,7 @@ export async function buildAndDownloadBundlesZip(
   failures: BundleFailure[],
   noHistory: BundleEmpty[] = [],
   partials: BundlePartial[] = [],
+  opts: { packageFolder?: boolean } = {},
 ) {
   const { downloads } = deps;
 
@@ -948,13 +978,14 @@ export async function buildAndDownloadBundlesZip(
   const tUrl = performance.now();
   const url = await blobToDownloadUrl(zipBlob, 'application/zip');
   console.log(`[bundle-outer] download-url created in ${Math.round(performance.now() - tUrl)}ms (scheme=${url.slice(0, 5)})`);
+  const pp = packagePath(zipName, opts.packageFolder);
   try {
     const tDl = performance.now();
-    console.log(`[bundle-outer] downloads.download calling: filename=${zipName}`);
-    const id = await downloads.download({ url, filename: zipName, saveAs: true });
+    console.log(`[bundle-outer] downloads.download calling: filename=${pp.filename}`);
+    const id = await downloads.download({ url, filename: pp.filename, saveAs: !opts.packageFolder });
     console.log(`[bundle-outer] downloads.download resolved: id=${id} ms=${Math.round(performance.now() - tDl)}`);
     setTimeout(() => revokeDownloadUrl(url), 60_000);
-    return { ok: true, filename: zipName, id };
+    return { ok: true, filename: pp.filename, id, folder: pp.folder };
   } catch (e: any) {
     console.log(`[bundle-outer] downloads.download rejected: ${e?.message || String(e)}`);
     revokeDownloadUrl(url);

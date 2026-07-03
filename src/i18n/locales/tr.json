@@ -34,7 +34,7 @@
   "include.avatars": "Avatarlar",
   "include.images": "Görseller",
   "include.files": "Dosya ekleri",
-  "include.filesHint": "Belge eklerini (PDF, DOCX ve benzeri) İndirilenler klasörünüze kaydeder. Her dosya ayrı ayrı indirilir.",
+  "include.filesHint": "Belge eklerini (PDF, DOCX ve benzeri) dışa aktarmayla birlikte İndirilenler içindeki kendi klasörüne kaydeder. Her dosya ayrı ayrı indirilir.",
   "summary.replies": "Yanıtlar",
   "summary.reactions": "Tepkiler",
   "summary.system": "Sistem",

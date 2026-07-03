@@ -21,7 +21,7 @@
   "include.avatars": "アバター",
   "include.images": "画像",
   "include.files": "ファイル添付",
-  "include.filesHint": "ドキュメントの添付ファイル（PDF、DOCX など）をダウンロードフォルダーに保存します。ファイルは1件ずつ個別にダウンロードされます。",
+  "include.filesHint": "ドキュメントの添付ファイル（PDF、DOCX など）をエクスポートと一緒に、ダウンロードフォルダー内の専用フォルダーに保存します。ファイルは1件ずつ個別にダウンロードされます。",
   "summary.replies": "返信",
   "summary.reactions": "リアクション",
   "summary.system": "システム",

@@ -21,7 +21,7 @@
   "include.avatars": "Avatares",
   "include.images": "Imágenes",
   "include.files": "Archivos adjuntos",
-  "include.filesHint": "Guarda los documentos adjuntos (PDF, DOCX y similares) en tu carpeta de Descargas. Cada archivo se descarga por separado.",
+  "include.filesHint": "Guarda los documentos adjuntos (PDF, DOCX y similares) junto con la exportación en su propia carpeta dentro de Descargas. Cada archivo se descarga por separado.",
   "summary.replies": "Respuestas",
   "summary.reactions": "Reacciones",
   "summary.system": "Sistema",

@@ -21,7 +21,7 @@
   "include.avatars": "Avatar",
   "include.images": "Immagini",
   "include.files": "Allegati",
-  "include.filesHint": "Salva gli allegati di documenti (PDF, DOCX e simili) nella tua cartella Download. Ogni file viene scaricato singolarmente.",
+  "include.filesHint": "Salva gli allegati di documenti (PDF, DOCX e simili) insieme all'esportazione in una propria cartella dentro Download. Ogni file viene scaricato singolarmente.",
   "summary.replies": "Risposte",
   "summary.reactions": "Reazioni",
   "summary.system": "Sistema",

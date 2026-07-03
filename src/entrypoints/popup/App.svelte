@@ -1116,10 +1116,14 @@
       const fs = msg.filesSummary;
       let completeText = t("status.complete", {}, langNow);
       if (fs && fs.total > 0) {
+        // Counts are settled outcomes: the background now waits for every
+        // attachment download to finish and verify before broadcasting
+        // 'complete', so `saved` means on disk and `failed` already includes
+        // files verified as inaccessible (they're also listed in FAILURES.txt).
+        // fs.cancelled (files stopped mid-download) is not itemized here —
+        // stopping was the user's own action and FAILURES.txt lists them.
         const parts = [t("status.filesSaved", { n: fs.saved }, langNow)];
-        // Host-gate links kept as links rather than downloaded. (Files the user
-        // can't access are cleaned up post-download into FAILURES.txt, after this
-        // summary is sent, so they aren't reflected here.)
+        // Host-gate links kept as links rather than downloaded.
         if (fs.links > 0) parts.push(t("status.filesLinks", { n: fs.links }, langNow));
         if (fs.failed > 0) parts.push(t("status.filesFailed", { n: fs.failed }, langNow));
         completeText += " · " + parts.join(" · ");
@@ -1373,7 +1377,9 @@
           || `Bundle export complete: ${success} of ${total} chats${failed ? ` (${failed} failed)` : ''}.`;
         setStatus(
           bundleResp.filename
-            ? `${summaryText} (${bundleResp.filename})`
+            // Leaf only: in package mode (Files on) the filename is a
+            // Downloads-relative path ('folder/file.zip').
+            ? `${summaryText} (${bundleResp.filename.split("/").pop()})`
             : summaryText,
         );
         hideErrorBanner(true);
@@ -1459,7 +1465,9 @@
       const langNow = currentLang();
       setStatus(
         response.filename
-          ? `${t("status.complete", {}, langNow)} (${response.filename})`
+          // Leaf only: in package mode (Files on) the filename is a
+          // Downloads-relative path ('folder/file.zip').
+          ? `${t("status.complete", {}, langNow)} (${response.filename.split("/").pop()})`
           : t("status.complete", {}, langNow),
       );
       hideErrorBanner(true);

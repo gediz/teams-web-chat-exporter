@@ -292,7 +292,9 @@
     if (entry.kind === 'cancelled') {
       return t('history.cancelledTitle', {}, lang) || '(cancelled — no file saved)';
     }
-    return entry.title || entry.filename || '(untitled export)';
+    // Leaf only: package-mode (Files on) filenames are Downloads-relative
+    // paths ('folder/file.zip'). The tooltip keeps the full path.
+    return entry.title || entry.filename?.split('/').pop() || '(untitled export)';
   };
 
   // Badge text. Bundle exports (2+ formats packaged into one .zip) get a

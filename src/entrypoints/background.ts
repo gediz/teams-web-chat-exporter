@@ -20,6 +20,7 @@ import {
   type AttachmentCandidate,
   type AttachmentDownloadSummary,
 } from '../background/attachment-download';
+import { waitForDownloadSettled, type SettledOutcome } from '../background/download-wait';
 import { revokeDownloadUrl, textToDownloadUrl } from '../background/builders';
 import { createZipStream, type ZipStream } from '../background/zip';
 import { beginExportStats, endExportStats, getExportStats } from '../background/export-stats';
@@ -235,7 +236,7 @@ function log(...a: unknown[]) { try { console.log("[Teams Exporter SW]", ...a) }
 // at boot and at each export start/end so any SW console / export can be tied to
 // the exact build — no more guessing whether a stale service worker is running.
 const BUILD_STAMP = __BUILD_STAMP__;
-log(`boot build=${BUILD_STAMP} [files=fire-and-forget; markup=uniqueid; verify=onchanged-mime; dl-complete=enum]`);
+log(`boot build=${BUILD_STAMP} [files=settled-package; markup=uniqueid; verify=onchanged-mime; dl-complete=enum+settle]`);
 
 // Post-download request-access cleanup for the Files toggle. Registered at the
 // service-worker top level so a download completing after the export's await
@@ -283,11 +284,18 @@ function makeEntryId(): string {
 
 // True when a DownloadItem's bytes are fully on disk, even if we never observed
 // the 'complete' state transition. Used as a last-chance check on timeout to
-// distinguish a real stall from a missed 'complete' signal. Field-guarded for
-// Firefox MV2, whose DownloadItem omits `exists`.
+// distinguish a real stall from a missed 'complete' signal. Both engines
+// serialize `exists`; the ===false guard rejects files already removed from
+// disk. (An earlier comment here claimed Firefox omits the field — wrong.)
 function downloadIsOnDisk(item: chrome.downloads.DownloadItem): boolean {
     if ((item as { exists?: boolean }).exists === false) return false;
     if (item.state === 'interrupted') return false;
+    // Empty filename = target still undecided (a Save As dialog, or the
+    // browser's ask-where-to-save chooser, is open). Chrome spools the blob's
+    // bytes to a temp file DURING the dialog, so bytesReceived can equal
+    // totalBytes while the user has neither confirmed nor cancelled — that is
+    // an undecided save, never a finished one.
+    if (!item.filename) return false;
     const received = item.bytesReceived || 0;
     if (received <= 0) return false;
     const total = item.totalBytes;
@@ -295,6 +303,17 @@ function downloadIsOnDisk(item: chrome.downloads.DownloadItem): boolean {
     // after the full timeout, a non-interrupted item with bytes received is a
     // finished write, not a partial one.
     return total <= 0 || received >= total;
+}
+
+// The InterruptReason (e.g. FILE_NO_SPACE, USER_CANCELED) of a download, or
+// undefined when it can't be read. Firefox encodes a manual cancel as an
+// EMPTY error where Chrome uses USER_CANCELED; callers treat both as a cancel.
+async function downloadErrorReason(id: number): Promise<string | undefined> {
+    try {
+        const r = await downloads.search({ id });
+        const item = Array.isArray(r) ? r[0] : undefined;
+        return item?.error || undefined;
+    } catch { return undefined; }
 }
 
 // downloads.download() returns the item's ID before the file is actually
@@ -677,7 +696,10 @@ type BuildStep = (
     scrapeRes: ScrapeResult,
     buildOptions: BuildOptions,
     tabId: number,
-) => Promise<{ filename?: string; id?: number }>;
+    // `folder` is set only in package mode (Files toggle on): the Downloads-
+    // relative folder the export was saved into, which the attachments phase
+    // must reuse verbatim so both land in the same place.
+) => Promise<{ filename?: string; id?: number; folder?: string }>;
 
 function handleExportWithScrape(
     msg: any,
@@ -769,16 +791,68 @@ function handleExportWithScrape(
             // popup ends up showing a row that points at a non-existent
             // file, and Open fails with "An unexpected error occurred."
             log('awaiting zip download completion id=', buildRes.id);
-            const downloadStatus = buildRes.id != null
-                ? await waitForDownloadComplete(buildRes.id, 30_000)
-                : 'complete';
+            const packageMode = Boolean(buildOptions?.downloadFiles);
+            let downloadStatus: 'complete' | 'interrupted' | 'timeout';
+            if (packageMode && buildRes.id != null) {
+                // Package mode (Files on): the attachments phase must never run
+                // against an export that isn't actually on disk, so there is no
+                // proceed-on-timeout here — only a confirmed terminal state. The
+                // wait is event-driven with a keep-alive poll; a genuine stall or
+                // a vanished download is an error, not a silent success. STOP
+                // aborts the wait via the tab's tracked controllers.
+                const waitAbort = new AbortController();
+                trackFetch(tabId, waitAbort);
+                let settled: SettledOutcome;
+                try {
+                    settled = await waitForDownloadSettled(
+                        { downloads, onChanged: downloads.onChanged },
+                        buildRes.id,
+                        { signal: waitAbort.signal },
+                    );
+                } finally {
+                    untrackFetch(tabId, waitAbort);
+                }
+                log('export download settle ->', settled, 'id=', buildRes.id);
+                if (settled === 'aborted') {
+                    // STOP while the artifact was still writing: the file is not
+                    // (fully) on disk — cancel it and report cancelled. The STOP
+                    // handler owns the cancelled history row.
+                    try { await downloads.cancel(buildRes.id); } catch { /* already terminal */ }
+                    statsOutcome = 'cancelled';
+                    broadcastStatus({ tabId, phase: 'cancelled' });
+                    sendResponse({ cancelled: true });
+                    return;
+                }
+                if (settled === 'interrupted') {
+                    // With saveAs:false there is no Save As dialog, so an
+                    // interrupt is a real failure (disk full, blocked by
+                    // policy...) unless the user cancelled it from the shelf.
+                    const reason = await downloadErrorReason(buildRes.id);
+                    if (reason && reason !== 'USER_CANCELED') {
+                        throw new Error(`Export download failed (${reason})`);
+                    }
+                    statsOutcome = 'cancelled';
+                    log('export download interrupted (cancelled) for id', buildRes.id);
+                    broadcastStatus({ tabId, phase: 'cancelled' });
+                    sendResponse({ cancelled: true });
+                    return;
+                }
+                if (settled === 'stalled') throw new Error('Export download did not finish (no progress)');
+                if (settled === 'missing') throw new Error('Export download disappeared before completing');
+                downloadStatus = 'complete';
+            } else {
+                downloadStatus = buildRes.id != null
+                    ? await waitForDownloadComplete(buildRes.id, 30_000)
+                    : 'complete';
+            }
             log('zip download wait ->', downloadStatus, 'id=', buildRes.id);
             // Only a real interruption (e.g. Cancel in the Save As dialog, which
             // surfaces as state='interrupted') counts as cancelled. A 'timeout'
             // means we could not confirm completion in the window — common for
             // small data:-scheme exports that settle synchronously — but the file
-            // is not interrupted, so we treat it as saved and continue, including
-            // the Files phase below (which would otherwise be wrongly skipped).
+            // is not interrupted, so we treat it as saved and continue. (Package
+            // mode never reaches here with 'timeout'; its wait above only yields
+            // confirmed outcomes.)
             if (downloadStatus === 'interrupted') {
                 statsOutcome = 'cancelled';
                 log('export download interrupted (cancelled) for id', buildRes.id);
@@ -794,17 +868,18 @@ function handleExportWithScrape(
             statsFilename = buildRes.filename;
 
             // Stream document attachments to disk (the "Files" toggle). Runs
-            // after the main export is saved and only when downloadFiles is on,
-            // so a normal export is byte-identical. The attachments/ tree sits
-            // beside the saved file under the same TeamsExport_… base name
-            // (derived by stripping the file's extension so the timestamp
-            // matches; recomputing the base would mint a fresh, mismatched one).
-            // The AbortController is registered with the tab so STOP_EXPORT
-            // (abortFetchesForTab) cancels the in-flight resolver fetches too.
+            // after the main export is confirmed saved and only when
+            // downloadFiles is on, so a normal export is byte-identical. In
+            // package mode the builders return the folder the export was saved
+            // INTO ('<base>/<base>.<ext>'), and the attachments/ tree goes in
+            // the same folder. The legacy extension-strip stays as the
+            // fallback (recomputing the base would mint a fresh, mismatched
+            // timestamp). The AbortController is registered with the tab so
+            // STOP_EXPORT (abortFetchesForTab) stops the phase.
             let filesSummary: AttachmentDownloadSummary | undefined;
             if (buildOptions?.downloadFiles && buildRes.filename) {
                 log('Files phase: starting for', (scrapeRes.messages || []).length, 'messages');
-                const exportFolder = buildRes.filename.replace(/\.[^.\\/]+$/, '');
+                const exportFolder = buildRes.folder ?? buildRes.filename.replace(/\.[^.\\/]+$/, '');
                 const filesAbort = new AbortController();
                 trackFetch(tabId, filesAbort);
                 try {
@@ -843,9 +918,10 @@ function handleExportWithScrape(
             // from the popup's HistoryPage; the entry is written here (not
             // popup-side) so it gets recorded even when the popup was
             // closed during the export.
-            const completeStartedAt = activeExports.get(tabId)?.startedAt;
-            const completeElapsedMs = completeStartedAt
-                ? Math.max(0, Date.now() - completeStartedAt)
+            // Local startedAt, not the activeExports entry: a STOP during the
+            // Files phase deletes that entry while this flow keeps running.
+            const completeElapsedMs = startedAt
+                ? Math.max(0, Date.now() - startedAt)
                 : 0;
             const completeFname = buildRes.filename || '';
             // Prefer the convId the content script already resolved during
@@ -975,8 +1051,11 @@ function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
         // saveAs because zips force a Save As anyway via downloads.show
         // semantics (the file would conflict otherwise).
         const avatarMode = buildOptions.avatarMode === 'files' ? 'files' : 'inline';
+        // Files toggle on -> package mode: the export saves INSIDE its base
+        // folder (saveAs:false) so the attachments/ tree lands beside it.
+        const packageFolder = Boolean(buildOptions.downloadFiles);
         if (formats.length >= 2) {
-            return buildAndDownloadBundle(deps, { ...commonOpts, formats, avatarMode });
+            return buildAndDownloadBundle(deps, { ...commonOpts, formats, avatarMode, packageFolder });
         }
         const format = formats[0];
         // HTML goes into a .zip when EITHER inline images are on OR the
@@ -984,12 +1063,13 @@ function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
         // structure). Without either, single HTML stays inline.
         const wantFiles = avatarMode === 'files' && Boolean(buildOptions.embedAvatars);
         if (format === 'html' && (downloadImages || wantFiles)) {
-            return buildAndDownloadZip(deps, { ...commonOpts, avatarMode });
+            return buildAndDownloadZip(deps, { ...commonOpts, avatarMode, packageFolder });
         }
         return buildAndDownload(deps, {
             ...commonOpts,
             format,
             saveAs: buildOptions.saveAs !== false,
+            packageFolder,
         });
     });
 }
@@ -1498,21 +1578,63 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
             // and every entries.push is preceded by creating bundleZip, so it
             // is non-null. Guard defensively anyway.
             if (!bundleZip) throw new Error('bundle zip stream missing despite built chats');
-            const buildRes = await buildAndDownloadBundlesZip({ downloads, isFirefox }, bundleZip, entries.length, failures, noHistory, partials);
-            const downloadStatus = buildRes.id != null
-                ? await waitForDownloadComplete(buildRes.id, 60_000)
-                : 'complete';
-            // Same rule as the single-chat path: only a real interruption is a
-            // cancel. A 'timeout' (completion unconfirmed in the window) still
-            // continues to the Files phase rather than dropping it.
-            if (downloadStatus === 'interrupted') {
-                bundleCancelled = true;
-                broadcastStatus({ tabId, phase: 'cancelled' });
-                sendResponse({ cancelled: true });
-                return;
-            }
-            if (downloadStatus === 'timeout') {
-                log('bundle export download completion unconfirmed; proceeding for id', buildRes.id);
+            const bundlePackageMode = Boolean(buildOptions?.downloadFiles);
+            const buildRes = await buildAndDownloadBundlesZip(
+                { downloads, isFirefox }, bundleZip, entries.length, failures, noHistory, partials,
+                { packageFolder: bundlePackageMode },
+            );
+            if (bundlePackageMode && buildRes.id != null) {
+                // Package mode: same confirmed-terminal wait as the single-chat
+                // path — the Files phase must not run against an unsaved zip,
+                // and there is no proceed-on-timeout.
+                const waitAbort = new AbortController();
+                trackFetch(tabId, waitAbort);
+                let settled: SettledOutcome;
+                try {
+                    settled = await waitForDownloadSettled(
+                        { downloads, onChanged: downloads.onChanged },
+                        buildRes.id,
+                        { signal: waitAbort.signal },
+                    );
+                } finally {
+                    untrackFetch(tabId, waitAbort);
+                }
+                log('bundle export download settle ->', settled, 'id=', buildRes.id);
+                if (settled === 'aborted') {
+                    try { await downloads.cancel(buildRes.id); } catch { /* already terminal */ }
+                    bundleCancelled = true;
+                    broadcastStatus({ tabId, phase: 'cancelled' });
+                    sendResponse({ cancelled: true });
+                    return;
+                }
+                if (settled === 'interrupted') {
+                    const reason = await downloadErrorReason(buildRes.id);
+                    if (reason && reason !== 'USER_CANCELED') {
+                        throw new Error(`Export download failed (${reason})`);
+                    }
+                    bundleCancelled = true;
+                    broadcastStatus({ tabId, phase: 'cancelled' });
+                    sendResponse({ cancelled: true });
+                    return;
+                }
+                if (settled === 'stalled') throw new Error('Export download did not finish (no progress)');
+                if (settled === 'missing') throw new Error('Export download disappeared before completing');
+            } else {
+                const downloadStatus = buildRes.id != null
+                    ? await waitForDownloadComplete(buildRes.id, 60_000)
+                    : 'complete';
+                // Same rule as the single-chat path: only a real interruption is a
+                // cancel. A 'timeout' (completion unconfirmed in the window) still
+                // continues rather than dropping the completion handling.
+                if (downloadStatus === 'interrupted') {
+                    bundleCancelled = true;
+                    broadcastStatus({ tabId, phase: 'cancelled' });
+                    sendResponse({ cancelled: true });
+                    return;
+                }
+                if (downloadStatus === 'timeout') {
+                    log('bundle export download completion unconfirmed; proceeding for id', buildRes.id);
+                }
             }
 
             // Stream collected document attachments to disk now that the outer
@@ -1520,7 +1642,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
             // so STOP_EXPORT cancels the in-flight resolver fetches.
             let filesSummary: AttachmentDownloadSummary | undefined;
             if (buildOptions?.downloadFiles && bundleAttachItems.length && buildRes.filename && !bundleStops.has(tabId)) {
-                const exportFolder = buildRes.filename.replace(/\.zip$/i, '');
+                const exportFolder = buildRes.folder ?? buildRes.filename.replace(/\.zip$/i, '');
                 const filesAbort = new AbortController();
                 trackFetch(tabId, filesAbort);
                 try {
@@ -2176,6 +2298,25 @@ async function handleStopExportMessage(tabId: number, sendResponse: (resp: unkno
     if (existing?.phase === 'complete') {
         log('STOP_EXPORT ignored — export already completed');
         sendResponse({ ok: true, alreadyComplete: true });
+        return;
+    }
+
+    // Files phase: the export artifact is ALREADY on disk; Stop should stop
+    // the file downloads, not disown the export. Abort the tab's controllers
+    // (breaks the settlement wait; the run cancels its in-flight downloads,
+    // which land in FAILURES.txt's cancelled section) and let the export flow
+    // emit the single coherent terminal — 'complete' with the cancelled-file
+    // counts — instead of writing a 'cancelled' history row here that would
+    // pair with the flow's success row (double-row) and claim nothing saved.
+    // 'cancelling' is matched too so a second Stop press during the wind-down
+    // stays idempotent instead of falling through to the generic path (which
+    // would write a cancelled row alongside the flow's coming terminal).
+    if (existing?.phase === 'downloading-files' || existing?.phase === 'cancelling') {
+        log('STOP_EXPORT during Files phase — stopping file downloads, keeping the export');
+        broadcastStatus({ tabId, phase: 'cancelling' });
+        const filesAborted = abortFetchesForTab(tabId);
+        if (filesAborted > 0) log(`aborted ${filesAborted} in-flight fetches for tab ${tabId}`);
+        sendResponse({ ok: true });
         return;
     }
 

@@ -2,9 +2,11 @@
 //
 // Streams non-image SharePoint/OneDrive-for-Business file attachments
 // (PDF/DOCX/XLSX/ZIP/video/...) to disk via chrome.downloads, into an
-// `attachments/` folder beside the export. Inline images are handled
-// separately by downloadImages; this is the paperclip / shared-file documents
-// that are otherwise kept as links.
+// `attachments/` folder INSIDE the export's package folder (the builders save
+// the export itself into the same folder in package mode, so the whole export
+// is one folder in Downloads). Inline images are handled separately by
+// downloadImages; this is the paperclip / shared-file documents that are
+// otherwise kept as links.
 //
 // Mechanism (verified live against a real tenant): the converter stores a
 // document's absolute SharePoint URL (the file's webDavUrl/objectUrl) as
@@ -49,23 +51,28 @@ import { revokeDownloadUrl, textToDownloadUrl } from './builders';
 
 // The subset of chrome.downloads we use. Mirrors the deps-injection style in
 // download.ts so the module stays unit-testable without a real browser.
-// search/removeFile/erase back the post-download request-access cleanup.
-type DownloadsApi = Pick<typeof chrome.downloads, 'download' | 'search' | 'removeFile' | 'erase'>;
+// search/removeFile/erase back the post-download request-access cleanup;
+// cancel backs the STOP path (stop the actual transfers, not just dispatch).
+type DownloadsApi = Pick<typeof chrome.downloads, 'download' | 'search' | 'removeFile' | 'erase' | 'cancel'>;
 
 export interface AttachmentDownloadDeps {
   downloads: DownloadsApi;
-  // Called after each candidate is processed. `done` counts processed
-  // candidates; `total` is the candidate count.
+  // Called as candidates SETTLE (link kept, dispatch failed, or the download
+  // reached a terminal state and was verified). `done` counts settled
+  // candidates — files whose outcome is known — not dispatches, so the
+  // popup's progress is real and monotonic. `total` is the candidate count.
   onProgress?: (done: number, total: number) => void;
   log?: (msg: string) => void;
 }
 
 export interface AttachmentDownloadSummary {
-  total: number;    // SharePoint document candidates found (deduped by href)
-  saved: number;    // handed to chrome.downloads (fire-and-forget; the browser
-                    // streams server->disk in its own context)
-  links: number;    // skipped without a download attempt (host gate) — kept as a link
-  failed: number;   // chrome.downloads.download threw synchronously
+  total: number;     // SharePoint document candidates found (deduped by href)
+  saved: number;     // downloads that COMPLETED and passed verification
+                     // (request-access junk pages are verified out, see below)
+  links: number;     // skipped without a download attempt (host gate) — kept as a link
+  failed: number;    // dispatch failures (sync or async) + verified failures
+                     // (no-access pages, server-interrupted transfers)
+  cancelled: number; // stopped before finishing (user cancel / STOP_EXPORT)
   failures: Array<{ name: string; reason: string }>;
 }
 
@@ -290,7 +297,24 @@ async function writeFailuresFile(
 // MV3 worker alive while downloads land; if a long gap evicts it, late checks
 // are simply skipped (no upfront data loss).
 
-interface VerifyMeta { name: string; href: string; chatFolder: string; exportFolder: string; markup?: boolean; }
+// How a settled download is classified for the run's tally. 'saved' is a
+// clean verified complete; 'failed' covers no-access pages, server interrupts,
+// and downloads that vanished; 'cancelled' is a user/STOP cancel.
+export type SettleKind = 'saved' | 'failed' | 'cancelled';
+
+interface VerifyMeta {
+  name: string; href: string; chatFolder: string; exportFolder: string; markup?: boolean;
+  // Set by the dispatching run so it can tally outcomes and know when every
+  // download settled. Optional: entries without it (a run that already
+  // returned) still get the junk-page cleanup below.
+  onSettled?: (kind: SettleKind) => void;
+}
+// All maps below are keyed so concurrent per-tab exports can't clobber each
+// other: pendingVerify by (unique) download id, the rest by the folder key
+// `${exportFolder} ${chatFolder}` (exportFolder embeds a per-export
+// timestamp). There is deliberately NO blanket reset between runs — an
+// earlier version cleared everything at each Files-phase start, which wiped
+// a concurrent export's pending verifications.
 const pendingVerify = new Map<number, VerifyMeta>();
 const verifiedFailures = new Map<string, Array<{ name: string; href: string }>>(); // could-not-download
 const verifiedCancels = new Map<string, Array<{ name: string; href: string }>>();  // stopped before finishing
@@ -305,16 +329,6 @@ const failuresWriteTimer = new Map<string, ReturnType<typeof setTimeout>>(); // 
 // the prompt storm and the race. The window must outlast a settle burst but stay
 // well under the MV3 service-worker idle timeout so the trailing write always runs.
 const FAILURES_WRITE_DEBOUNCE_MS = 1500;
-
-/** Clear verifier state at the start of an export's Files phase. */
-function resetVerifyState(): void {
-  pendingVerify.clear();
-  verifiedFailures.clear();
-  verifiedCancels.clear();
-  failuresDownloadId.clear();
-  for (const t of failuresWriteTimer.values()) clearTimeout(t);
-  failuresWriteTimer.clear();
-}
 
 /**
  * (Re)schedule the debounced FAILURES.txt write for a chat folder. The in-memory
@@ -370,15 +384,28 @@ export async function verifyDownloadOnChanged(
   const meta = pendingVerify.get(delta.id);
   if (!meta) return;                 // not one of ours, or already handled
   pendingVerify.delete(delta.id);
+  // Every path below settles this download exactly once so the dispatching
+  // run's tally always adds up to its candidate count.
+  const settle = (kind: SettleKind) => { try { meta.onSettled?.(kind); } catch { /* run already gone */ } };
 
   let item: chrome.downloads.DownloadItem | undefined;
   try {
     const r = await deps.downloads.search({ id: delta.id });
     item = Array.isArray(r) ? r[0] : undefined;
-  } catch { return; }
-  if (!item) return;
+  } catch { settle('failed'); return; }
+  if (!item) { settle('failed'); return; } // erased from history — no file landed
 
-  if (st === 'interrupted') {
+  // Classify by the item's ACTUAL state, not the delta's: the settlement
+  // poll feeds synthetic deltas that can lag or guess wrong (an id absent
+  // from one batch-search snapshot may be alive and well). A still-running
+  // download is not settled at all — re-arm it and wait for the real event.
+  const actual = item.state === 'complete' || item.state === 'interrupted' ? item.state : undefined;
+  if (!actual) {
+    pendingVerify.set(delta.id, meta);
+    return;
+  }
+
+  if (actual === 'interrupted') {
     // The download left no real file. A genuine "could not download" always
     // carries a concrete InterruptReason (NETWORK_FAILED, SERVER_BAD_CONTENT, a
     // cross-owner SERVER_FAILED, a network drop mid-transfer): those we record.
@@ -394,38 +421,52 @@ export async function verifyDownloadOnChanged(
     if (!item.error || item.error === 'USER_CANCELED') {
       deps.log?.(`attachment cancelled: ${meta.name}`);
       recordCancelled(deps, meta);
+      settle('cancelled');
       return;
     }
     deps.log?.(`attachment no-access: ${meta.name} (${item.error})`);
     recordFailure(deps, meta);
+    settle('failed');
     return;
   }
 
   // Completed. A NON-markup file that arrived as text/html is a request-access
   // page saved under the file's name (a real pdf/zip/video is never text/html).
   // Markup is legitimately text/html, so a completed markup download is kept.
-  if (meta.markup || (item.mime || '').toLowerCase() !== 'text/html') return;
+  if (meta.markup || (item.mime || '').toLowerCase() !== 'text/html') { settle('saved'); return; }
   try { await deps.downloads.removeFile(delta.id); } catch { /* may already be gone */ }
   try { await deps.downloads.erase({ id: delta.id }); } catch { /* noop */ }
   deps.log?.(`attachment no-access: removed request-access page for ${meta.name}`);
   recordFailure(deps, meta);
+  settle('failed');
 }
 
 /**
- * Hand a set of SharePoint document attachments to chrome.downloads. Returns a
- * tally. No-op safe: an empty `items` returns a zero summary.
+ * Hand a set of SharePoint document attachments to chrome.downloads, then wait
+ * for every one of them to SETTLE (terminal state observed and verified), so
+ * the caller's completion broadcast / history row / auto-show all describe an
+ * export whose files are really done. Returns the settled tally. No-op safe:
+ * an empty `items` returns a zero summary.
  *
  * Two dispatch modes:
  *   - Chrome (default): fire-and-forget. download() does not resolve until the
  *     transfer starts (~1s each), so awaiting it serially outran the MV3 worker's
  *     lifetime and evicted it mid-phase. We queue every file in milliseconds and
  *     let Chrome's per-host concurrency cap pace them; the id is observed only to
- *     enroll the download for post-completion verification.
+ *     enroll the download for verification and settlement tallying.
  *   - Firefox (opts.maxConcurrent): bounded pool. Firefox does NOT cap concurrent
  *     downloads, so firing all at once made SharePoint throttle the burst and
  *     return an error page for every file. Each worker awaits its download's
  *     terminal state before pulling the next, capping in-flight transfers.
  *     Firefox's persistent background page makes the long wait safe.
+ *
+ * Settlement: after dispatch, a wait loop runs until every candidate is
+ * accounted for (link / dispatch failure / verified saved / failed /
+ * cancelled). Outcomes arrive through the top-level downloads.onChanged
+ * verifier (VerifyMeta.onSettled); a slow batched downloads.search backs up
+ * missed events and doubles as the MV3 keep-alive. On abort (STOP_EXPORT) the
+ * run cancels its still-running downloads — each lands as a reason-less
+ * interrupt that the verifier records in FAILURES.txt's cancelled section.
  */
 export async function downloadAttachments(
   items: AttachmentCandidate[],
@@ -434,18 +475,64 @@ export async function downloadAttachments(
   signal: AbortSignal,
   opts: { maxConcurrent?: number } = {},
 ): Promise<AttachmentDownloadSummary> {
-  const summary: AttachmentDownloadSummary = { total: items.length, saved: 0, links: 0, failed: 0, failures: [] };
+  const summary: AttachmentDownloadSummary = { total: items.length, saved: 0, links: 0, failed: 0, cancelled: 0, failures: [] };
   if (!items.length) return summary;
 
-  resetVerifyState();
   deps.log?.(`attachment phase: ${items.length} candidate(s)` + (opts.maxConcurrent ? `, max ${opts.maxConcurrent} concurrent` : ''));
 
-  let viaAspx = 0;  // queued files routed through the download.aspx handler
+  let viaAspx = 0;    // queued files routed through the download.aspx handler
+  let dispatched = 0; // candidates handed to chrome.downloads (log cadence only)
+
+  // Run-local settlement accounting. Every candidate settles exactly once:
+  // links and dispatch failures settle at dispatch time; enrolled downloads
+  // settle when the verifier classifies their terminal state. onProgress
+  // reports settled counts, so the popup's numbers are real and monotonic.
+  const expected = items.length;
+  let settledCount = 0;
+  const pendingIds = new Set<number>(); // this run's enrolled, not-yet-settled ids
+  let notifySettle: (() => void) | undefined; // wakes the settlement loop early
+  // Set just before this function returns. Late arrivals (a dispatch promise
+  // resolving after a stall-break/abort, a transfer settling afterwards) must
+  // not mutate the escaped summary or re-broadcast 'downloading-files' AFTER
+  // the export flow's terminal 'complete' — a late broadcast would re-insert
+  // a non-terminal phase into activeExports and block the tab's next export.
+  let runEnded = false;
   const report = () => {
-    const processed = summary.saved + summary.links + summary.failed;
-    deps.onProgress?.(processed, items.length);
-    if (processed % 50 === 0 || processed === items.length) deps.log?.(`attachment dispatch: ${processed}/${items.length}`);
+    if (runEnded) return;
+    deps.onProgress?.(settledCount, expected);
+    if (settledCount % 50 === 0 || settledCount === expected) deps.log?.(`attachment settle: ${settledCount}/${expected}`);
   };
+  const settledOne = () => {
+    if (runEnded) return;
+    settledCount++;
+    report();
+    notifySettle?.();
+  };
+  const onDownloadSettled = (id: number, kind: SettleKind) => {
+    if (runEnded) { pendingIds.delete(id); return; }
+    if (!pendingIds.delete(id)) return; // event+poll double delivery guard
+    if (kind === 'saved') summary.saved++;
+    else if (kind === 'cancelled') summary.cancelled++;
+    else summary.failed++;
+    settledOne();
+  };
+  const dispatchFailed = (name: string, reason: string) => {
+    if (runEnded) return;
+    summary.failed++;
+    summary.failures.push({ name, reason });
+    settledOne();
+  };
+
+  // Broadcast the phase at 0/N before any dispatch: the popup shows honest
+  // progress from the first moment, and the STOP handler's Files-phase gate
+  // (which keys on phase === 'downloading-files') is armed for the WHOLE
+  // phase, not just from the first settlement.
+  report();
+
+  // Captured before dispatch so the settlement loop's batched search covers
+  // every download of this run — on the Firefox pool path dispatch itself
+  // takes minutes, so capturing at loop start would miss early downloads.
+  const startedAfter = new Date(Date.now() - 60_000).toISOString();
 
   // Per-item prep shared by both dispatch paths. Returns the download spec, or
   // null for a host-gated link (the caller counts it as a link). `markup` is the
@@ -461,7 +548,22 @@ export async function downloadAttachments(
     return { name, url, viaDownloadAspx, markup, filename: buildAttachmentPath(exportFolder, item.chatFolder, rawName) };
   };
   const enroll = (id: number, item: AttachmentCandidate, name: string, markup: boolean) => {
-    pendingVerify.set(id, { name, href: item.href, chatFolder: item.chatFolder, exportFolder, markup });
+    // pendingIds BEFORE pendingVerify: the terminal event can fire the moment
+    // the entry exists, and onDownloadSettled only counts ids it knows.
+    pendingIds.add(id);
+    pendingVerify.set(id, {
+      name, href: item.href, chatFolder: item.chatFolder, exportFolder, markup,
+      onSettled: kind => onDownloadSettled(id, kind),
+    });
+    if (signal.aborted) {
+      // A STOP raced this enrollment: stop the transfer now; the verifier
+      // records the interrupt in the cancelled section.
+      try { void Promise.resolve(deps.downloads.cancel(id)).catch(() => { /* already terminal */ }); } catch { /* noop */ }
+    }
+  };
+  const logDispatch = () => {
+    dispatched++;
+    if (dispatched % 50 === 0 || dispatched === items.length) deps.log?.(`attachment dispatch: ${dispatched}/${items.length}`);
   };
 
   if (opts.maxConcurrent && opts.maxConcurrent > 0) {
@@ -472,38 +574,189 @@ export async function downloadAttachments(
       while (cursor < items.length && !signal.aborted) {
         const item = items[cursor++];
         const spec = prep(item);
-        if (!spec) { summary.links++; report(); continue; }
+        if (!spec) { summary.links++; settledOne(); continue; }
         let id: number | undefined;
         try {
           id = await Promise.resolve(deps.downloads.download({ url: spec.url, filename: spec.filename, saveAs: false, conflictAction: 'uniquify' }));
-        } catch (e) { summary.failed++; summary.failures.push({ name: spec.name, reason: errMsg(e) }); report(); continue; }
-        if (typeof id === 'number') { enroll(id, item, spec.name, spec.markup); summary.saved++; if (spec.viaDownloadAspx) viaAspx++; }
-        report();
-        if (typeof id === 'number') await awaitTerminal(deps, id, signal);
+        } catch (e) { dispatchFailed(spec.name, errMsg(e)); continue; }
+        if (typeof id !== 'number') { dispatchFailed(spec.name, 'no download id'); continue; }
+        enroll(id, item, spec.name, spec.markup);
+        if (spec.viaDownloadAspx) viaAspx++;
+        logDispatch();
+        await awaitTerminal(deps, id, signal);
       }
     };
     await Promise.all(Array.from({ length: opts.maxConcurrent }, () => worker()));
   } else {
     // FIRE-AND-FORGET (Chrome): queue all downloads without awaiting; Chrome paces
-    // them via its per-host concurrency cap. The id is observed only to enroll.
+    // them via its per-host concurrency cap. Each dispatch promise self-accounts
+    // (enroll on id, dispatchFailed on rejection), so the settlement loop below
+    // is the only wait — no allSettled barrier that could sit idle for minutes
+    // while Chrome's queue drains.
     for (let i = 0; i < items.length; i++) {
       if (signal.aborted) break;
       const spec = prep(items[i]);
-      if (!spec) { summary.links++; report(); continue; }
+      if (!spec) { summary.links++; settledOne(); continue; }
       const item = items[i];
       try {
         Promise.resolve(deps.downloads.download({ url: spec.url, filename: spec.filename, saveAs: false, conflictAction: 'uniquify' }))
-          .then(id => { if (typeof id === 'number') enroll(id, item, spec.name, spec.markup); })
-          .catch(e => deps.log?.(`attachment download error: ${spec.name}: ${errMsg(e)}`));
-        summary.saved++;
-        if (spec.viaDownloadAspx) viaAspx++;
-      } catch (e) { summary.failed++; summary.failures.push({ name: spec.name, reason: errMsg(e) }); }
-      report();
+          .then(id => {
+            if (typeof id === 'number') { enroll(id, item, spec.name, spec.markup); if (spec.viaDownloadAspx) viaAspx++; }
+            else dispatchFailed(spec.name, 'no download id');
+          })
+          .catch(e => {
+            // An async rejection is a real failure: never enrolled, so without
+            // this the file would silently vanish from every tally bucket.
+            deps.log?.(`attachment download error: ${spec.name}: ${errMsg(e)}`);
+            dispatchFailed(spec.name, errMsg(e));
+          });
+      } catch (e) { dispatchFailed(spec.name, errMsg(e)); }
+      logDispatch();
     }
   }
 
-  deps.log?.(`attachment download: ${summary.saved} queued (${viaAspx} via download.aspx), ${summary.links} link(s), ${summary.failed} failed of ${summary.total}`);
+  await awaitSettlement({ deps, signal, startedAfter, expected: () => expected, settled: () => settledCount, pendingIds, setNotify: fn => { notifySettle = fn; } });
+
+  if (signal.aborted && pendingIds.size) {
+    // STOP: actually stop the transfers (they would otherwise keep running in
+    // the browser). Each cancel settles as a reason-less interrupt, which the
+    // verifier files under FAILURES.txt's cancelled section. A short bounded
+    // drain lets those interrupts land so the summary's cancelled bucket is
+    // populated before it escapes; STOP stays responsive either way.
+    deps.log?.(`attachment stop: cancelling ${pendingIds.size} in-flight download(s)`);
+    for (const id of pendingIds) {
+      try { void Promise.resolve(deps.downloads.cancel(id)).catch(() => { /* already terminal */ }); } catch { /* noop */ }
+    }
+    const drainDeadline = Date.now() + 3_000;
+    while (pendingIds.size && Date.now() < drainDeadline) {
+      await new Promise<void>(res => { notifySettle = res; setTimeout(res, 200); });
+      notifySettle = undefined;
+    }
+  }
+  if (signal.aborted) {
+    // Candidates whose outcome the run no longer knows — never dispatched
+    // (the loops break on abort), not yet enrolled, or a cancel that didn't
+    // land within the drain — were all stopped by the user: tally them as
+    // cancelled so the buckets account for every candidate. Callbacks are
+    // stripped below, so a late-landing settle can't double-count them.
+    const unaccounted = expected - settledCount;
+    if (unaccounted > 0) { summary.cancelled += unaccounted; settledCount += unaccounted; }
+  }
+
+  // End of run: freeze the escaped summary and drop the progress callbacks of
+  // anything still unsettled (stall-break leftovers, undrained cancels). The
+  // top-level verifier still does their FAILURES.txt bookkeeping from the
+  // remaining meta; only this run's tally stops listening.
+  runEnded = true;
+  for (const id of pendingIds) {
+    const meta = pendingVerify.get(id);
+    if (meta?.onSettled) pendingVerify.set(id, { ...meta, onSettled: undefined });
+  }
+
+  deps.log?.(`attachment downloads settled: ${summary.saved} saved, ${summary.links} link(s), ${summary.failed} failed, ${summary.cancelled} cancelled of ${summary.total}` + (viaAspx ? ` (${viaAspx} via download.aspx)` : ''));
   return summary;
+}
+
+// Settlement wait tuning. The poll is a backstop for missed onChanged events
+// and the MV3 keep-alive; the verifier's onSettled callbacks (via notify) do
+// the real-time accounting. The stall window only trips when NOTHING moved —
+// no settlement and no byte progress across every pending transfer — for its
+// whole duration; then we stop blocking completion (transfers keep running in
+// the browser and the top-level verifier still handles them as they finish).
+const SETTLE_POLL_MS = 2_500;
+const SETTLE_STALL_MS = 180_000;
+
+async function awaitSettlement(run: {
+  deps: AttachmentDownloadDeps;
+  signal: AbortSignal;
+  // Captured by the caller BEFORE dispatch, so the batch covers downloads
+  // started at any point of the run (Firefox's bounded pool dispatches over
+  // minutes; a loop-start capture would miss its early downloads).
+  startedAfter: string;
+  expected: () => number;
+  settled: () => number;
+  pendingIds: Set<number>;
+  setNotify: (fn: (() => void) | undefined) => void;
+}): Promise<void> {
+  const { deps, signal, startedAfter, pendingIds } = run;
+  const bytesSeen = new Map<number, number>();
+  let lastActivityAt = Date.now();
+  let lastSettled = run.settled();
+
+  while (run.settled() < run.expected() && !signal.aborted) {
+    await new Promise<void>(res => {
+      run.setNotify(res);
+      setTimeout(res, SETTLE_POLL_MS);
+    });
+    run.setNotify(undefined);
+    if (run.settled() >= run.expected() || signal.aborted) break;
+
+    // Batched poll: ONE search per tick (per-id polling does not scale to
+    // hundreds of files) filtered against this run's pending ids. A failed
+    // search falls through with an empty snapshot — the stall clock below
+    // still runs, so a permanently broken search can't loop forever.
+    let found: chrome.downloads.DownloadItem[] = [];
+    try {
+      const r = await Promise.resolve(deps.downloads.search({ startedAfter, limit: 0 }));
+      found = Array.isArray(r) ? r : [];
+    } catch { /* fall through with found = [] */ }
+
+    let progress = false;
+    const seen = new Set<number>();
+    for (const it of found) {
+      if (!pendingIds.has(it.id)) continue;
+      seen.add(it.id);
+      if (it.state === 'complete' || it.state === 'interrupted') {
+        // Missed onChanged event — feed the verifier a synthetic delta.
+        // Idempotent: verifyDownloadOnChanged deletes from pendingVerify
+        // before any await, so a racing real event can't double-process; it
+        // also re-checks the item's real state, so a stale snapshot can't
+        // misclassify.
+        void verifyDownloadOnChanged(deps, { id: it.id, state: { current: it.state } });
+      } else if (it.paused) {
+        progress = true; // parked on the user, not stalled
+      } else {
+        const prev = bytesSeen.get(it.id) ?? -1;
+        const cur = it.bytesReceived || 0;
+        if (cur > prev) { bytesSeen.set(it.id, cur); progress = true; }
+      }
+    }
+    // Ids absent from the batch snapshot: usually an enrollment that raced
+    // the search, sometimes an erased download. CONFIRM per id before doing
+    // anything — feeding a blind synthetic interrupt here would false-cancel
+    // a live download.
+    for (const id of [...pendingIds]) {
+      if (seen.has(id)) continue;
+      let item: chrome.downloads.DownloadItem | undefined;
+      let searched = false;
+      try {
+        const r = await Promise.resolve(deps.downloads.search({ id }));
+        item = Array.isArray(r) ? r[0] : undefined;
+        searched = true;
+      } catch { /* leave it for the next tick */ }
+      if (!searched) continue;
+      if (!item || item.state === 'complete' || item.state === 'interrupted') {
+        // Terminal, or erased from history (the verifier's missing-item path
+        // settles erased ids as failures).
+        void verifyDownloadOnChanged(deps, { id, state: { current: item?.state ?? 'interrupted' } });
+      } else if (item.paused) {
+        progress = true;
+      } else {
+        const prev = bytesSeen.get(id) ?? -1;
+        const cur = item.bytesReceived || 0;
+        if (cur > prev) { bytesSeen.set(id, cur); progress = true; }
+      }
+    }
+
+    if (run.settled() > lastSettled) { lastSettled = run.settled(); progress = true; }
+    if (progress) {
+      lastActivityAt = Date.now();
+    } else if (Date.now() - lastActivityAt > SETTLE_STALL_MS) {
+      deps.log?.(`attachment settlement stalled: ${run.expected() - run.settled()} of ${run.expected()} still pending; not blocking completion`);
+      break;
+    }
+  }
+  run.setNotify(undefined);
 }
 
 /**
@@ -541,6 +794,6 @@ async function awaitTerminal(deps: { downloads: DownloadsApi }, id: number, sign
  * carries attachment file names) so it is never broadcast over runtime
  * messaging or persisted into the active-export snapshot in chrome.storage.
  */
-export function toFilesSummaryWire(s: AttachmentDownloadSummary): { total: number; saved: number; links: number; failed: number } {
-  return { total: s.total, saved: s.saved, links: s.links, failed: s.failed };
+export function toFilesSummaryWire(s: AttachmentDownloadSummary): { total: number; saved: number; links: number; failed: number; cancelled: number } {
+  return { total: s.total, saved: s.saved, links: s.links, failed: s.failed, cancelled: s.cancelled };
 }
