@@ -27,6 +27,12 @@ export type Attachment = {
   // Used as the download.aspx `UniqueId` when streaming renderable-markup
   // attachments to disk. Non-sensitive; kept in output. Renderers ignore it.
   itemid?: string;
+  // SharePoint sharing link (from the message's fileInfo.shareUrl). Lets the
+  // Files phase resolve a pre-authenticated download URL via the shares API
+  // (Bearer-token auth), which downloads even when the raw-URL transport's
+  // session cookie for the file's host has gone stale. Stripped before the
+  // export is serialized; used only in-flight.
+  shareUrl?: string;
 };
 
 export type ReplyContext = {

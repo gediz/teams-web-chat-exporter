@@ -461,6 +461,22 @@ const sendMessageToTab = (tabId: number, msg: unknown) => new Promise<any>((reso
     });
 });
 
+// Files-phase resolver: ask the content script (which has the page origin +
+// MSAL token) to resolve a sharing link to a pre-authenticated download URL.
+// Returns null on any failure so the attachment falls back to the raw-URL
+// path. The downloadUrl is short-lived and is never logged here.
+function makeResolveShare(tabId: number) {
+    return async (shareUrl: string): Promise<{ downloadUrl?: string; blocksDownload?: boolean } | null> => {
+        try {
+            const resp = await sendMessageToTab(tabId, { type: 'DOWNLOAD_RESOLVE_SHARE', shareUrl });
+            if (resp && resp.ok && typeof resp.downloadUrl === 'string') {
+                return { downloadUrl: resp.downloadUrl, blocksDownload: resp.blocksDownload };
+            }
+        } catch { /* content unreachable — fall back to raw URL */ }
+        return null;
+    };
+}
+
 async function ensureContentScript(tabId: number) {
     try {
         const pong = await sendMessageToTab(tabId, { type: 'PING' });
@@ -893,6 +909,9 @@ function handleExportWithScrape(
                             log,
                             onProgress: (filesDone, filesTotal) =>
                                 broadcastStatus({ tabId, phase: 'downloading-files', filesDone, filesTotal }),
+                            // Resolve sharing links to cookie-independent
+                            // pre-authenticated URLs (falls back to raw URL).
+                            resolveShare: makeResolveShare(tabId),
                         },
                         filesAbort.signal,
                         // Firefox does not cap concurrent downloads; bound them so a
@@ -1660,6 +1679,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                             log,
                             onProgress: (filesDone, filesTotal) =>
                                 broadcastStatus({ tabId, phase: 'downloading-files', filesDone, filesTotal, bundleTotalChats: totalChats }),
+                            resolveShare: makeResolveShare(tabId),
                         },
                         filesAbort.signal,
                         // Bound concurrency on Firefox (no per-host cap there) so the

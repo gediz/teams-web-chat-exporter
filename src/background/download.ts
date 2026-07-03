@@ -213,7 +213,9 @@ function collectAvatarFiles(meta: ExportMeta): { files: InlineImage[]; meta: Exp
 }
 
 function stripAttachmentDataUrl(att: Attachment) {
-  const { dataUrl, ...rest } = att;
+  // shareUrl is an internal sharing link for the Files-phase resolver; like
+  // dataUrl it must never reach the serialized export output.
+  const { dataUrl, shareUrl, ...rest } = att;
   return rest;
 }
 
@@ -410,6 +412,11 @@ export async function buildAndDownload(
     await Promise.resolve();
     const base = computeBaseName(meta);
     const filename = `${base}.pdf`;
+    // NOTE: raw `messages` (not stripped) is fine here — the PDF builder reads
+    // only att.label / att.href / att.dataUrl, never att.shareUrl, so the
+    // internal sharing link cannot reach PDF output. A blanket strip is NOT
+    // used because it would also remove att.dataUrl, which the PDF builder
+    // needs to embed inline images.
     const bytes = await buildPdfResilient(messages, meta, (done, total) => {
       onStatus?.({ phase: 'build', filename, messages: messages.length, messagesBuilt: done, messagesTotal: total });
     }, toPdfOptions(options));

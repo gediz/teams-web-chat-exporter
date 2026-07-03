@@ -217,6 +217,11 @@ export type ResolveShareFileResponse = {
   // Credentials mode the page-world helper used (diagnostic).
   mode?: string;
 };
+// Files-phase resolver RPC (background -> content): resolve a file's sharing
+// link to a pre-authenticated download URL. The downloadUrl is short-lived and
+// must never be logged or persisted.
+export type DownloadResolveShareRequest = { type: 'DOWNLOAD_RESOLVE_SHARE'; shareUrl: string };
+export type DownloadResolveShareResponse = { ok: boolean; downloadUrl?: string; blocksDownload?: boolean; error?: string };
 export type ProbeFileDownloadRequest = { type: 'PROBE_FILE_DOWNLOAD'; url: string; name?: string };
 export type ProbeFileDownloadResponse =
   | { ok: true; outcome: string; mime?: string; bytes?: number; filename?: string }

@@ -55,6 +55,15 @@ import { revokeDownloadUrl, textToDownloadUrl } from './builders';
 // cancel backs the STOP path (stop the actual transfers, not just dispatch).
 type DownloadsApi = Pick<typeof chrome.downloads, 'download' | 'search' | 'removeFile' | 'erase' | 'cancel'>;
 
+// Result of resolving a file's sharing link to a pre-authenticated download
+// URL (via the content-script shares resolver). `downloadUrl` is short-lived
+// and self-authenticating — chrome.downloads can fetch it with no session
+// cookie. `blocksDownload` is the upfront access oracle.
+export interface ShareResolveOutcome {
+  downloadUrl?: string;
+  blocksDownload?: boolean;
+}
+
 export interface AttachmentDownloadDeps {
   downloads: DownloadsApi;
   // Called as candidates SETTLE (link kept, dispatch failed, or the download
@@ -63,6 +72,13 @@ export interface AttachmentDownloadDeps {
   // popup's progress is real and monotonic. `total` is the candidate count.
   onProgress?: (done: number, total: number) => void;
   log?: (msg: string) => void;
+  // Optional: resolve a file's sharing link to a pre-authenticated download
+  // URL (background wires this to a content-script RPC). When present and a
+  // candidate has a shareUrl, the resolved URL is used instead of the raw
+  // SharePoint path, which downloads even when the host session cookie is
+  // stale. Returns null on any failure, and the raw-URL path is used as a
+  // fallback so nothing regresses.
+  resolveShare?: (shareUrl: string) => Promise<ShareResolveOutcome | null>;
 }
 
 export interface AttachmentDownloadSummary {
@@ -81,6 +97,8 @@ export interface AttachmentCandidate {
   name: string;        // best-known display name (from Attachment.label)
   chatFolder: string;  // per-chat subfolder under the export root ('' for single-chat)
   itemid?: string;     // stable file GUID (== listItemUniqueId); the download.aspx UniqueId for markup types
+  shareUrl?: string;   // SharePoint sharing link, for the resolver (see resolveShare)
+  resolvedUrl?: string; // set by the resolve phase: pre-authenticated download URL
 }
 
 // fileType values the converter routes to an AMS preview URL (so their href is
@@ -171,9 +189,9 @@ function toDownloadUrl(href: string, itemid?: string): string {
 }
 
 /** Collect deduped SharePoint document attachments across all messages. */
-export function collectDocumentAttachments(messages: ExportMessage[]): Array<{ href: string; name: string; itemid?: string }> {
-  const seen = new Map<string, { href: string; name: string; itemid?: string }>();
-  const out: Array<{ href: string; name: string; itemid?: string }> = [];
+export function collectDocumentAttachments(messages: ExportMessage[]): Array<{ href: string; name: string; itemid?: string; shareUrl?: string }> {
+  const seen = new Map<string, { href: string; name: string; itemid?: string; shareUrl?: string }>();
+  const out: Array<{ href: string; name: string; itemid?: string; shareUrl?: string }> = [];
   for (const m of messages) {
     const atts = m.attachments;
     if (!atts) continue;
@@ -186,12 +204,13 @@ export function collectDocumentAttachments(messages: ExportMessage[]): Array<{ h
       if (!isSharePointFileHost(href)) continue;
       const dup = seen.get(href);
       if (dup) {
-        // Same file twice: keep the first, but adopt an itemid if the first
-        // occurrence lacked one (so the join key is never lost to dedup order).
+        // Same file twice: keep the first, but adopt an itemid/shareUrl if the
+        // first occurrence lacked one (so the join key is never lost to order).
         if (!dup.itemid && a.itemid) dup.itemid = a.itemid;
+        if (!dup.shareUrl && a.shareUrl) dup.shareUrl = a.shareUrl;
         continue;
       }
-      const entry = { href, name: (a.label || '').toString(), itemid: a.itemid };
+      const entry = { href, name: (a.label || '').toString(), itemid: a.itemid, shareUrl: a.shareUrl };
       seen.set(href, entry);
       out.push(entry);
     }
@@ -534,18 +553,61 @@ export async function downloadAttachments(
   // takes minutes, so capturing at loop start would miss early downloads.
   const startedAfter = new Date(Date.now() - 60_000).toISOString();
 
-  // Per-item prep shared by both dispatch paths. Returns the download spec, or
-  // null for a host-gated link (the caller counts it as a link). `markup` is the
-  // file TYPE (so the verifier knows text/html is the real file), independent of
-  // the download URL form (markup hits download.aspx, everything else ?download=1).
+  // Resolve is done JUST-IN-TIME per item (inside prepAsync, right before that
+  // item's download() call), never all-upfront — the pre-authenticated URL is
+  // short-lived, so it must be fetched seconds before use, not minutes.
+  const needResolve = Boolean(deps.resolveShare) && items.some(i => i.shareUrl);
+
+  // Per-item prep (raw-URL transport, no resolve). Returns the download spec, or
+  // null for a host-gated link. `markup` is the file TYPE (so the verifier knows
+  // text/html is the real file), independent of the download URL form.
   const prep = (item: AttachmentCandidate) => {
     if (!isSharePointFileHost(item.href)) return null;
     const name = item.name || fileNameFromUrl(item.href) || item.href;
     const rawName = item.name || fileNameFromUrl(item.href) || 'attachment';
-    const url = toDownloadUrl(item.href, item.itemid);
+    const url = item.resolvedUrl || toDownloadUrl(item.href, item.itemid);
     const viaDownloadAspx = isDownloadAspxUrl(url);
     const markup = isMarkupFile(item.href);
     return { name, url, viaDownloadAspx, markup, filename: buildAttachmentPath(exportFolder, item.chatFolder, rawName) };
+  };
+
+  // Async prep: resolve the sharing link to a fresh pre-authenticated URL right
+  // before dispatch. Returns a kind:
+  //   'link'    — host-gated, kept as a link (counted as such);
+  //   'blocked' — the access oracle says the user cannot download it (skip the
+  //               doomed attempt, record as a failure);
+  //   'spec'    — a download spec (resolved URL when available, else raw URL).
+  // Any resolve failure leaves the raw-URL spec, so nothing regresses.
+  type Prepped =
+    | { kind: 'link' }
+    | { kind: 'blocked'; item: AttachmentCandidate; name: string }
+    | { kind: 'spec'; spec: NonNullable<ReturnType<typeof prep>> };
+  const prepAsync = async (item: AttachmentCandidate): Promise<Prepped> => {
+    const base = prep(item);
+    if (!base) return { kind: 'link' };
+    if (needResolve && deps.resolveShare && item.shareUrl && !item.resolvedUrl) {
+      try {
+        const r = await deps.resolveShare(item.shareUrl);
+        if (r?.blocksDownload === true) return { kind: 'blocked', item, name: base.name };
+        // Only adopt the resolved URL if it is a plausible SharePoint file URL
+        // (https + gated host) — the pre-auth URL is server-controlled, so gate
+        // it the same as the raw href before handing it to chrome.downloads.
+        if (r?.downloadUrl && isSharePointFileHost(r.downloadUrl)) {
+          item.resolvedUrl = r.downloadUrl;
+          const url = r.downloadUrl;
+          return { kind: 'spec', spec: { ...base, url, viaDownloadAspx: isDownloadAspxUrl(url) } };
+        }
+      } catch { /* leave the raw-URL spec */ }
+    }
+    return { kind: 'spec', spec: base };
+  };
+  // Record a file the access oracle flagged as un-downloadable, without a doomed
+  // dispatch. Uses the verifier's failure recorder so it lands in the right
+  // per-chat FAILURES.txt.
+  const recordBlocked = (item: AttachmentCandidate, name: string) => {
+    deps.log?.(`attachment no-access (oracle): ${name}`);
+    recordFailure(deps, { name, href: item.href, chatFolder: item.chatFolder, exportFolder });
+    if (!runEnded) { summary.failed++; summary.failures.push({ name, reason: 'no access (blocked by policy)' }); settledOne(); }
   };
   const enroll = (id: number, item: AttachmentCandidate, name: string, markup: boolean) => {
     // pendingIds BEFORE pendingVerify: the terminal event can fire the moment
@@ -566,15 +628,37 @@ export async function downloadAttachments(
     if (dispatched % 50 === 0 || dispatched === items.length) deps.log?.(`attachment dispatch: ${dispatched}/${items.length}`);
   };
 
+  // Fire-and-forget dispatch of one prepared spec (Chrome). Self-accounting via
+  // enroll/dispatchFailed; never awaits the download.
+  const fireAndForget = (item: AttachmentCandidate, spec: NonNullable<ReturnType<typeof prep>>) => {
+    try {
+      Promise.resolve(deps.downloads.download({ url: spec.url, filename: spec.filename, saveAs: false, conflictAction: 'uniquify' }))
+        .then(id => {
+          if (typeof id === 'number') { enroll(id, item, spec.name, spec.markup); if (spec.viaDownloadAspx) viaAspx++; }
+          else dispatchFailed(spec.name, 'no download id');
+        })
+        .catch(e => {
+          // An async rejection is a real failure: never enrolled, so without
+          // this the file would silently vanish from every tally bucket.
+          deps.log?.(`attachment download error: ${spec.name}: ${errMsg(e)}`);
+          dispatchFailed(spec.name, errMsg(e));
+        });
+    } catch (e) { dispatchFailed(spec.name, errMsg(e)); }
+    logDispatch();
+  };
+
   if (opts.maxConcurrent && opts.maxConcurrent > 0) {
     // BOUNDED CONCURRENCY (Firefox): cap in-flight transfers so we never burst
-    // SharePoint. A worker awaits its download's terminal state before the next.
+    // SharePoint. A worker resolves (JIT), dispatches, then awaits its download's
+    // terminal state before the next — so the resolved URL is seconds old.
     let cursor = 0;
     const worker = async (): Promise<void> => {
       while (cursor < items.length && !signal.aborted) {
         const item = items[cursor++];
-        const spec = prep(item);
-        if (!spec) { summary.links++; settledOne(); continue; }
+        const p = await prepAsync(item);
+        if (p.kind === 'link') { summary.links++; settledOne(); continue; }
+        if (p.kind === 'blocked') { recordBlocked(p.item, p.name); continue; }
+        const spec = p.spec;
         let id: number | undefined;
         try {
           id = await Promise.resolve(deps.downloads.download({ url: spec.url, filename: spec.filename, saveAs: false, conflictAction: 'uniquify' }));
@@ -587,31 +671,30 @@ export async function downloadAttachments(
       }
     };
     await Promise.all(Array.from({ length: opts.maxConcurrent }, () => worker()));
+  } else if (needResolve) {
+    // CHROME WITH RESOLVE: a bounded pool resolves each URL just-in-time, then
+    // fires its download without awaiting. Bounds resolve concurrency (off the
+    // shares rate limit) while keeping downloads fire-and-forget and URLs fresh.
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      while (cursor < items.length && !signal.aborted) {
+        const item = items[cursor++];
+        const p = await prepAsync(item);
+        if (p.kind === 'link') { summary.links++; settledOne(); continue; }
+        if (p.kind === 'blocked') { recordBlocked(p.item, p.name); continue; }
+        fireAndForget(item, p.spec);
+      }
+    };
+    await Promise.all(Array.from({ length: RESOLVE_CONCURRENCY }, () => worker()));
   } else {
-    // FIRE-AND-FORGET (Chrome): queue all downloads without awaiting; Chrome paces
-    // them via its per-host concurrency cap. Each dispatch promise self-accounts
-    // (enroll on id, dispatchFailed on rejection), so the settlement loop below
-    // is the only wait — no allSettled barrier that could sit idle for minutes
-    // while Chrome's queue drains.
+    // FIRE-AND-FORGET (Chrome, no resolve): queue every download without awaiting;
+    // Chrome paces them via its per-host cap. The settlement loop below is the
+    // only wait — no barrier that could sit idle while Chrome's queue drains.
     for (let i = 0; i < items.length; i++) {
       if (signal.aborted) break;
       const spec = prep(items[i]);
       if (!spec) { summary.links++; settledOne(); continue; }
-      const item = items[i];
-      try {
-        Promise.resolve(deps.downloads.download({ url: spec.url, filename: spec.filename, saveAs: false, conflictAction: 'uniquify' }))
-          .then(id => {
-            if (typeof id === 'number') { enroll(id, item, spec.name, spec.markup); if (spec.viaDownloadAspx) viaAspx++; }
-            else dispatchFailed(spec.name, 'no download id');
-          })
-          .catch(e => {
-            // An async rejection is a real failure: never enrolled, so without
-            // this the file would silently vanish from every tally bucket.
-            deps.log?.(`attachment download error: ${spec.name}: ${errMsg(e)}`);
-            dispatchFailed(spec.name, errMsg(e));
-          });
-      } catch (e) { dispatchFailed(spec.name, errMsg(e)); }
-      logDispatch();
+      fireAndForget(items[i], spec);
     }
   }
 
@@ -656,6 +739,11 @@ export async function downloadAttachments(
   deps.log?.(`attachment downloads settled: ${summary.saved} saved, ${summary.links} link(s), ${summary.failed} failed, ${summary.cancelled} cancelled of ${summary.total}` + (viaAspx ? ` (${viaAspx} via download.aspx)` : ''));
   return summary;
 }
+
+// Resolve concurrency. Small on purpose: the shares API is rate-limited and a
+// burst of hundreds of resolves risks throttling (which would 429 the whole
+// set). Resolve is a fast metadata call, so a low cap still drains quickly.
+const RESOLVE_CONCURRENCY = 4;
 
 // Settlement wait tuning. The poll is a backstop for missed onChanged events
 // and the MV3 keep-alive; the verifier's onSettled callbacks (via notify) do

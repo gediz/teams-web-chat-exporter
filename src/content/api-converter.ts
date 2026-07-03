@@ -599,6 +599,9 @@ function convertAttachments(properties: Record<string, unknown>): Attachment[] {
     const previewUrl = preview?.previewUrl as string | undefined;
     const isImageFile = /^(png|jpe?g|gif|webp|bmp|svg|ico|tif|heic)$/i.test(fileType);
     const href = (isImageFile && previewUrl) ? previewUrl : objectUrl;
+    // Sharing link for the Files-phase shares resolver (see Attachment.shareUrl).
+    const fileInfo = f.fileInfo as Record<string, unknown> | undefined;
+    const shareUrl = typeof fileInfo?.shareUrl === 'string' ? fileInfo.shareUrl : undefined;
 
     return {
       href,
@@ -612,6 +615,7 @@ function convertAttachments(properties: Record<string, unknown>): Attachment[] {
       // attachments. Read from the raw file object, independent of the image
       // href override.
       itemid: (f.itemid || undefined) as string | undefined,
+      shareUrl,
     };
   }).filter(a => a.label || a.href);
 }

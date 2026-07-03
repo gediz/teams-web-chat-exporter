@@ -23,6 +23,23 @@ import type { AggregatedItem, ExportMessage, OrderContext, ReplyContext, ScrapeO
 // Typed globals for Firefox builds
 declare const browser: typeof chrome | undefined;
 
+// Bound concurrent shares-API resolves from the page (defence-in-depth on top
+// of the background's resolve cap). A tiny FIFO semaphore.
+const SHARE_RESOLVE_MAX = 4;
+let shareResolveActive = 0;
+const shareResolveQueue: Array<() => void> = [];
+async function withShareResolveSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (shareResolveActive >= SHARE_RESOLVE_MAX) {
+    await new Promise<void>(res => shareResolveQueue.push(res));
+  }
+  shareResolveActive++;
+  try { return await fn(); }
+  finally {
+    shareResolveActive--;
+    shareResolveQueue.shift()?.();
+  }
+}
+
 type ExtractedMessage = ExportMessage & {
     id: string;
     threadId?: string | null;
@@ -3613,6 +3630,21 @@ export default defineContentScript({
                                 keys: Array.from(allPaths).sort(),
                                 linkFields: Array.from(linkFieldNames).sort(),
                             });
+                        } catch (e) {
+                            sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
+                        }
+                        return;
+                    }
+                    if (msg.type === 'DOWNLOAD_RESOLVE_SHARE') {
+                        // Files-phase resolver: resolve a file's sharing link to
+                        // a pre-authenticated download URL (Bearer-token auth via
+                        // the shares API). Called from the background per
+                        // attachment during the Files phase. A local semaphore
+                        // bounds concurrent shares calls as defence-in-depth on
+                        // top of the background's own resolve concurrency cap.
+                        try {
+                            const out = await withShareResolveSlot(() => resolveShareFile(String(msg.shareUrl || '')));
+                            sendResponse({ ok: out.ok, downloadUrl: out.downloadUrl, blocksDownload: out.blocksDownload });
                         } catch (e) {
                             sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
                         }

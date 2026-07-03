@@ -220,13 +220,13 @@ export async function getSharePointToken(fileHost: string): Promise<string | nul
       && !host.endsWith('.sharepoint-mil.us') && !host.endsWith('.sharepoint.cn')) {
     return null;
   }
+  // Match on full hostnames only. A bare tenant label was tried but dropped: it
+  // is a substring match (findValidToken uses key.includes) and a short label
+  // could select a DIFFERENT tenant's cached token in a multi-account session.
   const candidates: string[] = [host];
   // OneDrive host `<tenant>-my.sharepoint.com` -> site root `<tenant>.sharepoint.com`.
   const root = host.replace(/-my\./, '.');
   if (root !== host) candidates.push(root);
-  // Bare tenant label (e.g. `amlogicglobaleur`) — broadest, still resource-specific.
-  const label = host.split('.')[0].replace(/-my$/, '');
-  if (label) candidates.push(label);
   for (const c of candidates) {
     const tok = await findValidToken(c);
     if (tok) return tok;
