@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "{n} Link(s) werden aufgelöst…",
   "diagnostics.salvageDownloading": "{i} von {n} wird heruntergeladen…",
   "diagnostics.salvageDone": "Fertig. {n} Datei(en) in Downloads/TCE-probe gespeichert.",
+  "diagnostics.salvageStarted": "{n} Link(s) im Hintergrund gestartet. Beobachte die Service-Worker-Konsole; Dateien werden in Downloads/TCE-probe gespeichert. Du kannst dieses Popup schließen.",
   "diagnostics.fieldDump": "Anhang-Felder",
   "diagnostics.fieldDumpRun": "Felder ausgeben",
   "diagnostics.fieldDumpHint": "Durchsucht den offenen Chat und listet auf, welche Felder seine Dateianhänge enthalten (nur Feldnamen, keine Werte). Prüft, ob ein Freigabelink verfügbar ist.",

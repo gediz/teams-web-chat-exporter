@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "Разрешение {n} ссылок…",
   "diagnostics.salvageDownloading": "Загрузка {i} из {n}…",
   "diagnostics.salvageDone": "Готово. Сохранено {n} файл(ов) в Downloads/TCE-probe.",
+  "diagnostics.salvageStarted": "Запущено {n} ссылок в фоне. Следите за консолью service worker; файлы сохраняются в Downloads/TCE-probe. Это окно можно закрыть.",
   "diagnostics.fieldDump": "Поля вложений",
   "diagnostics.fieldDumpRun": "Выгрузить поля",
   "diagnostics.fieldDumpHint": "Сканирует открытый чат и перечисляет, какие поля содержат его файловые вложения (только имена полей, без значений). Для проверки, доступна ли ссылка для общего доступа.",

@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "正在解析 {n} 個連結…",
   "diagnostics.salvageDownloading": "正在下載第 {i}/{n} 個…",
   "diagnostics.salvageDone": "完成。已將 {n} 個檔案儲存到 Downloads/TCE-probe。",
+  "diagnostics.salvageStarted": "已在背景啟動 {n} 個連結。請查看 service worker 主控台；檔案儲存到 Downloads/TCE-probe。可以關閉此彈出視窗。",
   "diagnostics.fieldDump": "附件欄位",
   "diagnostics.fieldDumpRun": "匯出欄位",
   "diagnostics.fieldDumpHint": "掃描開啟的聊天並列出其檔案附件包含哪些欄位（僅欄位名稱，不含值）。用於檢查是否有共用連結。",

@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "פותר {n} קישורים…",
   "diagnostics.salvageDownloading": "מוריד {i} מתוך {n}…",
   "diagnostics.salvageDone": "הסתיים. נשמרו {n} קבצים אל Downloads/TCE-probe.",
+  "diagnostics.salvageStarted": "{n} קישורים החלו ברקע. עקבו אחר מסוף ה-service worker; הקבצים נשמרים ב-Downloads/TCE-probe. אפשר לסגור חלון זה.",
   "diagnostics.fieldDump": "שדות הקבצים המצורפים",
   "diagnostics.fieldDumpRun": "הצגת שדות",
   "diagnostics.fieldDumpHint": "סורק את הצ'אט הפתוח ומציג אילו שדות נושאים הקבצים המצורפים שלו (שמות שדות בלבד, ללא ערכים). משמש לבדיקה אם קיים קישור שיתוף.",

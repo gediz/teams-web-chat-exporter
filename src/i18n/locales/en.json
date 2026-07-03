@@ -195,6 +195,7 @@
   "diagnostics.salvageResolving": "Resolving {n} link(s)…",
   "diagnostics.salvageDownloading": "Downloading {i} of {n}…",
   "diagnostics.salvageDone": "Done. Saved {n} file(s) to Downloads/TCE-probe.",
+  "diagnostics.salvageStarted": "Started {n} link(s) in the background. Watch the service worker console; files save to Downloads/TCE-probe. You can close this popup.",
   "diagnostics.fieldDump": "Attachment fields",
   "diagnostics.fieldDumpRun": "Dump fields",
   "diagnostics.fieldDumpHint": "Scans the open chat and lists which fields its file attachments carry (field names only, no values). Used to check whether a sharing link is available.",

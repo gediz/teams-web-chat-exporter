@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "جارٍ حل {n} رابط…",
   "diagnostics.salvageDownloading": "جارٍ تنزيل {i} من {n}…",
   "diagnostics.salvageDone": "تم. حُفظ {n} ملف في Downloads/TCE-probe.",
+  "diagnostics.salvageStarted": "بدأ {n} رابط في الخلفية. راقب وحدة تحكم عامل الخدمة؛ تُحفظ الملفات في Downloads/TCE-probe. يمكنك إغلاق هذه النافذة.",
   "diagnostics.fieldDump": "حقول المرفقات",
   "diagnostics.fieldDumpRun": "استخراج الحقول",
   "diagnostics.fieldDumpHint": "يفحص المحادثة المفتوحة ويسرد الحقول التي تحملها مرفقات الملفات (أسماء الحقول فقط، دون قيم). يُستخدم للتحقق مما إذا كان رابط المشاركة متاحًا.",

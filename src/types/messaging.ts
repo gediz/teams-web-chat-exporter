@@ -229,6 +229,9 @@ export type ResolveShareFileResponse = {
 // must never be logged or persisted.
 export type DownloadResolveShareRequest = { type: 'DOWNLOAD_RESOLVE_SHARE'; shareUrl: string };
 export type DownloadResolveShareResponse = { ok: boolean; downloadUrl?: string; blocksDownload?: boolean; error?: string };
+// Salvage tool runs in the background (survives the popup closing on file pick).
+export type SalvageLinksRequest = { type: 'SALVAGE_LINKS'; hrefs: string[]; tabId: number };
+export type SalvageLinksResponse = { ok: boolean; started?: number; error?: string };
 export type ProbeFileDownloadRequest = { type: 'PROBE_FILE_DOWNLOAD'; url: string; name?: string };
 export type ProbeFileDownloadResponse =
   | { ok: true; outcome: string; mime?: string; bytes?: number; filename?: string }
@@ -286,6 +289,7 @@ export type RuntimeRequest =
   | GetDiagnosticsBgRequest
   | RunProbesBgRequest
   | ProbeFileDownloadRequest
+  | SalvageLinksRequest
   | ClearDiagnosticsLogsRequest
   | SetDiagLogPersistRequest
   | SetDiagVerboseStatsRequest;
@@ -307,6 +311,7 @@ export type BackgroundIncomingMessage =
   | GetDiagnosticsBgRequest
   | RunProbesBgRequest
   | ProbeFileDownloadRequest
+  | SalvageLinksRequest
   | DiagLogForwardRequest
   | ClearDiagnosticsLogsRequest
   | SetDiagLogPersistRequest

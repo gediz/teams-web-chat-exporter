@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "Résolution de {n} lien(s)…",
   "diagnostics.salvageDownloading": "Téléchargement de {i} sur {n}…",
   "diagnostics.salvageDone": "Terminé. {n} fichier(s) enregistré(s) dans Downloads/TCE-probe.",
+  "diagnostics.salvageStarted": "{n} lien(s) démarré(s) en arrière-plan. Surveillez la console du service worker ; les fichiers sont enregistrés dans Downloads/TCE-probe. Vous pouvez fermer cette fenêtre.",
   "diagnostics.fieldDump": "Champs des pièces jointes",
   "diagnostics.fieldDumpRun": "Extraire les champs",
   "diagnostics.fieldDumpHint": "Analyse la conversation ouverte et liste les champs que portent ses pièces jointes (noms des champs uniquement, sans valeurs). Sert à vérifier si un lien de partage est disponible.",

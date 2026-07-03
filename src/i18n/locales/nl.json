@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "{n} link(s) oplossen…",
   "diagnostics.salvageDownloading": "{i} van {n} downloaden…",
   "diagnostics.salvageDone": "Klaar. {n} bestand(en) opgeslagen in Downloads/TCE-probe.",
+  "diagnostics.salvageStarted": "{n} link(s) op de achtergrond gestart. Bekijk de service worker-console; bestanden worden opgeslagen in Downloads/TCE-probe. Je kunt deze pop-up sluiten.",
   "diagnostics.fieldDump": "Bijlagevelden",
   "diagnostics.fieldDumpRun": "Velden dumpen",
   "diagnostics.fieldDumpHint": "Scant de open chat en toont welke velden de bijlagen bevatten (alleen veldnamen, geen waarden). Om te controleren of er een deellink beschikbaar is.",

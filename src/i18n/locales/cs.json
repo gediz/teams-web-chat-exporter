@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "Řeší se {n} odkaz(ů)…",
   "diagnostics.salvageDownloading": "Stahování {i} z {n}…",
   "diagnostics.salvageDone": "Hotovo. Uloženo {n} soubor(ů) do Downloads/TCE-probe.",
+  "diagnostics.salvageStarted": "Spuštěno {n} odkazů na pozadí. Sledujte konzoli service workeru; soubory se ukládají do Downloads/TCE-probe. Toto okno můžete zavřít.",
   "diagnostics.fieldDump": "Pole příloh",
   "diagnostics.fieldDumpRun": "Vypsat pole",
   "diagnostics.fieldDumpHint": "Prohledá otevřený chat a vypíše, jaká pole nesou jeho přílohy (pouze názvy polí, žádné hodnoty). Slouží ke kontrole, zda je k dispozici sdílecí odkaz.",

@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "{n}개 링크 확인 중…",
   "diagnostics.salvageDownloading": "{n}개 중 {i}개 다운로드 중…",
   "diagnostics.salvageDone": "완료. {n}개 파일을 Downloads/TCE-probe에 저장했습니다.",
+  "diagnostics.salvageStarted": "{n}개 링크를 백그라운드에서 시작했습니다. 서비스 워커 콘솔을 확인하세요. 파일은 Downloads/TCE-probe에 저장됩니다. 이 팝업은 닫아도 됩니다.",
   "diagnostics.fieldDump": "첨부 파일 필드",
   "diagnostics.fieldDumpRun": "필드 덤프",
   "diagnostics.fieldDumpHint": "열린 채팅을 스캔하여 파일 첨부가 가진 필드를 나열합니다(필드 이름만, 값 없음). 공유 링크 사용 가능 여부를 확인하는 데 사용합니다.",

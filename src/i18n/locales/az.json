@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "{n} keçid həll edilir…",
   "diagnostics.salvageDownloading": "{n} keçiddən {i} yüklənir…",
   "diagnostics.salvageDone": "Hazırdır. {n} fayl Downloads/TCE-probe qovluğuna saxlanıldı.",
+  "diagnostics.salvageStarted": "{n} keçid arxa planda başladı. Xidmət işçisi konsoluna baxın; fayllar Downloads/TCE-probe qovluğuna saxlanılır. Bu pəncərəni bağlaya bilərsiniz.",
   "diagnostics.fieldDump": "Əlavə sahələri",
   "diagnostics.fieldDumpRun": "Sahələri çıxar",
   "diagnostics.fieldDumpHint": "Açıq söhbəti tarayıb fayl əlavələrinin hansı sahələri daşıdığını sadalayır (yalnız sahə adları, dəyərsiz). Paylaşım keçidinin mövcudluğunu yoxlamaq üçün istifadə olunur.",

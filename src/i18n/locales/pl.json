@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "Rozwiązywanie {n} link(ów)…",
   "diagnostics.salvageDownloading": "Pobieranie {i} z {n}…",
   "diagnostics.salvageDone": "Gotowe. Zapisano {n} plik(ów) w Downloads/TCE-probe.",
+  "diagnostics.salvageStarted": "Uruchomiono {n} link(ów) w tle. Obserwuj konsolę service workera; pliki zapisują się w Downloads/TCE-probe. Możesz zamknąć to okno.",
   "diagnostics.fieldDump": "Pola załączników",
   "diagnostics.fieldDumpRun": "Zrzuć pola",
   "diagnostics.fieldDumpHint": "Skanuje otwarty czat i wyświetla, jakie pola zawierają jego załączniki (tylko nazwy pól, bez wartości). Służy do sprawdzenia, czy dostępny jest link udostępniania.",

@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "Resolvendo {n} link(s)…",
   "diagnostics.salvageDownloading": "Baixando {i} de {n}…",
   "diagnostics.salvageDone": "Concluído. {n} arquivo(s) salvo(s) em Downloads/TCE-probe.",
+  "diagnostics.salvageStarted": "Iniciados {n} link(s) em segundo plano. Observe o console do service worker; os arquivos são salvos em Downloads/TCE-probe. Você pode fechar esta janela.",
   "diagnostics.fieldDump": "Campos dos anexos",
   "diagnostics.fieldDumpRun": "Extrair campos",
   "diagnostics.fieldDumpHint": "Verifica a conversa aberta e lista quais campos os anexos de arquivo contêm (apenas nomes de campos, sem valores). Usado para checar se há um link de compartilhamento.",

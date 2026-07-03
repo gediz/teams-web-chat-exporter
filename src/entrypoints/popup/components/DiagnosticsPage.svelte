@@ -452,32 +452,18 @@
     salvageRows = [];
     salvageStatus = '';
     try {
+      // Read the file, then hand the links to the BACKGROUND to do the whole
+      // resolve+download job. A file picker closes the popup (killing this
+      // context), so the download loop must not live here — the background
+      // survives and logs progress to the service worker console.
       const text = await file.text();
       const hrefs = Array.from(new Set(text.match(/https?:\/\/\S+/g) || []));
       if (!hrefs.length) { salvageError = t('diagnostics.salvageNoLinks', {}, lang); return; }
       const activeTab = await getActiveTab();
       if (!activeTab?.id || !isTeamsUrl(activeTab.url ?? '')) { salvageError = t('diagnostics.fileProbeNoTab', {}, lang); return; }
-      salvageStatus = t('diagnostics.salvageResolving', { n: hrefs.length }, lang);
-      const r = (await tabs.sendMessage(activeTab.id, { type: 'BATCH_RESOLVE_HREFS', hrefs })) as
-        | { ok?: boolean; error?: string; results?: Array<{ href: string; name: string; ok: boolean; downloadUrl?: string; blocksDownload?: boolean; error?: string }> }
-        | undefined;
-      if (!r?.ok) { salvageError = r?.error || 'resolve failed'; return; }
-      const results = r.results || [];
-      let saved = 0, unavailable = 0;
-      for (let i = 0; i < results.length; i++) {
-        const res = results[i];
-        salvageStatus = t('diagnostics.salvageDownloading', { i: i + 1, n: results.length }, lang);
-        if (!res.ok || !res.downloadUrl) { unavailable++; continue; }
-        const dl = await runtimeSend(runtime, { type: 'PROBE_FILE_DOWNLOAD', url: res.downloadUrl, name: res.name });
-        if (dl && 'ok' in dl && dl.ok && (dl as { outcome?: string }).outcome === 'complete') saved++;
-        else unavailable++;
-      }
-      salvageRows = [
-        { label: 'links', value: String(hrefs.length) },
-        { label: 'saved', value: String(saved) },
-        { label: 'unavailable', value: String(unavailable), warn: unavailable > 0 },
-      ];
-      salvageStatus = t('diagnostics.salvageDone', { n: saved }, lang);
+      await runtimeSend(runtime, { type: 'SALVAGE_LINKS', hrefs, tabId: activeTab.id });
+      salvageRows = [{ label: 'links', value: String(hrefs.length) }];
+      salvageStatus = t('diagnostics.salvageStarted', { n: hrefs.length }, lang);
     } catch (e) {
       salvageError = e instanceof Error ? e.message : String(e);
     } finally {

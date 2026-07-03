@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "正在解析 {n} 个链接…",
   "diagnostics.salvageDownloading": "正在下载第 {i}/{n} 个…",
   "diagnostics.salvageDone": "完成。已将 {n} 个文件保存到 Downloads/TCE-probe。",
+  "diagnostics.salvageStarted": "已在后台启动 {n} 个链接。请查看 service worker 控制台；文件保存到 Downloads/TCE-probe。可以关闭此弹窗。",
   "diagnostics.fieldDump": "附件字段",
   "diagnostics.fieldDumpRun": "导出字段",
   "diagnostics.fieldDumpHint": "扫描打开的聊天并列出其文件附件包含哪些字段（仅字段名，不含值）。用于检查是否存在共享链接。",

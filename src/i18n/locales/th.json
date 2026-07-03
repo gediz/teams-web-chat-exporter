@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "กำลังแก้ไข {n} ลิงก์…",
   "diagnostics.salvageDownloading": "กำลังดาวน์โหลด {i} จาก {n}…",
   "diagnostics.salvageDone": "เสร็จสิ้น บันทึก {n} ไฟล์ไปยัง Downloads/TCE-probe",
+  "diagnostics.salvageStarted": "เริ่ม {n} ลิงก์ในเบื้องหลังแล้ว ดูคอนโซล service worker; ไฟล์จะบันทึกไปยัง Downloads/TCE-probe คุณสามารถปิดหน้าต่างนี้ได้",
   "diagnostics.fieldDump": "ฟิลด์ของไฟล์แนบ",
   "diagnostics.fieldDumpRun": "ดึงฟิลด์",
   "diagnostics.fieldDumpHint": "สแกนแชตที่เปิดอยู่และแสดงว่าไฟล์แนบมีฟิลด์ใดบ้าง (เฉพาะชื่อฟิลด์ ไม่มีค่า) ใช้ตรวจสอบว่ามีลิงก์แชร์หรือไม่",

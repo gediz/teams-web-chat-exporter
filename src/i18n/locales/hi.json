@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "{n} लिंक हल हो रहे हैं…",
   "diagnostics.salvageDownloading": "{n} में से {i} डाउनलोड हो रहा है…",
   "diagnostics.salvageDone": "पूर्ण। {n} फ़ाइलें Downloads/TCE-probe में सहेजी गईं।",
+  "diagnostics.salvageStarted": "{n} लिंक बैकग्राउंड में शुरू हुए। सर्विस वर्कर कंसोल देखें; फ़ाइलें Downloads/TCE-probe में सहेजी जाती हैं। आप यह पॉपअप बंद कर सकते हैं।",
   "diagnostics.fieldDump": "अटैचमेंट फ़ील्ड",
   "diagnostics.fieldDumpRun": "फ़ील्ड डंप करें",
   "diagnostics.fieldDumpHint": "खुली चैट को स्कैन करता है और सूचीबद्ध करता है कि उसके फ़ाइल अटैचमेंट में कौन-से फ़ील्ड हैं (केवल फ़ील्ड नाम, कोई मान नहीं)। यह जांचने के लिए कि शेयरिंग लिंक उपलब्ध है या नहीं।",

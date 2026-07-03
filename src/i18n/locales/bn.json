@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "{n}টি লিঙ্ক সমাধান হচ্ছে…",
   "diagnostics.salvageDownloading": "{n}-এর মধ্যে {i} ডাউনলোড হচ্ছে…",
   "diagnostics.salvageDone": "সম্পন্ন। {n}টি ফাইল Downloads/TCE-probe-এ সংরক্ষিত হয়েছে।",
+  "diagnostics.salvageStarted": "{n}টি লিঙ্ক ব্যাকগ্রাউন্ডে শুরু হয়েছে। সার্ভিস ওয়ার্কার কনসোল দেখুন; ফাইল Downloads/TCE-probe-এ সংরক্ষিত হয়। আপনি এই পপআপ বন্ধ করতে পারেন।",
   "diagnostics.fieldDump": "সংযুক্তির ফিল্ড",
   "diagnostics.fieldDumpRun": "ফিল্ড ডাম্প করুন",
   "diagnostics.fieldDumpHint": "খোলা চ্যাট স্ক্যান করে এবং এর ফাইল সংযুক্তিতে কোন ফিল্ডগুলো আছে তা তালিকাভুক্ত করে (শুধু ফিল্ডের নাম, কোনো মান নয়)। শেয়ারিং লিঙ্ক পাওয়া যায় কিনা যাচাই করতে ব্যবহৃত হয়।",

@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "Resolviendo {n} enlace(s)…",
   "diagnostics.salvageDownloading": "Descargando {i} de {n}…",
   "diagnostics.salvageDone": "Listo. Se guardaron {n} archivo(s) en Downloads/TCE-probe.",
+  "diagnostics.salvageStarted": "Se iniciaron {n} enlace(s) en segundo plano. Observa la consola del service worker; los archivos se guardan en Downloads/TCE-probe. Puedes cerrar esta ventana.",
   "diagnostics.fieldDump": "Campos de adjuntos",
   "diagnostics.fieldDumpRun": "Volcar campos",
   "diagnostics.fieldDumpHint": "Explora el chat abierto y enumera qué campos contienen sus archivos adjuntos (solo nombres de campo, sin valores). Sirve para comprobar si hay un enlace para compartir.",

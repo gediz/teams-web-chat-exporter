@@ -2126,6 +2126,45 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
         return true;
     }
 
+    if (msg.type === 'SALVAGE_LINKS') {
+        // Salvage tool: runs ENTIRELY in the background so it survives the popup
+        // closing (a file picker in the popup closes it). The popup hands us the
+        // links + its tabId and we do the whole job: resolve every link via the
+        // content script (BATCH_RESOLVE_HREFS), then download each resolved URL
+        // serially into TCE-probe/. Progress + the final tally are logged to the
+        // SW console; download URLs are never logged.
+        const hrefs: string[] = Array.isArray(msg.hrefs) ? msg.hrefs.map((h: unknown) => String(h)) : [];
+        const salvageTabId = typeof msg.tabId === 'number' ? msg.tabId : undefined;
+        // Respond immediately; the work continues in the background.
+        sendResponse({ ok: true, started: hrefs.length });
+        (async () => {
+            if (!hrefs.length || salvageTabId == null) { log('salvage: nothing to do'); return; }
+            log(`salvage: resolving ${hrefs.length} link(s)…`);
+            let results: Array<{ href: string; name: string; ok: boolean; downloadUrl?: string; blocksDownload?: boolean }> = [];
+            try {
+                const r = await sendMessageToTab(salvageTabId, { type: 'BATCH_RESOLVE_HREFS', hrefs });
+                if (!r?.ok) { log(`salvage: resolve failed: ${r?.error || 'unknown'}`); return; }
+                results = r.results || [];
+            } catch (e: any) { log(`salvage: resolve unreachable: ${e?.message || e}`); return; }
+            let saved = 0, unavailable = 0;
+            for (let i = 0; i < results.length; i++) {
+                const res = results[i];
+                if (!res.ok || !res.downloadUrl || !isSharePointFileHost(res.downloadUrl)) { unavailable++; continue; }
+                const leaf = sanitizeFileName(res.name || 'salvage.bin');
+                let id: number | undefined;
+                try {
+                    id = await downloads.download({ url: res.downloadUrl, filename: `TCE-probe/${leaf}`, saveAs: false, conflictAction: 'uniquify' });
+                } catch { unavailable++; continue; }
+                if (typeof id !== 'number') { unavailable++; continue; }
+                const outcome = await waitForDownloadSettled({ downloads, onChanged: downloads.onChanged }, id, { pollMs: 1_000, stallMs: 120_000 });
+                if (outcome === 'complete') saved++; else unavailable++;
+                if ((i + 1) % 10 === 0 || i + 1 === results.length) log(`salvage: ${i + 1}/${results.length} processed (${saved} saved)`);
+            }
+            log(`salvage done: ${saved} saved, ${unavailable} unavailable of ${results.length} -> Downloads/TCE-probe/`);
+        })();
+        return true;
+    }
+
     if (msg.type === 'PROBE_FILE_DOWNLOAD') {
         // File-access probe (Diagnostics page), second hop: the content script
         // resolved a pre-authenticated downloadUrl via the shares API; hand it

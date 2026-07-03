@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "Risoluzione di {n} link…",
   "diagnostics.salvageDownloading": "Download di {i} di {n}…",
   "diagnostics.salvageDone": "Fatto. Salvati {n} file in Downloads/TCE-probe.",
+  "diagnostics.salvageStarted": "Avviati {n} link in background. Osserva la console del service worker; i file vengono salvati in Downloads/TCE-probe. Puoi chiudere questa finestra.",
   "diagnostics.fieldDump": "Campi degli allegati",
   "diagnostics.fieldDumpRun": "Esporta campi",
   "diagnostics.fieldDumpHint": "Analizza la chat aperta ed elenca quali campi contengono i suoi allegati (solo nomi dei campi, senza valori). Serve a verificare se è disponibile un link di condivisione.",

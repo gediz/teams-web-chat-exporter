@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "Menyelesaikan {n} pautan…",
   "diagnostics.salvageDownloading": "Memuat turun {i} daripada {n}…",
   "diagnostics.salvageDone": "Selesai. {n} fail disimpan ke Downloads/TCE-probe.",
+  "diagnostics.salvageStarted": "Memulakan {n} pautan di latar belakang. Perhatikan konsol service worker; fail disimpan ke Downloads/TCE-probe. Anda boleh tutup pop timbul ini.",
   "diagnostics.fieldDump": "Medan lampiran",
   "diagnostics.fieldDumpRun": "Papar medan",
   "diagnostics.fieldDumpHint": "Mengimbas sembang yang dibuka dan menyenaraikan medan yang dibawa oleh lampiran failnya (nama medan sahaja, tanpa nilai). Digunakan untuk menyemak sama ada pautan perkongsian tersedia.",

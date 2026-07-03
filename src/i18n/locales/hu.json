@@ -180,6 +180,7 @@
   "diagnostics.salvageResolving": "{n} hivatkozás feloldása…",
   "diagnostics.salvageDownloading": "{i}/{n} letöltése…",
   "diagnostics.salvageDone": "Kész. {n} fájl mentve a Downloads/TCE-probe mappába.",
+  "diagnostics.salvageStarted": "{n} hivatkozás elindult a háttérben. Figyeld a service worker konzolt; a fájlok a Downloads/TCE-probe mappába kerülnek. Bezárhatod ezt az ablakot.",
   "diagnostics.fieldDump": "Melléklet mezők",
   "diagnostics.fieldDumpRun": "Mezők kiírása",
   "diagnostics.fieldDumpHint": "Átvizsgálja a nyitott csevegést, és felsorolja, milyen mezőket tartalmaznak a fájlmellékletei (csak mezőnevek, értékek nélkül). Annak ellenőrzésére, hogy elérhető-e megosztási hivatkozás.",

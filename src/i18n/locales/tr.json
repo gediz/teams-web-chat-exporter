@@ -184,6 +184,7 @@
   "diagnostics.salvageResolving": "{n} bağlantı çözülüyor…",
   "diagnostics.salvageDownloading": "{n} bağlantıdan {i} indiriliyor…",
   "diagnostics.salvageDone": "Bitti. {n} dosya Downloads/TCE-probe klasörüne kaydedildi.",
+  "diagnostics.salvageStarted": "{n} bağlantı arka planda başlatıldı. Service worker konsolunu izleyin; dosyalar Downloads/TCE-probe klasörüne kaydedilir. Bu pencereyi kapatabilirsiniz.",
   "diagnostics.fieldDump": "Ek alanları",
   "diagnostics.fieldDumpRun": "Alanları dök",
   "diagnostics.fieldDumpHint": "Açık sohbeti tarar ve dosya eklerinin hangi alanları taşıdığını listeler (yalnızca alan adları, değer yok). Paylaşım bağlantısının olup olmadığını denetlemek için kullanılır.",
