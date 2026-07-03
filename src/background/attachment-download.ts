@@ -388,11 +388,13 @@ function scheduleFailuresWrite(deps: { downloads: DownloadsApi }, meta: VerifyMe
   }, FAILURES_WRITE_DEBOUNCE_MS));
 }
 
-/** Record a file the system could not download into this chat's FAILURES.txt. */
+/** Record a file the system could not download into this chat's FAILURES.txt.
+ *  Deduped by href: a file that fails several times (initial + retries) is
+ *  listed once, not once per attempt. */
 function recordFailure(deps: { downloads: DownloadsApi; log?: (m: string) => void }, meta: VerifyMeta): void {
   const key = `${meta.exportFolder} ${meta.chatFolder}`;
   const list = verifiedFailures.get(key) || [];
-  list.push({ name: meta.name, href: meta.href });
+  if (!list.some(e => e.href === meta.href)) list.push({ name: meta.name, href: meta.href });
   verifiedFailures.set(key, list);
   scheduleFailuresWrite(deps, meta);
 }
@@ -414,8 +416,11 @@ function removeRecordedFailure(item: { href: string }, exportFolder: string): vo
  *  a failure. */
 function recordCancelled(deps: { downloads: DownloadsApi; log?: (m: string) => void }, meta: VerifyMeta): void {
   const key = `${meta.exportFolder} ${meta.chatFolder}`;
+  // A file retried (recorded as a failure) then cancelled belongs only in the
+  // cancelled section — drop any earlier failure record for it.
+  removeRecordedFailure(meta, meta.exportFolder);
   const list = verifiedCancels.get(key) || [];
-  list.push({ name: meta.name, href: meta.href });
+  if (!list.some(e => e.href === meta.href)) list.push({ name: meta.name, href: meta.href });
   verifiedCancels.set(key, list);
   scheduleFailuresWrite(deps, meta);
 }
@@ -588,6 +593,20 @@ export async function downloadAttachments(
   const RETRY_BACKOFF_MS = 3_000;
   const keyOf = (it: AttachmentCandidate) => it.href;
 
+  // Best-effort removal of an interrupted download's leftover partial (Chrome's
+  // "Unconfirmed NNN.crdownload"): cancel drops the resumable partial, erase
+  // drops the shelf record. removeFile only works on complete downloads, so it
+  // can't be used here. Fire-and-forget. Used for a FAILED/retried attempt.
+  const cleanupPartial = (id: number) => {
+    void Promise.resolve(deps.downloads.cancel(id)).catch(() => { /* already terminal */ })
+      .then(() => Promise.resolve(deps.downloads.erase({ id })).catch(() => { /* noop */ }));
+  };
+  // A cancelled download was already cancelled (by the user or our abort), so
+  // its partial is already gone — just drop the shelf record.
+  const eraseRecord = (id: number) => {
+    void Promise.resolve(deps.downloads.erase({ id })).catch(() => { /* noop */ });
+  };
+
   const onDownloadSettled = (id: number, kind: SettleKind, reason?: string) => {
     if (runEnded) { pendingIds.delete(id); enrolledItem.delete(id); return; }
     if (!pendingIds.delete(id)) return; // event+poll double delivery guard
@@ -595,7 +614,9 @@ export async function downloadAttachments(
     enrolledItem.delete(id);
     if (kind === 'failed' && item && !signal.aborted && isTransientReason(reason)
         && (retryCount.get(keyOf(item)) ?? 0) < MAX_RETRIES) {
-      // Re-dispatch after a backoff; do NOT settle (item stays pending).
+      // Re-dispatch after a backoff; do NOT settle (item stays pending). Clean
+      // the failed attempt's partial so a retry doesn't orphan a .crdownload.
+      cleanupPartial(id);
       retryCount.set(keyOf(item), (retryCount.get(keyOf(item)) ?? 0) + 1);
       deps.log?.(`attachment retry (${reason}): ${item.name} [attempt ${retryCount.get(keyOf(item))}]`);
       scheduleRetry(item);
@@ -605,8 +626,8 @@ export async function downloadAttachments(
       summary.saved++;
       // A prior attempt of a retried file left a stale FAILURES.txt entry.
       if (item && (retryCount.get(keyOf(item)) ?? 0) > 0) removeRecordedFailure(item, exportFolder);
-    } else if (kind === 'cancelled') summary.cancelled++;
-    else summary.failed++;
+    } else if (kind === 'cancelled') { summary.cancelled++; eraseRecord(id); }
+    else { summary.failed++; cleanupPartial(id); }
     settledOne();
   };
 
