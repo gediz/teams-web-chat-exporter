@@ -1,13 +1,13 @@
 // Page-context helper for the SharePoint sharing-link resolve.
 //
-// Why (same reason as urlp-fetcher.js): a content-script fetch runs through
-// the EXTENSION's network partition, which does not carry the SharePoint
-// FedAuth session cookie (that cookie is partitioned to the
-// teams.cloud.microsoft top-level origin, set during Teams' SSO). So a
-// content-script GET to /_api/v2.0/shares returns 401 — verified live. Teams'
-// own resolve runs in the page MAIN world, which owns that partition, so the
-// cookie attaches and the call returns 200 with the pre-authenticated
-// downloadUrl. This helper runs the identical request from the page world.
+// Why (same reason as urlp-fetcher.js): the resolve is UNCREDENTIALED and
+// authenticated by a Bearer token, not a cookie (see the body comment: the
+// endpoint answers Access-Control-Allow-Origin: '*', which forbids
+// credentials). It must run from the Teams page origin: a content-script fetch
+// runs through the EXTENSION's network partition / foreign origin and fails,
+// while the page MAIN world sends the exact page Origin SharePoint accepts and
+// the call returns 200 with the pre-authenticated downloadUrl. This helper runs
+// the identical request from the page world.
 //
 // Loaded by the content script via <script src=runtime.getURL(…)>, so it runs
 // with the Teams page's exact origin and cookie context. RPC via

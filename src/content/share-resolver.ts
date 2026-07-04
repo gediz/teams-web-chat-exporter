@@ -39,7 +39,7 @@
 // gate as the download feature. The returned downloadUrl embeds a short-lived
 // bearer-like token: pass it to chrome.downloads, never log it.
 
-import { isSharePointFileHost } from '../utils/teams-urls';
+import { isSharePointFileHost, siteCollectionBase } from '../utils/teams-urls';
 import { getSharePointToken } from './api-client';
 
 export interface ShareResolveResult {
@@ -134,17 +134,6 @@ function pageWorldGet(url: string, headers: Record<string, string>): Promise<{ o
   });
 }
 
-/**
- * Site-collection base for a SharePoint file URL: `https://<host>/personal/<u>`,
- * `/sites/<s>`, or `/teams/<t>` (falls back to the host root). The drive-item
- * endpoint is site-collection scoped, so it must be addressed on the file's own
- * site, not the host root — the same constraint as the download.aspx handler.
- */
-function siteCollectionBase(u: URL): string {
-  const m = u.pathname.match(/^(\/(?:personal|sites|teams)\/[^/]+)/i);
-  return `https://${u.host}${m ? m[1] : ''}`;
-}
-
 /** Shape a driveItem JSON response into a ShareResolveResult. */
 function parseDriveItem(j: Record<string, unknown>, status: number, mode?: string): ShareResolveResult {
   const role = (j.currentUserRole ?? {}) as Record<string, unknown>;
@@ -236,4 +225,38 @@ export async function resolveDriveItemById(href: string, itemId: string): Promis
   try { u = new URL(href); } catch { return { ok: false, status: 0, error: 'invalid URL' }; }
   const endpoint = `${siteCollectionBase(u)}/_api/v2.0/sites/root/items/${encodeURIComponent(itemId)}/driveItem/?select=${encodeURIComponent(SHARES_SELECT)}`;
   return getDriveItem(u.host, endpoint, 'getShortLivedDownloadUrl');
+}
+
+export type ResolveVia = 'shareUrl' | 'driveItem' | 'rawUrl';
+
+/**
+ * The one resolve ladder used by BOTH the Files-phase resolver and the salvage
+ * batch, so they behave identically:
+ *   1. sharing link  — works for other-owner files;
+ *   2. drive-item GUID — recovers own uploads that have no sharing link. Adopted
+ *      when it is usable (has a downloadUrl) OR when the share step returned
+ *      nothing, so a metadata-only result (size/date, no URL) is NOT discarded;
+ *   3. raw href as a share token — only when there was nothing structured to try.
+ * `href` doubles as the site-collection source for the GUID call. The resolver
+ * functions are injectable so the ladder can be unit-tested without a page world.
+ */
+export async function resolveWithFallback(
+  req: { shareUrl?: string; itemid?: string; href?: string },
+  fns: {
+    resolveShare?: (href: string) => Promise<ShareResolveResult>;
+    resolveById?: (href: string, itemId: string) => Promise<ShareResolveResult>;
+  } = {},
+): Promise<{ result: ShareResolveResult; via: ResolveVia }> {
+  const resolveShare = fns.resolveShare ?? resolveShareFile;
+  const resolveById = fns.resolveById ?? resolveDriveItemById;
+  const { shareUrl, itemid, href } = req;
+  let result: ShareResolveResult = { ok: false, status: 0 };
+  let via: ResolveVia = 'rawUrl';
+  if (shareUrl) { result = await resolveShare(shareUrl); via = 'shareUrl'; }
+  if ((!result.ok || !result.downloadUrl) && itemid && href) {
+    const byId = await resolveById(href, itemid);
+    if ((byId.ok && byId.downloadUrl) || !result.ok) { result = byId; via = 'driveItem'; }
+  }
+  if (!shareUrl && !itemid && href) { result = await resolveShare(href); via = 'rawUrl'; }
+  return { result, via };
 }

@@ -37,9 +37,16 @@ export type AvatarMode = 'inline' | 'files';
 export type PdfPageSize = 'a4' | 'letter';
 export const PDF_FONT_MIN = 8;
 export const PDF_FONT_MAX = 16;
-// Bounds for the Files-phase download concurrency (attachmentMaxConcurrent).
+// Bounds + default for the Files-phase download concurrency
+// (attachmentMaxConcurrent). Single source of truth for the storage default,
+// the runtime clamp (attachmentOptsFrom), and the Settings stepper.
 export const ATTACH_CONCURRENCY_MIN = 1;
 export const ATTACH_CONCURRENCY_MAX = 8;
+export const ATTACH_CONCURRENCY_DEFAULT = 6;
+/** Round + clamp a concurrency value into [MIN, MAX]. */
+export function clampConcurrency(n: number): number {
+  return Math.min(ATTACH_CONCURRENCY_MAX, Math.max(ATTACH_CONCURRENCY_MIN, Math.round(n)));
+}
 
 export type Options = {
   lang?: string;
@@ -239,7 +246,7 @@ export const DEFAULT_OPTIONS: Options = {
   attachmentSizeCapMb: 0,
   attachmentFilenameDate: false,
   attachmentSkipTypes: '',
-  attachmentMaxConcurrent: 6,
+  attachmentMaxConcurrent: ATTACH_CONCURRENCY_DEFAULT,
   theme: 'light',
   afterExport: 'manual',
   avatarMode: 'inline',
@@ -337,7 +344,7 @@ const normalizeOptions = (raw: LegacyOptions, defaults: Options = DEFAULT_OPTION
   }
   // Size cap: a non-negative number of MB. Coerce junk/negatives to the default
   // (0 = off) so a corrupt value can never skip every file.
-  if (typeof merged.attachmentSizeCapMb !== 'number' || !isFinite(merged.attachmentSizeCapMb) || merged.attachmentSizeCapMb < 0) {
+  if (typeof merged.attachmentSizeCapMb !== 'number' || !Number.isFinite(merged.attachmentSizeCapMb) || merged.attachmentSizeCapMb < 0) {
     merged.attachmentSizeCapMb = defaults.attachmentSizeCapMb;
   }
   if (typeof merged.attachmentFilenameDate !== 'boolean') {
@@ -348,13 +355,10 @@ const normalizeOptions = (raw: LegacyOptions, defaults: Options = DEFAULT_OPTION
   }
   // Concurrency: a finite integer in [MIN, MAX]. Coerce junk/out-of-range to the
   // default (6) so a corrupt value can never spawn a runaway pool or fall to 0.
-  if (typeof merged.attachmentMaxConcurrent !== 'number' || !isFinite(merged.attachmentMaxConcurrent)) {
+  if (typeof merged.attachmentMaxConcurrent !== 'number' || !Number.isFinite(merged.attachmentMaxConcurrent)) {
     merged.attachmentMaxConcurrent = defaults.attachmentMaxConcurrent;
   } else {
-    merged.attachmentMaxConcurrent = Math.min(
-      ATTACH_CONCURRENCY_MAX,
-      Math.max(ATTACH_CONCURRENCY_MIN, Math.round(merged.attachmentMaxConcurrent)),
-    );
+    merged.attachmentMaxConcurrent = clampConcurrency(merged.attachmentMaxConcurrent);
   }
   if (typeof merged.diagLogPersist !== 'boolean') {
     merged.diagLogPersist = defaults.diagLogPersist;

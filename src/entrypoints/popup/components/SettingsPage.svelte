@@ -60,7 +60,9 @@
   export let attachmentFilenameDate = false;
   export let attachmentSkipTypes = '';
   export let attachmentMaxConcurrent = 6;
-  // Keep in sync with ATTACH_CONCURRENCY_MIN/MAX in src/utils/options.ts.
+  // Keep in sync with ATTACH_CONCURRENCY_MIN/MAX in utils/options.ts. Duplicated
+  // here as plain literals so this component stays a pure view (same as the PDF
+  // font bounds above).
   const ATTACH_CONCURRENCY_MIN = 1;
   const ATTACH_CONCURRENCY_MAX = 8;
 
@@ -130,10 +132,16 @@
   }
 
   // Size cap in MB. Empty or non-positive means "no cap" (0). Clamp negatives
-  // and junk to 0 so a bad value can never skip every attachment.
+  // and junk to 0 so a bad value can never skip every attachment. Write the
+  // canonical value back to the field: the value prop is one-way, and when the
+  // sanitized result equals the current prop (e.g. -5 or 10.9 while the prop is
+  // 0 or 10) Svelte won't re-render, leaving stale text that diverges from what
+  // is stored.
   function onAttachmentSizeCapChange(e: Event) {
-    const raw = Number((e.target as HTMLInputElement).value);
+    const el = e.target as HTMLInputElement;
+    const raw = Number(el.value);
     const mb = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+    el.value = mb ? String(mb) : '';
     dispatch('attachmentSizeCapMbChange', mb);
   }
 
@@ -141,8 +149,13 @@
     dispatch('attachmentFilenameDateChange', (e.target as HTMLInputElement).checked);
   }
 
+  // Trim before storing, and write the trimmed value back so a trailing-space
+  // edit that sanitizes to the current prop still shows the canonical text.
   function onAttachmentSkipTypesChange(e: Event) {
-    dispatch('attachmentSkipTypesChange', (e.target as HTMLInputElement).value.trim());
+    const el = e.target as HTMLInputElement;
+    const v = el.value.trim();
+    el.value = v;
+    dispatch('attachmentSkipTypesChange', v);
   }
 
   // Concurrency is a −/+ stepper (like body font size): step by 1 and clamp to

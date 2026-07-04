@@ -28,7 +28,7 @@ import { revokeDownloadUrl, textToDownloadUrl } from '../background/builders';
 import { createZipStream, type ZipStream } from '../background/zip';
 import { beginExportStats, endExportStats, getExportStats } from '../background/export-stats';
 import { clearTransferBlobs } from '../utils/blob-transfer';
-import { ACTIVE_EXPORTS_STORAGE_KEY, FIRST_INSTALL_STORAGE_KEY, appendHistoryEntry } from '../utils/options';
+import { ACTIVE_EXPORTS_STORAGE_KEY, FIRST_INSTALL_STORAGE_KEY, appendHistoryEntry, clampConcurrency, ATTACH_CONCURRENCY_DEFAULT } from '../utils/options';
 import type { BackgroundIncomingMessage } from '../types/messaging';
 import type {
   ActiveExportInfo,
@@ -462,10 +462,6 @@ const sendMessageToTab = (tabId: number, msg: unknown) => new Promise<any>((reso
     });
 });
 
-// Files-phase resolver: ask the content script (which has the page origin +
-// MSAL token) to resolve a sharing link to a pre-authenticated download URL.
-// Returns null on any failure so the attachment falls back to the raw-URL
-// path. The downloadUrl is short-lived and is never logged here.
 // Files bigger than this are serialized through the big-file lane (max 2 at
 // once) so a couple of giant streams cannot saturate the link and NETWORK_FAIL
 // the small files around them. Not user-configurable: it only makes very large
@@ -482,8 +478,8 @@ function attachmentOptsFrom(buildOptions: BuildOptions | undefined): AttachmentD
     // a finite value is rounded into [1, 8]; anything else falls back to 6, so the
     // pool can never be spawned at 0 (dead path) or a runaway width.
     const rawN = buildOptions?.attachmentMaxConcurrent;
-    const maxConcurrent = typeof rawN === 'number' && isFinite(rawN)
-        ? Math.min(8, Math.max(1, Math.round(rawN))) : 6;
+    const maxConcurrent = typeof rawN === 'number' && Number.isFinite(rawN)
+        ? clampConcurrency(rawN) : ATTACH_CONCURRENCY_DEFAULT;
     return {
         maxConcurrent,
         sizeCapBytes: capMb > 0 ? Math.round(capMb * 1024 * 1024) : undefined,
@@ -493,6 +489,11 @@ function attachmentOptsFrom(buildOptions: BuildOptions | undefined): AttachmentD
     };
 }
 
+// Files-phase resolver: ask the content script (which has the page origin +
+// MSAL token) to resolve a file (by sharing link and/or GUID) to a
+// pre-authenticated download URL. Returns null on any failure so the attachment
+// falls back to the raw-URL path. The downloadUrl is short-lived and never
+// logged here; size/lastModifiedDateTime ride along for the size cap + prefix.
 function makeResolveShare(tabId: number) {
     return async (req: { shareUrl?: string; itemid?: string; href: string }): Promise<{ downloadUrl?: string; blocksDownload?: boolean; size?: number; lastModifiedDateTime?: string } | null> => {
         try {

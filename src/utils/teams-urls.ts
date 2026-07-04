@@ -180,3 +180,14 @@ export function isSharePointFileHost(url?: string | null): boolean {
   }
   return SHAREPOINT_FILE_HOST_SUFFIXES.some(s => host === s || host.endsWith('.' + s));
 }
+
+/**
+ * Site-collection base for a SharePoint file URL: `https://<host>/personal/<u>`,
+ * `/sites/<s>`, or `/teams/<t>` (falls back to the host root). Site-collection
+ * scoped endpoints (the drive-item API, the download.aspx handler) must be
+ * addressed on the file's own site, not the host root.
+ */
+export function siteCollectionBase(u: URL): string {
+  const m = u.pathname.match(/^(\/(?:personal|sites|teams)\/[^/]+)/i);
+  return `https://${u.host}${m ? m[1] : ''}`;
+}
