@@ -6,7 +6,7 @@ import { makeDayDivider as buildDayDivider } from '../utils/messages';
 import { cssEscape, isPlaceholderText, textFrom } from '../utils/text';
 import { parseTimeStamp } from '../utils/time';
 import { extractAttachments } from '../content/attachments';
-import { resolveShareFile } from '../content/share-resolver';
+import { resolveShareFile, resolveDriveItemById, type ShareResolveResult } from '../content/share-resolver';
 import { extractReactions } from '../content/reactions';
 import { extractReplyContext } from '../content/replies';
 import { cleanAltText, extractTables, extractTextWithEmojis, normalizeMentions } from '../content/text';
@@ -3643,8 +3643,22 @@ export default defineContentScript({
                         // bounds concurrent shares calls as defence-in-depth on
                         // top of the background's own resolve concurrency cap.
                         try {
-                            const out = await withShareResolveSlot(() => resolveShareFile(String(msg.shareUrl || '')));
-                            sendResponse({ ok: out.ok, downloadUrl: out.downloadUrl, blocksDownload: out.blocksDownload });
+                            const shareUrl = String(msg.shareUrl || '');
+                            const itemid = String(msg.itemid || '');
+                            const href = String(msg.href || '');
+                            const out = await withShareResolveSlot(async () => {
+                                let r: ShareResolveResult | null = null;
+                                if (shareUrl) r = await resolveShareFile(shareUrl);
+                                // Own-uploaded files carry an itemid but NO share link,
+                                // so resolveShareFile has nothing to redeem. Fall back to
+                                // the drive-item-by-GUID resolve the browser uses for them.
+                                if ((!r || !r.ok || !r.downloadUrl) && itemid && href) {
+                                    const byId = await resolveDriveItemById(href, itemid);
+                                    if (byId.ok && byId.downloadUrl) r = byId;
+                                }
+                                return r;
+                            });
+                            sendResponse({ ok: !!out?.ok, downloadUrl: out?.downloadUrl, blocksDownload: out?.blocksDownload, size: out?.size, lastModifiedDateTime: out?.lastModifiedDateTime });
                         } catch (e) {
                             sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
                         }
@@ -3659,7 +3673,12 @@ export default defineContentScript({
                         // is short-lived — returned to the popup, never logged.
                         try {
                             const hrefs: string[] = Array.isArray(msg.hrefs) ? msg.hrefs.map((h: unknown) => String(h)) : [];
-                            const byName = new Map<string, { shareUrl: string; fileName: string }>();
+                            // Index the open chat's files by name. A file may carry a
+                            // sharing link (shareUrl), a stable GUID (itemid), or both.
+                            // Own-uploaded files have an itemid but NO share link, so we
+                            // keep any file that has EITHER — the itemid feeds the
+                            // drive-item-by-GUID resolve that recovers them.
+                            const byName = new Map<string, { shareUrl?: string; itemid?: string; objectUrl?: string; fileName: string }>();
                             const convId = (await extractConversationId()) || undefined;
                             const res = await apiScrape(undefined, { conversationId: convId });
                             for (const m of res?.messages || []) {
@@ -3670,19 +3689,33 @@ export default defineContentScript({
                                 if (!Array.isArray(files)) continue;
                                 for (const f of files) {
                                     const info = (f?.fileInfo || {}) as Record<string, unknown>;
-                                    if (typeof info.shareUrl !== 'string') continue;
+                                    const shareUrl = typeof info.shareUrl === 'string' ? info.shareUrl : undefined;
+                                    const itemid = typeof f?.itemid === 'string' ? f.itemid : undefined;
+                                    if (!shareUrl && !itemid) continue;
+                                    const objectUrl = String(f?.objectUrl || f?.baseUrl || '');
+                                    const rec = { shareUrl, itemid, objectUrl, fileName: String(f?.fileName || '') };
                                     const nm = String(f?.fileName || '').toLowerCase();
-                                    const objName = decodeURIComponent(String(f?.objectUrl || '').split('?')[0].split('/').pop() || '').toLowerCase();
-                                    if (nm && !byName.has(nm)) byName.set(nm, { shareUrl: info.shareUrl, fileName: String(f?.fileName || '') });
-                                    if (objName && !byName.has(objName)) byName.set(objName, { shareUrl: info.shareUrl, fileName: String(f?.fileName || '') });
+                                    const objName = decodeURIComponent(objectUrl.split('?')[0].split('/').pop() || '').toLowerCase();
+                                    if (nm && !byName.has(nm)) byName.set(nm, rec);
+                                    if (objName && !byName.has(objName)) byName.set(objName, rec);
                                 }
                             }
                             const results = await Promise.all(hrefs.map(href => withShareResolveSlot(async () => {
                                 const want = decodeURIComponent((href.split('?')[0].split('/').pop() || '')).toLowerCase();
                                 const match = byName.get(want);
-                                const target = match?.shareUrl || href;
-                                const out = await resolveShareFile(target);
-                                return { href, name: match?.fileName || want, ok: out.ok, downloadUrl: out.downloadUrl, blocksDownload: out.blocksDownload, error: out.error, via: match ? 'shareUrl' : 'rawUrl' };
+                                // Prefer the sharing link (proven for other-owner files);
+                                // fall back to the drive-item GUID (recovers own uploads);
+                                // last resort, resolve the raw href as a share token.
+                                let out: ShareResolveResult = { ok: false, status: 0 };
+                                let via = 'rawUrl';
+                                if (match?.shareUrl) { out = await resolveShareFile(match.shareUrl); via = 'shareUrl'; }
+                                if ((!out.ok || !out.downloadUrl) && match?.itemid) {
+                                    const byId = await resolveDriveItemById(match.objectUrl || href, match.itemid);
+                                    if (byId.ok && byId.downloadUrl) { out = byId; via = 'driveItem'; }
+                                    else if (!match.shareUrl) { out = byId; via = 'driveItem'; }
+                                }
+                                if (!match) { out = await resolveShareFile(href); via = 'rawUrl'; }
+                                return { href, name: match?.fileName || want, ok: out.ok, downloadUrl: out.downloadUrl, blocksDownload: out.blocksDownload, error: out.error, via };
                             })));
                             sendResponse({ ok: true, results });
                         } catch (e) {

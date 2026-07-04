@@ -58,6 +58,11 @@ export interface ShareResolveResult {
   readOnly?: boolean;
   // Stable file GUID (listItemUniqueId) — the download.aspx UniqueId.
   itemId?: string;
+  // File size in bytes (driveItem.size). Present only when 'size' is in the
+  // select; used by the size-cap and big-file lane. Absent => size unknown.
+  size?: number;
+  // File's last-modified time (driveItem.lastModifiedDateTime, ISO-8601).
+  lastModifiedDateTime?: string;
   error?: string;
   // Which credentials mode the page-world helper used (diagnostic).
   mode?: string;
@@ -66,7 +71,7 @@ export interface ShareResolveResult {
 // Mirrors the select list Teams sends (from the HAR), so SharePoint treats
 // the request identically. `@microsoft.graph.downloadUrl` arrives in the
 // response as `@content.downloadUrl` on this endpoint.
-const SHARES_SELECT = '@microsoft.graph.downloadUrl,file,id,webDavUrl,sharepointIds,eTag,name,currentUserRole,parentReference';
+const SHARES_SELECT = '@microsoft.graph.downloadUrl,file,id,webDavUrl,sharepointIds,eTag,name,currentUserRole,parentReference,size,lastModifiedDateTime';
 
 /** Graph sharing-token encoding: 'u!' + unpadded base64url of the URL. */
 export function encodeShareToken(url: string): string {
@@ -130,33 +135,51 @@ function pageWorldGet(url: string, headers: Record<string, string>): Promise<{ o
 }
 
 /**
- * Resolve a SharePoint file URL to its driveItem (downloadUrl + access
- * oracle). Must run in a context whose fetch carries the Teams page origin
- * (content script / page world) — SharePoint rejects the extension origin.
+ * Site-collection base for a SharePoint file URL: `https://<host>/personal/<u>`,
+ * `/sites/<s>`, or `/teams/<t>` (falls back to the host root). The drive-item
+ * endpoint is site-collection scoped, so it must be addressed on the file's own
+ * site, not the host root — the same constraint as the download.aspx handler.
  */
-export async function resolveShareFile(href: string): Promise<ShareResolveResult> {
-  if (!isSharePointFileHost(href)) {
-    return { ok: false, status: 0, error: 'not a SharePoint file host' };
-  }
-  let host: string;
-  try { host = new URL(href).host; } catch { return { ok: false, status: 0, error: 'invalid URL' }; }
+function siteCollectionBase(u: URL): string {
+  const m = u.pathname.match(/^(\/(?:personal|sites|teams)\/[^/]+)/i);
+  return `https://${u.host}${m ? m[1] : ''}`;
+}
 
-  // Teams authenticates the resolve with a SharePoint-scoped Bearer token and
-  // hits the /driveItem/ sub-path (verified via CDP: its 200 request carries
-  // Authorization + /driveItem/; our tokenless base-path request 401s). Match
-  // both. The token is uncredentialed-with-Bearer, so no cookie/partition
-  // dependency — this is why it works when the raw-URL session cookie is stale.
+/** Shape a driveItem JSON response into a ShareResolveResult. */
+function parseDriveItem(j: Record<string, unknown>, status: number, mode?: string): ShareResolveResult {
+  const role = (j.currentUserRole ?? {}) as Record<string, unknown>;
+  const spIds = (j.sharepointIds ?? {}) as Record<string, unknown>;
+  const file = (j.file ?? {}) as Record<string, unknown>;
+  const downloadUrl = (j['@content.downloadUrl'] ?? j['@microsoft.graph.downloadUrl']) as string | undefined;
+  return {
+    ok: true,
+    status,
+    name: typeof j.name === 'string' ? j.name : undefined,
+    mimeType: typeof file.mimeType === 'string' ? file.mimeType : undefined,
+    downloadUrl: typeof downloadUrl === 'string' ? downloadUrl : undefined,
+    blocksDownload: typeof role.blocksDownload === 'boolean' ? role.blocksDownload : undefined,
+    allowEdit: typeof role.allowEdit === 'boolean' ? role.allowEdit : undefined,
+    readOnly: typeof role.readOnly === 'boolean' ? role.readOnly : undefined,
+    itemId: typeof spIds.listItemUniqueId === 'string' ? spIds.listItemUniqueId : undefined,
+    size: typeof j.size === 'number' ? j.size : undefined,
+    lastModifiedDateTime: typeof j.lastModifiedDateTime === 'string' ? j.lastModifiedDateTime : undefined,
+    mode: mode,
+  };
+}
+
+/**
+ * GET a v2.0 driveItem endpoint through the page-world helper and shape the
+ * result. Both resolve paths share this: Teams authenticates the call with a
+ * SharePoint-scoped Bearer token (verified via CDP: its 200 request carries
+ * Authorization; our tokenless request 401s). The token is
+ * uncredentialed-with-Bearer, so no cookie/partition dependency — this is why
+ * it works when the raw-URL session cookie is stale.
+ */
+async function getDriveItem(host: string, endpoint: string, prefer: string): Promise<ShareResolveResult> {
   const bearer = await getSharePointToken(host);
-  const endpoint = `https://${host}/_api/v2.0/shares/${encodeShareToken(href)}/driveItem/?select=${encodeURIComponent(SHARES_SELECT)}`;
-  // NOTE: we intentionally drop Teams' `manualRedirect` from Prefer. With it,
-  // SharePoint returns @content.downloadUrl as a bare download.aspx?UniqueId
-  // form that still needs the session cookie / a POSTed access_token (Teams
-  // drives that itself). Without it, getShortLivedDownloadUrl yields a fully
-  // pre-authenticated (token-bearing) URL that chrome.downloads can GET on its
-  // own — which is the whole point of resolving.
   const headers: Record<string, string> = {
     'Accept': 'application/json',
-    'Prefer': 'redeemSharingLink,getShortLivedDownloadUrl',
+    'Prefer': prefer,
     'application': 'Teams_Web',
   };
   if (bearer) headers['Authorization'] = `Bearer ${bearer}`;
@@ -165,26 +188,52 @@ export async function resolveShareFile(href: string): Promise<ShareResolveResult
     return {
       ok: false,
       status: res.status,
-      error: (res.error || `shares API returned ${res.status}`) + (bearer ? '' : ' (no SharePoint token found)'),
+      error: (res.error || `driveItem API returned ${res.status}`) + (bearer ? '' : ' (no SharePoint token found)'),
       mode: res.mode,
     };
   }
-  const j = res.json;
+  return parseDriveItem(res.json, res.status, res.mode);
+}
 
-  const role = (j.currentUserRole ?? {}) as Record<string, unknown>;
-  const spIds = (j.sharepointIds ?? {}) as Record<string, unknown>;
-  const file = (j.file ?? {}) as Record<string, unknown>;
-  const downloadUrl = (j['@content.downloadUrl'] ?? j['@microsoft.graph.downloadUrl']) as string | undefined;
-  return {
-    ok: true,
-    status: res.status,
-    name: typeof j.name === 'string' ? j.name : undefined,
-    mimeType: typeof file.mimeType === 'string' ? file.mimeType : undefined,
-    downloadUrl: typeof downloadUrl === 'string' ? downloadUrl : undefined,
-    blocksDownload: typeof role.blocksDownload === 'boolean' ? role.blocksDownload : undefined,
-    allowEdit: typeof role.allowEdit === 'boolean' ? role.allowEdit : undefined,
-    readOnly: typeof role.readOnly === 'boolean' ? role.readOnly : undefined,
-    itemId: typeof spIds.listItemUniqueId === 'string' ? spIds.listItemUniqueId : undefined,
-    mode: res.mode,
-  };
+/**
+ * Resolve a SharePoint file URL to its driveItem (downloadUrl + access
+ * oracle) via its SHARING LINK. Must run in a context whose fetch carries the
+ * Teams page origin (content script / page world) — SharePoint rejects the
+ * extension origin.
+ */
+export async function resolveShareFile(href: string): Promise<ShareResolveResult> {
+  if (!isSharePointFileHost(href)) {
+    return { ok: false, status: 0, error: 'not a SharePoint file host' };
+  }
+  let host: string;
+  try { host = new URL(href).host; } catch { return { ok: false, status: 0, error: 'invalid URL' }; }
+
+  // NOTE: we intentionally drop Teams' `manualRedirect` from Prefer. With it,
+  // SharePoint returns @content.downloadUrl as a bare download.aspx?UniqueId
+  // form that still needs the session cookie / a POSTed access_token (Teams
+  // drives that itself). Without it, getShortLivedDownloadUrl yields a fully
+  // pre-authenticated (token-bearing) URL that chrome.downloads can GET on its
+  // own — which is the whole point of resolving.
+  const endpoint = `https://${host}/_api/v2.0/shares/${encodeShareToken(href)}/driveItem/?select=${encodeURIComponent(SHARES_SELECT)}`;
+  return getDriveItem(host, endpoint, 'redeemSharingLink,getShortLivedDownloadUrl');
+}
+
+/**
+ * Resolve a SharePoint file to its driveItem by its stable file GUID
+ * (listItemUniqueId), the way Teams' web client opens a file the current user
+ * OWNS: GET `<siteCollectionBase>/_api/v2.0/sites/root/items/<guid>/driveItem/`
+ * (verified in a manual-download HAR against a real tenant). This is the path
+ * that recovers own-uploaded files, which carry an `itemid` but no sharing
+ * link, so {@link resolveShareFile} has nothing to redeem for them. `href` is
+ * only used to derive the file's host + site collection; the GUID addresses it.
+ */
+export async function resolveDriveItemById(href: string, itemId: string): Promise<ShareResolveResult> {
+  if (!isSharePointFileHost(href)) {
+    return { ok: false, status: 0, error: 'not a SharePoint file host' };
+  }
+  if (!itemId) return { ok: false, status: 0, error: 'no itemId' };
+  let u: URL;
+  try { u = new URL(href); } catch { return { ok: false, status: 0, error: 'invalid URL' }; }
+  const endpoint = `${siteCollectionBase(u)}/_api/v2.0/sites/root/items/${encodeURIComponent(itemId)}/driveItem/?select=${encodeURIComponent(SHARES_SELECT)}`;
+  return getDriveItem(u.host, endpoint, 'getShortLivedDownloadUrl');
 }

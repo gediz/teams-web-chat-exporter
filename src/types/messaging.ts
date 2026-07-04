@@ -216,6 +216,8 @@ export type ResolveShareFileResponse = {
   allowEdit?: boolean;
   readOnly?: boolean;
   itemId?: string;
+  size?: number;
+  lastModifiedDateTime?: string;
   error?: string;
   // Whether the resolve used the matched file's sharing link or fell back to
   // the pasted raw URL; matchedName is the file record we matched.
@@ -227,8 +229,10 @@ export type ResolveShareFileResponse = {
 // Files-phase resolver RPC (background -> content): resolve a file's sharing
 // link to a pre-authenticated download URL. The downloadUrl is short-lived and
 // must never be logged or persisted.
-export type DownloadResolveShareRequest = { type: 'DOWNLOAD_RESOLVE_SHARE'; shareUrl: string };
-export type DownloadResolveShareResponse = { ok: boolean; downloadUrl?: string; blocksDownload?: boolean; error?: string };
+// shareUrl OR (itemid + href): own-uploaded files have no sharing link, so the
+// resolver falls back to the drive-item-by-GUID path keyed on itemid.
+export type DownloadResolveShareRequest = { type: 'DOWNLOAD_RESOLVE_SHARE'; shareUrl?: string; itemid?: string; href?: string };
+export type DownloadResolveShareResponse = { ok: boolean; downloadUrl?: string; blocksDownload?: boolean; size?: number; lastModifiedDateTime?: string; error?: string };
 // Salvage tool runs in the background (survives the popup closing on file pick).
 export type SalvageLinksRequest = { type: 'SALVAGE_LINKS'; hrefs: string[]; tabId: number };
 export type SalvageLinksResponse = { ok: boolean; started?: number; error?: string };
