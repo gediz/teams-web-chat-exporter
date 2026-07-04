@@ -231,6 +231,14 @@ export type BuildOptions = {
   // chrome.downloads (the "Files" toggle). Independent of the selected
   // formats; runs after the main export is saved.
   downloadFiles?: boolean;
+  // Skip downloaded attachments larger than this many MB (0/undefined = no cap).
+  attachmentSizeCapMb?: number;
+  // Prepend each downloaded attachment's real last-modified datetime to its name.
+  attachmentFilenameDate?: boolean;
+  // Comma-separated extensions to skip (deny-list; empty = download every type).
+  attachmentSkipTypes?: string;
+  // Files-phase download concurrency (clamped 1..8; default 6).
+  attachmentMaxConcurrent?: number;
   // 'files' forces HTML-only exports to zip so the avatars/ folder can
   // sit alongside the HTML. 'inline' keeps avatars as base64 in the
   // HTML (single self-contained file).
@@ -293,7 +301,8 @@ export type ExportStatusPayload = {
   // (cross-tenant / consumer / unresolved); `failed` = dispatch or download
   // error, including verified no-access pages; `cancelled` = stopped before
   // finishing (user cancel / STOP). Drives the post-export summary line.
-  filesSummary?: { total: number; saved: number; links: number; failed: number; cancelled?: number };
+  // `skipped` = intentionally not downloaded (over the size cap / excluded type).
+  filesSummary?: { total: number; saved: number; links: number; failed: number; cancelled?: number; skipped?: number };
 };
 
 // One row in the export history. Written on phase='complete'|'cancelled'

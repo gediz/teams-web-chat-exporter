@@ -37,6 +37,9 @@ export type AvatarMode = 'inline' | 'files';
 export type PdfPageSize = 'a4' | 'letter';
 export const PDF_FONT_MIN = 8;
 export const PDF_FONT_MAX = 16;
+// Bounds for the Files-phase download concurrency (attachmentMaxConcurrent).
+export const ATTACH_CONCURRENCY_MIN = 1;
+export const ATTACH_CONCURRENCY_MAX = 8;
 
 export type Options = {
   lang?: string;
@@ -78,6 +81,26 @@ export type Options = {
   // otherwise kept as links. Files that can't be resolved (cross-tenant, guest,
   // consumer OneDrive, expired auth) stay as links.
   downloadFiles: boolean;
+  // Opt-in: skip any downloaded file attachment larger than this many MEGABYTES,
+  // read from the file's resolved size before the transfer starts. 0 (default)
+  // means no cap. Only affects the Files phase; skipped files are reported as
+  // skipped, not failed. For leaving giant videos out of a big export.
+  attachmentSizeCapMb: number;
+  // Opt-in: prepend each downloaded attachment's real last-modified datetime
+  // (UTC, filesystem-safe, e.g. `20260327T125005Z__report.pdf`) to its saved
+  // filename. Off by default. The loose files land via chrome.downloads, which
+  // cannot set a filesystem modified-time, so the prefix is the one way to carry
+  // the real date. Independent of the inline-image date options.
+  attachmentFilenameDate: boolean;
+  // Opt-in deny-list: skip downloaded attachments whose name ends with one of
+  // these comma-separated extensions (dots optional, case-insensitive), e.g.
+  // "exe, zip, tar.gz". Empty (default) downloads every type. The extension is
+  // known before any network call, so denied files never resolve or download.
+  attachmentSkipTypes: string;
+  // How many attachments download at once during the Files phase. Default 6,
+  // clamped to [ATTACH_CONCURRENCY_MIN, ATTACH_CONCURRENCY_MAX]. Advanced: higher
+  // can be faster but risks throttling; lower is gentler but slower.
+  attachmentMaxConcurrent: number;
   theme: Theme;
   afterExport: AfterExport;
   // Controls how avatar images are packaged in HTML exports. Only
@@ -213,6 +236,10 @@ export const DEFAULT_OPTIONS: Options = {
   imageFilenameDate: false,
   imageModifiedDate: false,
   downloadFiles: false,
+  attachmentSizeCapMb: 0,
+  attachmentFilenameDate: false,
+  attachmentSkipTypes: '',
+  attachmentMaxConcurrent: 6,
   theme: 'light',
   afterExport: 'manual',
   avatarMode: 'inline',
@@ -307,6 +334,27 @@ const normalizeOptions = (raw: LegacyOptions, defaults: Options = DEFAULT_OPTION
   }
   if (typeof merged.downloadFiles !== 'boolean') {
     merged.downloadFiles = defaults.downloadFiles;
+  }
+  // Size cap: a non-negative number of MB. Coerce junk/negatives to the default
+  // (0 = off) so a corrupt value can never skip every file.
+  if (typeof merged.attachmentSizeCapMb !== 'number' || !isFinite(merged.attachmentSizeCapMb) || merged.attachmentSizeCapMb < 0) {
+    merged.attachmentSizeCapMb = defaults.attachmentSizeCapMb;
+  }
+  if (typeof merged.attachmentFilenameDate !== 'boolean') {
+    merged.attachmentFilenameDate = defaults.attachmentFilenameDate;
+  }
+  if (typeof merged.attachmentSkipTypes !== 'string') {
+    merged.attachmentSkipTypes = defaults.attachmentSkipTypes;
+  }
+  // Concurrency: a finite integer in [MIN, MAX]. Coerce junk/out-of-range to the
+  // default (6) so a corrupt value can never spawn a runaway pool or fall to 0.
+  if (typeof merged.attachmentMaxConcurrent !== 'number' || !isFinite(merged.attachmentMaxConcurrent)) {
+    merged.attachmentMaxConcurrent = defaults.attachmentMaxConcurrent;
+  } else {
+    merged.attachmentMaxConcurrent = Math.min(
+      ATTACH_CONCURRENCY_MAX,
+      Math.max(ATTACH_CONCURRENCY_MIN, Math.round(merged.attachmentMaxConcurrent)),
+    );
   }
   if (typeof merged.diagLogPersist !== 'boolean') {
     merged.diagLogPersist = defaults.diagLogPersist;
