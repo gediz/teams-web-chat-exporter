@@ -311,5 +311,19 @@
   "settings.grp.export": "Eksport",
   "settings.grp.images": "Obrazy",
   "settings.grp.help": "Pomoc i opinie",
-  "common.search": "Szukaj"
+  "common.search": "Szukaj",
+  "settings.grp.attachments": "Załączniki",
+  "settings.attachSizeCap": "Pomiń pliki większe niż (MB)",
+  "settings.attachSizeCap.hint": "Pomija duże pobrania. 0 oznacza brak limitu.",
+  "settings.attachSizeCap.tooltip": "Podczas pobierania plików pomija każdy załącznik większy niż podana liczba megabajtów, odczytana z rozmiaru pliku przed pobraniem. Użyj tej opcji, aby nie umieszczać ogromnych filmów w dużym eksporcie. 0 (domyślnie) pobiera wszystko. Pominięte pliki są zgłaszane jako pominięte, nie jako nieudane.",
+  "settings.attachDate": "Data w nazwach plików załączników",
+  "settings.attachDate.hint": "Dodaje do nazw pobranych plików ich prawdziwą datę ostatniej modyfikacji (UTC).",
+  "settings.attachDate.tooltip": "Dodaje do nazwy każdego pobranego załącznika jego prawdziwy czas ostatniej modyfikacji, na przykład 20260327T125005Z__report.pdf. Pobrane pliki są zapisywane przez przeglądarkę, która nie może ustawić daty modyfikacji pliku, więc ten przedrostek to sposób na zachowanie prawdziwej daty. Domyślnie wyłączone; dotyczy tylko pobierania plików.",
+  "status.filesSkipped": "{n} pominiętych",
+  "settings.attachSkipTypes": "Pomiń te typy plików",
+  "settings.attachSkipTypes.hint": "Rozszerzenia do pominięcia oddzielone przecinkami, na przykład: exe, zip. Puste pole pobiera wszystko.",
+  "settings.attachSkipTypes.tooltip": "Podczas pobierania plików pomija każdy załącznik, którego nazwa kończy się jednym z tych rozszerzeń. Wprowadź je oddzielone przecinkami (kropki opcjonalne, wielkość liter nie ma znaczenia), na przykład: exe, zip, tar.gz. Typ pliku jest znany przed pobraniem, więc pominięte pliki nigdy się nie pobierają i są zgłaszane jako pominięte, nie jako nieudane. Puste pole (domyślnie) pobiera każdy typ.",
+  "settings.attachConcurrency": "Jednoczesne pobrania (zaawansowane)",
+  "settings.attachConcurrency.hint": "Ile plików pobiera się naraz. Domyślnie 6.",
+  "settings.attachConcurrency.tooltip": "Zaawansowane. Ustawia, ile załączników pobiera się jednocześnie podczas pobierania plików, od 1 do 8 (domyślnie 6). Wyższa wartość może być szybsza przy szybkim łączu, ale może spowodować, że SharePoint ograniczy taką serię, więc więcej plików się nie powiedzie i zostanie ponowionych. Niższa jest łagodniejsza, ale wolniejsza. Pozostaw 6, chyba że masz powód do zmiany. Dotyczy tylko pobierania plików."
 }

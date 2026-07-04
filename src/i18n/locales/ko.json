@@ -311,5 +311,19 @@
   "settings.grp.export": "내보내기",
   "settings.grp.images": "이미지",
   "settings.grp.help": "도움말 및 피드백",
-  "common.search": "검색"
+  "common.search": "검색",
+  "settings.grp.attachments": "첨부 파일",
+  "settings.attachSizeCap": "이보다 큰 파일 건너뛰기 (MB)",
+  "settings.attachSizeCap.hint": "큰 다운로드는 제외합니다. 0은 제한 없음을 의미합니다.",
+  "settings.attachSizeCap.tooltip": "파일 다운로드 중, 다운로드 전에 읽은 파일 크기를 기준으로 이 메가바이트 수보다 큰 첨부 파일을 건너뜁니다. 큰 내보내기에서 대용량 동영상을 제외할 때 사용하세요. 0(기본값)은 모두 다운로드합니다. 건너뛴 파일은 실패가 아니라 건너뜀으로 보고됩니다.",
+  "settings.attachDate": "첨부 파일 이름에 날짜 포함",
+  "settings.attachDate.hint": "다운로드한 파일 이름에 실제 마지막 수정 날짜(UTC)를 앞에 붙입니다.",
+  "settings.attachDate.tooltip": "다운로드한 각 첨부 파일의 실제 마지막 수정 시각을 파일 이름에 추가합니다(예: 20260327T125005Z__report.pdf). 다운로드한 파일은 브라우저가 저장하는데, 브라우저는 파일의 수정한 날짜를 설정할 수 없으므로 이 접두사가 실제 날짜를 유지하는 방법입니다. 기본값은 꺼짐이며, 파일 다운로드에만 적용됩니다.",
+  "status.filesSkipped": "{n}개 건너뜀",
+  "settings.attachSkipTypes": "이 파일 유형 건너뛰기",
+  "settings.attachSkipTypes.hint": "건너뛸 확장자를 쉼표로 구분합니다(예: exe, zip). 비워 두면 모두 다운로드합니다.",
+  "settings.attachSkipTypes.tooltip": "파일 다운로드 중, 이름이 이 확장자 중 하나로 끝나는 첨부 파일을 건너뜁니다. 쉼표로 구분하여 입력하세요(점은 선택 사항이며 대소문자는 무관, 예: exe, zip, tar.gz). 파일 유형은 다운로드 전에 알 수 있으므로 건너뛴 파일은 다운로드되지 않고 실패가 아니라 건너뜀으로 보고됩니다. 비워 두면(기본값) 모든 유형을 다운로드합니다.",
+  "settings.attachConcurrency": "동시 다운로드 (고급)",
+  "settings.attachConcurrency.hint": "한 번에 다운로드하는 파일 수. 기본값 6.",
+  "settings.attachConcurrency.tooltip": "고급. 파일 다운로드 중 동시에 다운로드하는 첨부 파일 수를 1에서 8까지(기본값 6) 설정합니다. 값이 높으면 빠른 연결에서 더 빠를 수 있지만 SharePoint가 순간 요청을 제한하여 더 많은 파일이 실패하고 재시도될 수 있습니다. 값이 낮으면 부담은 적지만 느립니다. 변경할 이유가 없다면 6으로 두세요. 파일 다운로드에만 적용됩니다."
 }

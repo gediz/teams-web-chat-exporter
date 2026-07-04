@@ -311,5 +311,19 @@
   "settings.grp.export": "匯出",
   "settings.grp.images": "圖片",
   "settings.grp.help": "說明與意見回饋",
-  "common.search": "搜尋"
+  "common.search": "搜尋",
+  "settings.grp.attachments": "附件",
+  "settings.attachSizeCap": "略過大於此大小的檔案 (MB)",
+  "settings.attachSizeCap.hint": "略過大型下載。0 表示不限。",
+  "settings.attachSizeCap.tooltip": "在檔案下載過程中，略過大於指定百萬位元組數的任何附件，依下載前讀取的檔案大小判斷。可用來避免將超大影片納入大型匯出。0（預設）會下載全部。被略過的檔案會標示為已略過，而非失敗。",
+  "settings.attachDate": "附件檔名中包含日期",
+  "settings.attachDate.hint": "在已下載的檔名前加上其真實的最後修改日期（UTC）。",
+  "settings.attachDate.tooltip": "為每個已下載的附件檔名加入其真實的最後修改時間，例如 20260327T125005Z__report.pdf。已下載的檔案由瀏覽器儲存，而瀏覽器無法設定檔案的修改日期，因此以此前綴保留真實日期。預設關閉；僅影響檔案下載。",
+  "status.filesSkipped": "{n} 個已略過",
+  "settings.attachSkipTypes": "略過這些檔案類型",
+  "settings.attachSkipTypes.hint": "以逗號分隔要略過的副檔名，例如：exe, zip。留空則下載全部。",
+  "settings.attachSkipTypes.tooltip": "在檔案下載過程中，略過名稱以這些副檔名之一結尾的任何附件。以逗號分隔輸入（點可省略，不分大小寫），例如：exe, zip, tar.gz。檔案類型在下載前即已知，因此被略過的檔案不會下載，並標示為已略過，而非失敗。留空（預設）會下載所有類型。",
+  "settings.attachConcurrency": "同時下載數（進階）",
+  "settings.attachConcurrency.hint": "一次下載多少個檔案。預設 6。",
+  "settings.attachConcurrency.tooltip": "進階。設定檔案下載過程中同時下載的附件數量，範圍 1 到 8（預設 6）。在高速連線下數值越高可能越快，但可能導致 SharePoint 對這波突發流量進行限流，使更多檔案失敗並重試。數值越低越溫和但較慢。除非有理由變更，否則請保持 6。僅影響檔案下載。"
 }

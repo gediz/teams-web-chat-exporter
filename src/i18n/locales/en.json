@@ -311,5 +311,19 @@
   "settings.grp.export": "Export",
   "settings.grp.images": "Images",
   "settings.grp.help": "Help & feedback",
-  "common.search": "Search"
+  "common.search": "Search",
+  "settings.grp.attachments": "Attachments",
+  "settings.attachSizeCap": "Skip files larger than (MB)",
+  "settings.attachSizeCap.hint": "Leave big downloads out. 0 means no limit.",
+  "settings.attachSizeCap.tooltip": "During the Files download, skip any attachment larger than this many megabytes, read from the file size before it downloads. Use it to keep giant videos out of a big export. 0 (default) downloads everything. Skipped files are reported as skipped, not failed.",
+  "settings.attachDate": "Date in attachment filenames",
+  "settings.attachDate.hint": "Prefix downloaded file names with their real last-modified date (UTC).",
+  "settings.attachDate.tooltip": "Add each downloaded attachment's real last-modified time to its filename, for example 20260327T125005Z__report.pdf. Downloaded files are saved by the browser, which cannot set a file's modified date, so this prefix is the way to keep the real date. Off by default; only affects the Files download.",
+  "status.filesSkipped": "{n} skipped",
+  "settings.attachSkipTypes": "Skip these file types",
+  "settings.attachSkipTypes.hint": "Comma-separated extensions to skip, for example: exe, zip. Empty downloads everything.",
+  "settings.attachSkipTypes.tooltip": "During the Files download, skip any attachment whose name ends with one of these extensions. Enter them comma-separated (dots optional, case does not matter), for example: exe, zip, tar.gz. The file type is known before downloading, so skipped files never download and are reported as skipped, not failed. Empty (default) downloads every type.",
+  "settings.attachConcurrency": "Simultaneous downloads (advanced)",
+  "settings.attachConcurrency.hint": "How many files download at once. Default 6.",
+  "settings.attachConcurrency.tooltip": "Advanced. Sets how many attachments download at the same time during the Files download, from 1 to 8 (default 6). Higher can be faster on a fast connection but may make SharePoint throttle the burst, so more files fail and retry. Lower is gentler but slower. Leave at 6 unless you have a reason to change it. Only affects the Files download."
 }

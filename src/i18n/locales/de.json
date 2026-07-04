@@ -311,5 +311,19 @@
   "settings.grp.export": "Export",
   "settings.grp.images": "Bilder",
   "settings.grp.help": "Hilfe & Feedback",
-  "common.search": "Suchen"
+  "common.search": "Suchen",
+  "settings.grp.attachments": "Anhänge",
+  "settings.attachSizeCap": "Dateien überspringen, die größer sind als (MB)",
+  "settings.attachSizeCap.hint": "Große Downloads auslassen. 0 bedeutet keine Begrenzung.",
+  "settings.attachSizeCap.tooltip": "Überspringt beim Datei-Download jeden Anhang, der größer als diese Anzahl Megabyte ist, ermittelt aus der Dateigröße vor dem Herunterladen. Damit hältst du riesige Videos aus einem großen Export heraus. 0 (Standard) lädt alles herunter. Übersprungene Dateien werden als übersprungen gemeldet, nicht als fehlgeschlagen.",
+  "settings.attachDate": "Datum in Anhang-Dateinamen",
+  "settings.attachDate.hint": "Stellt heruntergeladenen Dateinamen ihr echtes Änderungsdatum (UTC) voran.",
+  "settings.attachDate.tooltip": "Fügt jedem heruntergeladenen Anhang seine echte letzte Änderungszeit im Dateinamen hinzu, zum Beispiel 20260327T125005Z__report.pdf. Heruntergeladene Dateien werden vom Browser gespeichert, der das Änderungsdatum einer Datei nicht setzen kann, daher ist dieses Präfix der Weg, das echte Datum zu behalten. Standardmäßig aus; betrifft nur den Datei-Download.",
+  "status.filesSkipped": "{n} übersprungen",
+  "settings.attachSkipTypes": "Diese Dateitypen überspringen",
+  "settings.attachSkipTypes.hint": "Komma-getrennte Endungen zum Überspringen, zum Beispiel: exe, zip. Leer lädt alles herunter.",
+  "settings.attachSkipTypes.tooltip": "Überspringt beim Datei-Download jeden Anhang, dessen Name auf eine dieser Endungen endet. Gib sie komma-getrennt ein (Punkte optional, Groß-/Kleinschreibung egal), zum Beispiel: exe, zip, tar.gz. Der Dateityp ist vor dem Herunterladen bekannt, daher werden übersprungene Dateien nie heruntergeladen und als übersprungen gemeldet, nicht als fehlgeschlagen. Leer (Standard) lädt jeden Typ herunter.",
+  "settings.attachConcurrency": "Gleichzeitige Downloads (erweitert)",
+  "settings.attachConcurrency.hint": "Wie viele Dateien gleichzeitig heruntergeladen werden. Standard 6.",
+  "settings.attachConcurrency.tooltip": "Erweitert. Legt fest, wie viele Anhänge beim Datei-Download gleichzeitig heruntergeladen werden, von 1 bis 8 (Standard 6). Höher kann bei einer schnellen Verbindung schneller sein, kann aber dazu führen, dass SharePoint den Schub drosselt, sodass mehr Dateien fehlschlagen und erneut versucht werden. Niedriger ist schonender, aber langsamer. Belasse es bei 6, sofern du keinen Grund zur Änderung hast. Betrifft nur den Datei-Download."
 }

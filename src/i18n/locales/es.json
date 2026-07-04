@@ -311,5 +311,19 @@
   "settings.grp.export": "Exportación",
   "settings.grp.images": "Imágenes",
   "settings.grp.help": "Ayuda y comentarios",
-  "common.search": "Buscar"
+  "common.search": "Buscar",
+  "settings.grp.attachments": "Adjuntos",
+  "settings.attachSizeCap": "Omitir archivos mayores de (MB)",
+  "settings.attachSizeCap.hint": "Deja fuera las descargas grandes. 0 significa sin límite.",
+  "settings.attachSizeCap.tooltip": "Durante la descarga de Archivos, omite cualquier adjunto mayor que estos megabytes, leído del tamaño del archivo antes de descargarlo. Úsalo para dejar fuera de una exportación grande los vídeos enormes. 0 (por defecto) descarga todo. Los archivos omitidos se informan como omitidos, no como fallidos.",
+  "settings.attachDate": "Fecha en los nombres de archivo de los adjuntos",
+  "settings.attachDate.hint": "Añade a los nombres de los archivos descargados su fecha real de última modificación (UTC).",
+  "settings.attachDate.tooltip": "Añade al nombre de archivo de cada adjunto descargado su hora real de última modificación, por ejemplo 20260327T125005Z__report.pdf. Los archivos descargados los guarda el navegador, que no puede establecer la fecha de modificación de un archivo, por lo que este prefijo es la forma de conservar la fecha real. Desactivado por defecto; solo afecta a la descarga de Archivos.",
+  "status.filesSkipped": "{n} omitidos",
+  "settings.attachSkipTypes": "Omitir estos tipos de archivo",
+  "settings.attachSkipTypes.hint": "Extensiones separadas por comas que se omiten, por ejemplo: exe, zip. Vacío descarga todo.",
+  "settings.attachSkipTypes.tooltip": "Durante la descarga de Archivos, omite cualquier adjunto cuyo nombre termine con una de estas extensiones. Introdúcelas separadas por comas (los puntos son opcionales, no importan las mayúsculas), por ejemplo: exe, zip, tar.gz. El tipo de archivo se conoce antes de descargar, así que los archivos omitidos nunca se descargan y se informan como omitidos, no como fallidos. Vacío (por defecto) descarga todos los tipos.",
+  "settings.attachConcurrency": "Descargas simultáneas (avanzado)",
+  "settings.attachConcurrency.hint": "Cuántos archivos se descargan a la vez. Por defecto 6.",
+  "settings.attachConcurrency.tooltip": "Avanzado. Establece cuántos adjuntos se descargan al mismo tiempo durante la descarga de Archivos, de 1 a 8 (por defecto 6). Un valor más alto puede ser más rápido en una conexión rápida, pero puede hacer que SharePoint limite la ráfaga, con lo que fallan y se reintentan más archivos. Un valor más bajo es más suave pero más lento. Déjalo en 6 salvo que tengas una razón para cambiarlo. Solo afecta a la descarga de Archivos."
 }

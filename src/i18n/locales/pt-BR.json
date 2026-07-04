@@ -311,5 +311,19 @@
   "settings.grp.export": "Exportação",
   "settings.grp.images": "Imagens",
   "settings.grp.help": "Ajuda e feedback",
-  "common.search": "Pesquisar"
+  "common.search": "Pesquisar",
+  "settings.grp.attachments": "Anexos",
+  "settings.attachSizeCap": "Pular arquivos maiores que (MB)",
+  "settings.attachSizeCap.hint": "Deixa downloads grandes de fora. 0 significa sem limite.",
+  "settings.attachSizeCap.tooltip": "Durante o download de arquivos, pula qualquer anexo maior que esta quantidade de megabytes, lida a partir do tamanho do arquivo antes de baixá-lo. Use para manter vídeos enormes fora de uma exportação grande. 0 (padrão) baixa tudo. Arquivos pulados são informados como pulados, não como falhas.",
+  "settings.attachDate": "Data nos nomes de arquivo dos anexos",
+  "settings.attachDate.hint": "Adiciona a data real de última modificação (UTC) aos nomes dos arquivos baixados.",
+  "settings.attachDate.tooltip": "Adiciona a hora real de última modificação de cada anexo baixado ao seu nome de arquivo, por exemplo 20260327T125005Z__report.pdf. Os arquivos baixados são salvos pelo navegador, que não consegue definir a data de modificação de um arquivo, então esse prefixo é a forma de manter a data real. Desativado por padrão; afeta apenas o download de arquivos.",
+  "status.filesSkipped": "{n} pulados",
+  "settings.attachSkipTypes": "Pular estes tipos de arquivo",
+  "settings.attachSkipTypes.hint": "Extensões separadas por vírgula para pular, por exemplo: exe, zip. Vazio baixa tudo.",
+  "settings.attachSkipTypes.tooltip": "Durante o download de arquivos, pula qualquer anexo cujo nome termine com uma destas extensões. Digite-as separadas por vírgula (os pontos são opcionais e não diferencia maiúsculas de minúsculas), por exemplo: exe, zip, tar.gz. O tipo do arquivo é conhecido antes do download, então os arquivos pulados nunca são baixados e são informados como pulados, não como falhas. Vazio (padrão) baixa todos os tipos.",
+  "settings.attachConcurrency": "Downloads simultâneos (avançado)",
+  "settings.attachConcurrency.hint": "Quantos arquivos são baixados de uma vez. Padrão 6.",
+  "settings.attachConcurrency.tooltip": "Avançado. Define quantos anexos são baixados ao mesmo tempo durante o download de arquivos, de 1 a 8 (padrão 6). Valores mais altos podem ser mais rápidos em uma conexão rápida, mas podem fazer o SharePoint limitar a rajada, então mais arquivos falham e são tentados novamente. Valores mais baixos são mais suaves, porém mais lentos. Deixe em 6 a menos que tenha um motivo para mudar. Afeta apenas o download de arquivos."
 }

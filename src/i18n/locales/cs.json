@@ -311,5 +311,19 @@
   "settings.grp.export": "Export",
   "settings.grp.images": "Obrázky",
   "settings.grp.help": "Nápověda a zpětná vazba",
-  "common.search": "Hledat"
+  "common.search": "Hledat",
+  "settings.grp.attachments": "Přílohy",
+  "settings.attachSizeCap": "Přeskočit soubory větší než (MB)",
+  "settings.attachSizeCap.hint": "Vynechá velká stahování. 0 znamená bez omezení.",
+  "settings.attachSizeCap.tooltip": "Během stahování souborů přeskočí každou přílohu větší než tento počet megabajtů, zjištěný z velikosti souboru před stažením. Slouží k tomu, aby se do velkého exportu nedostala obří videa. 0 (výchozí) stáhne vše. Přeskočené soubory se hlásí jako přeskočené, ne jako neúspěšné.",
+  "settings.attachDate": "Datum v názvech souborů příloh",
+  "settings.attachDate.hint": "Přidá k názvům stažených souborů jejich skutečné datum poslední úpravy (UTC).",
+  "settings.attachDate.tooltip": "Přidá k názvu každé stažené přílohy její skutečný čas poslední úpravy, například 20260327T125005Z__report.pdf. Stažené soubory ukládá prohlížeč, který nedokáže nastavit datum úpravy souboru, takže tato předpona je způsob, jak zachovat skutečné datum. Ve výchozím nastavení vypnuto; týká se pouze stahování souborů.",
+  "status.filesSkipped": "{n} přeskočeno",
+  "settings.attachSkipTypes": "Přeskočit tyto typy souborů",
+  "settings.attachSkipTypes.hint": "Přípony oddělené čárkami, které se přeskočí, například: exe, zip. Prázdné stáhne vše.",
+  "settings.attachSkipTypes.tooltip": "Během stahování souborů přeskočí každou přílohu, jejíž název končí jednou z těchto přípon. Zadejte je oddělené čárkami (tečky nepovinné, na velikosti písmen nezáleží), například: exe, zip, tar.gz. Typ souboru je znám před stažením, takže přeskočené soubory se nikdy nestahují a hlásí se jako přeskočené, ne jako neúspěšné. Prázdné (výchozí) stáhne všechny typy.",
+  "settings.attachConcurrency": "Souběžná stahování (pokročilé)",
+  "settings.attachConcurrency.hint": "Kolik souborů se stahuje najednou. Výchozí 6.",
+  "settings.attachConcurrency.tooltip": "Pokročilé. Nastavuje, kolik příloh se stahuje současně během stahování souborů, od 1 do 8 (výchozí 6). Vyšší hodnota může být na rychlém připojení rychlejší, ale SharePoint může nával omezit, takže více souborů selže a opakuje se. Nižší je šetrnější, ale pomalejší. Ponechte na 6, pokud nemáte důvod to změnit. Týká se pouze stahování souborů."
 }

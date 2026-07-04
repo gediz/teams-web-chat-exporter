@@ -311,5 +311,19 @@
   "settings.grp.export": "İxrac",
   "settings.grp.images": "Şəkillər",
   "settings.grp.help": "Yardım və rəy",
-  "common.search": "Axtar"
+  "common.search": "Axtar",
+  "settings.grp.attachments": "Əlavələr",
+  "settings.attachSizeCap": "Bundan böyük faylları buraxın (MB)",
+  "settings.attachSizeCap.hint": "Böyük yükləmələri kənarda saxlayın. 0 limit yoxdur deməkdir.",
+  "settings.attachSizeCap.tooltip": "Fayllar yüklənərkən, yüklənmədən əvvəl fayl ölçüsündən oxunaraq, bu qədər meqabaytdan böyük olan istənilən əlavəni buraxın. Böyük videoları böyük ixracdan kənarda saxlamaq üçün istifadə edin. 0 (standart) hər şeyi yükləyir. Buraxılmış fayllar uğursuz kimi deyil, buraxılmış kimi bildirilir.",
+  "settings.attachDate": "Əlavə fayl adlarında tarix",
+  "settings.attachDate.hint": "Yüklənmiş fayl adlarına onların real son dəyişdirilmə tarixini (UTC) əlavə edin.",
+  "settings.attachDate.tooltip": "Hər yüklənmiş əlavənin real son dəyişdirilmə vaxtını fayl adına əlavə edir, məsələn 20260327T125005Z__report.pdf. Yüklənmiş fayllar brauzer tərəfindən saxlanılır, o isə faylın dəyişdirilmə tarixini təyin edə bilmir, buna görə bu ön ad real tarixi saxlamağın yoludur. Standart olaraq sönülüdür; yalnız Fayllar yükləməsinə təsir edir.",
+  "status.filesSkipped": "{n} buraxıldı",
+  "settings.attachSkipTypes": "Bu fayl növlərini buraxın",
+  "settings.attachSkipTypes.hint": "Buraxılacaq vergüllə ayrılmış genişlənmələr, məsələn: exe, zip. Boş olduqda hər şey yüklənir.",
+  "settings.attachSkipTypes.tooltip": "Fayllar yüklənərkən, adı bu genişlənmələrdən biri ilə bitən istənilən əlavəni buraxın. Onları vergüllə ayıraraq daxil edin (nöqtələr istəyə bağlı, böyük-kiçik hərf fərq etmir), məsələn: exe, zip, tar.gz. Fayl növü yüklənmədən əvvəl məlum olur, buna görə buraxılmış fayllar heç vaxt yüklənmir və uğursuz kimi deyil, buraxılmış kimi bildirilir. Boş (standart) hər növü yükləyir.",
+  "settings.attachConcurrency": "Eyni vaxtda yükləmələr (qabaqcıl)",
+  "settings.attachConcurrency.hint": "Eyni anda neçə faylın yükləndiyi. Standart 6.",
+  "settings.attachConcurrency.tooltip": "Qabaqcıl. Fayllar yüklənərkən eyni vaxtda neçə əlavənin yükləndiyini təyin edir, 1-dən 8-ə qədər (standart 6). Yüksək dəyər sürətli bağlantıda daha sürətli ola bilər, lakin SharePoint-in ani yükləməni məhdudlaşdırmasına səbəb ola bilər, beləliklə daha çox fayl uğursuz olub yenidən cəhd edilir. Aşağı dəyər daha yumşaq, amma daha yavaşdır. Dəyişdirmək üçün səbəbiniz olmadıqca 6-da qoyun. Yalnız Fayllar yükləməsinə təsir edir."
 }

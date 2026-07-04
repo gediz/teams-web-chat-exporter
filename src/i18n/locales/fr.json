@@ -311,5 +311,19 @@
   "settings.grp.export": "Export",
   "settings.grp.images": "Images",
   "settings.grp.help": "Aide et commentaires",
-  "common.search": "Rechercher"
+  "common.search": "Rechercher",
+  "settings.grp.attachments": "Pièces jointes",
+  "settings.attachSizeCap": "Ignorer les fichiers de plus de (MB)",
+  "settings.attachSizeCap.hint": "Laisse de côté les gros téléchargements. 0 signifie sans limite.",
+  "settings.attachSizeCap.tooltip": "Pendant le téléchargement des fichiers, ignore toute pièce jointe dépassant ce nombre de mégaoctets, d'après la taille du fichier lue avant le téléchargement. Utile pour garder les vidéos volumineuses hors d'un gros export. 0 (par défaut) télécharge tout. Les fichiers ignorés sont signalés comme ignorés, pas comme échoués.",
+  "settings.attachDate": "Date dans les noms de fichiers joints",
+  "settings.attachDate.hint": "Ajoute au début des noms de fichiers téléchargés leur vraie date de dernière modification (UTC).",
+  "settings.attachDate.tooltip": "Ajoute la vraie heure de dernière modification de chaque pièce jointe téléchargée au début de son nom de fichier, par exemple 20260327T125005Z__report.pdf. Les fichiers téléchargés sont enregistrés par le navigateur, qui ne peut pas définir la date de modification d'un fichier ; ce préfixe est donc le moyen de conserver la vraie date. Désactivé par défaut ; n'affecte que le téléchargement des fichiers.",
+  "status.filesSkipped": "{n} ignorés",
+  "settings.attachSkipTypes": "Ignorer ces types de fichiers",
+  "settings.attachSkipTypes.hint": "Extensions à ignorer, séparées par des virgules, par exemple : exe, zip. Vide télécharge tout.",
+  "settings.attachSkipTypes.tooltip": "Pendant le téléchargement des fichiers, ignore toute pièce jointe dont le nom se termine par l'une de ces extensions. Saisissez-les séparées par des virgules (points facultatifs, la casse n'a pas d'importance), par exemple : exe, zip, tar.gz. Le type de fichier est connu avant le téléchargement, donc les fichiers ignorés ne sont jamais téléchargés et sont signalés comme ignorés, pas comme échoués. Vide (par défaut) télécharge tous les types.",
+  "settings.attachConcurrency": "Téléchargements simultanés (avancé)",
+  "settings.attachConcurrency.hint": "Combien de fichiers se téléchargent en même temps. Par défaut 6.",
+  "settings.attachConcurrency.tooltip": "Avancé. Définit combien de pièces jointes se téléchargent en même temps pendant le téléchargement des fichiers, de 1 à 8 (par défaut 6). Une valeur plus élevée peut être plus rapide sur une connexion rapide, mais peut faire limiter la rafale par SharePoint, ce qui fait échouer puis réessayer davantage de fichiers. Une valeur plus basse est plus douce mais plus lente. Laissez à 6 sauf raison de changer. N'affecte que le téléchargement des fichiers."
 }

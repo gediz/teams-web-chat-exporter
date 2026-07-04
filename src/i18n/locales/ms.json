@@ -311,5 +311,19 @@
   "settings.grp.export": "Eksport",
   "settings.grp.images": "Imej",
   "settings.grp.help": "Bantuan & maklum balas",
-  "common.search": "Cari"
+  "common.search": "Cari",
+  "settings.grp.attachments": "Lampiran",
+  "settings.attachSizeCap": "Langkau fail lebih besar daripada (MB)",
+  "settings.attachSizeCap.hint": "Ketepikan muat turun besar. 0 bermaksud tiada had.",
+  "settings.attachSizeCap.tooltip": "Semasa muat turun Fail, langkau mana-mana lampiran yang lebih besar daripada bilangan megabait ini, dibaca daripada saiz fail sebelum ia dimuat turun. Gunakannya untuk mengelakkan video bersaiz besar daripada eksport yang besar. 0 (lalai) memuat turun semuanya. Fail yang dilangkau dilaporkan sebagai dilangkau, bukan gagal.",
+  "settings.attachDate": "Tarikh dalam nama fail lampiran",
+  "settings.attachDate.hint": "Tambah tarikh ubah suai terakhir sebenar (UTC) pada nama fail yang dimuat turun.",
+  "settings.attachDate.tooltip": "Menambah masa ubah suai terakhir sebenar setiap lampiran yang dimuat turun pada nama failnya, contohnya 20260327T125005Z__report.pdf. Fail yang dimuat turun disimpan oleh pelayar, yang tidak boleh menetapkan tarikh ubah suai fail, jadi awalan ini adalah cara untuk mengekalkan tarikh sebenar. Dimatikan secara lalai; hanya menjejaskan muat turun Fail.",
+  "status.filesSkipped": "{n} dilangkau",
+  "settings.attachSkipTypes": "Langkau jenis fail ini",
+  "settings.attachSkipTypes.hint": "Sambungan dipisahkan koma untuk dilangkau, contohnya: exe, zip. Kosong memuat turun semuanya.",
+  "settings.attachSkipTypes.tooltip": "Semasa muat turun Fail, langkau mana-mana lampiran yang namanya berakhir dengan salah satu sambungan ini. Masukkan dipisahkan koma (titik pilihan, huruf besar/kecil tidak penting), contohnya: exe, zip, tar.gz. Jenis fail diketahui sebelum dimuat turun, jadi fail yang dilangkau tidak pernah dimuat turun dan dilaporkan sebagai dilangkau, bukan gagal. Kosong (lalai) memuat turun setiap jenis.",
+  "settings.attachConcurrency": "Muat turun serentak (lanjutan)",
+  "settings.attachConcurrency.hint": "Berapa banyak fail dimuat turun serentak. Lalai 6.",
+  "settings.attachConcurrency.tooltip": "Lanjutan. Menetapkan berapa banyak lampiran dimuat turun serentak semasa muat turun Fail, dari 1 hingga 8 (lalai 6). Lebih tinggi boleh lebih pantas pada sambungan laju tetapi mungkin menyebabkan SharePoint memperlahankan lonjakan, jadi lebih banyak fail gagal dan dicuba semula. Lebih rendah lebih lembut tetapi lebih perlahan. Biarkan pada 6 melainkan anda mempunyai sebab untuk mengubahnya. Hanya menjejaskan muat turun Fail."
 }

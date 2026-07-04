@@ -311,5 +311,19 @@
   "settings.grp.export": "Dışa aktarma",
   "settings.grp.images": "Görseller",
   "settings.grp.help": "Yardım ve geri bildirim",
-  "common.search": "Ara"
+  "common.search": "Ara",
+  "settings.grp.attachments": "Ekler",
+  "settings.attachSizeCap": "Şundan büyük dosyaları atla (MB)",
+  "settings.attachSizeCap.hint": "Büyük indirmeleri dışarıda bırakır. 0 sınır yok demektir.",
+  "settings.attachSizeCap.tooltip": "Dosya indirme sırasında, indirilmeden önce dosya boyutundan okunarak, bu kadar megabayttan büyük ekleri atlar. Büyük bir dışa aktarmada dev videoları dışarıda tutmak için kullanın. 0 (varsayılan) her şeyi indirir. Atlanan dosyalar başarısız değil, atlanan olarak bildirilir.",
+  "settings.attachDate": "Ek dosya adlarında tarih",
+  "settings.attachDate.hint": "İndirilen dosya adlarının başına gerçek değiştirilme tarihini (UTC) ekler.",
+  "settings.attachDate.tooltip": "İndirilen her ekin gerçek değiştirilme saatini dosya adına ekler, örneğin 20260327T125005Z__report.pdf. İndirilen dosyalar tarayıcı tarafından kaydedilir ve tarayıcı bir dosyanın değiştirilme tarihini ayarlayamaz, bu nedenle gerçek tarihi korumanın yolu bu ön ektir. Varsayılan olarak kapalıdır; yalnızca Dosya indirmesini etkiler.",
+  "status.filesSkipped": "{n} atlandı",
+  "settings.attachSkipTypes": "Şu dosya türlerini atla",
+  "settings.attachSkipTypes.hint": "Atlanacak uzantılar, virgülle ayrılmış, örneğin: exe, zip. Boş bırakılırsa her şey indirilir.",
+  "settings.attachSkipTypes.tooltip": "Dosya indirme sırasında, adı bu uzantılardan biriyle biten ekleri atlar. Virgülle ayırarak girin (noktalar isteğe bağlı, büyük/küçük harf önemsiz), örneğin: exe, zip, tar.gz. Dosya türü indirmeden önce bilindiğinden, atlanan dosyalar hiç indirilmez ve başarısız değil, atlanan olarak bildirilir. Boş (varsayılan) her türü indirir.",
+  "settings.attachConcurrency": "Eşzamanlı indirmeler (gelişmiş)",
+  "settings.attachConcurrency.hint": "Aynı anda kaç dosyanın indirileceği. Varsayılan 6.",
+  "settings.attachConcurrency.tooltip": "Gelişmiş. Dosya indirme sırasında aynı anda kaç ekin indirileceğini 1 ile 8 arasında ayarlar (varsayılan 6). Yüksek değer hızlı bir bağlantıda daha hızlı olabilir ancak SharePoint'in bu yoğunluğu kısıtlamasına yol açarak daha fazla dosyanın başarısız olup yeniden denenmesine neden olabilir. Düşük değer daha yumuşaktır ama daha yavaştır. Değiştirmek için bir nedeniniz yoksa 6'da bırakın. Yalnızca Dosya indirmesini etkiler."
 }

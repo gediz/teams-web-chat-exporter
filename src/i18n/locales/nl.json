@@ -311,5 +311,19 @@
   "settings.grp.export": "Exporteren",
   "settings.grp.images": "Afbeeldingen",
   "settings.grp.help": "Help en feedback",
-  "common.search": "Zoeken"
+  "common.search": "Zoeken",
+  "settings.grp.attachments": "Bijlagen",
+  "settings.attachSizeCap": "Bestanden groter dan overslaan (MB)",
+  "settings.attachSizeCap.hint": "Grote downloads weglaten. 0 betekent geen limiet.",
+  "settings.attachSizeCap.tooltip": "Sla tijdens het downloaden van bestanden elke bijlage over die groter is dan dit aantal megabytes, afgelezen uit de bestandsgrootte voordat hij wordt gedownload. Gebruik dit om enorme video's buiten een grote export te houden. 0 (standaard) downloadt alles. Overgeslagen bestanden worden gerapporteerd als overgeslagen, niet als mislukt.",
+  "settings.attachDate": "Datum in bijlagebestandsnamen",
+  "settings.attachDate.hint": "Voegt de echte wijzigingsdatum (UTC) toe vóór de namen van gedownloade bestanden.",
+  "settings.attachDate.tooltip": "Voegt de echte wijzigingsdatum van elke gedownloade bijlage toe aan de bestandsnaam, bijvoorbeeld 20260327T125005Z__report.pdf. Gedownloade bestanden worden opgeslagen door de browser, die de wijzigingsdatum van een bestand niet kan instellen, dus dit voorvoegsel is de manier om de echte datum te behouden. Standaard uit; heeft alleen invloed op het downloaden van bestanden.",
+  "status.filesSkipped": "{n} overgeslagen",
+  "settings.attachSkipTypes": "Deze bestandstypen overslaan",
+  "settings.attachSkipTypes.hint": "Extensies om over te slaan, gescheiden door komma's, bijvoorbeeld: exe, zip. Leeg downloadt alles.",
+  "settings.attachSkipTypes.tooltip": "Sla tijdens het downloaden van bestanden elke bijlage over waarvan de naam eindigt op een van deze extensies. Voer ze in gescheiden door komma's (punten optioneel, hoofdletters maken niet uit), bijvoorbeeld: exe, zip, tar.gz. Het bestandstype is bekend voordat er gedownload wordt, dus overgeslagen bestanden worden nooit gedownload en worden gerapporteerd als overgeslagen, niet als mislukt. Leeg (standaard) downloadt elk type.",
+  "settings.attachConcurrency": "Gelijktijdige downloads (geavanceerd)",
+  "settings.attachConcurrency.hint": "Hoeveel bestanden tegelijk worden gedownload. Standaard 6.",
+  "settings.attachConcurrency.tooltip": "Geavanceerd. Stelt in hoeveel bijlagen tegelijk worden gedownload tijdens het downloaden van bestanden, van 1 tot 8 (standaard 6). Hoger kan sneller zijn op een snelle verbinding, maar kan ertoe leiden dat SharePoint de burst afknijpt, waardoor meer bestanden mislukken en opnieuw worden geprobeerd. Lager is voorzichtiger maar trager. Laat op 6 staan tenzij je een reden hebt om het te wijzigen. Heeft alleen invloed op het downloaden van bestanden."
 }

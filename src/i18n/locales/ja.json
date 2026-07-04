@@ -311,5 +311,19 @@
   "settings.grp.export": "エクスポート",
   "settings.grp.images": "画像",
   "settings.grp.help": "ヘルプとフィードバック",
-  "common.search": "検索"
+  "common.search": "検索",
+  "settings.grp.attachments": "添付ファイル",
+  "settings.attachSizeCap": "これより大きいファイルをスキップ (MB)",
+  "settings.attachSizeCap.hint": "大きなダウンロードを除外します。0 は制限なしです。",
+  "settings.attachSizeCap.tooltip": "「ファイル」ダウンロード中、ここで指定したメガバイト数より大きい添付ファイルを、ダウンロード前にファイルサイズを読み取ってスキップします。巨大な動画を大きなエクスポートから除外するのに使います。0（既定）はすべてダウンロードします。スキップしたファイルは失敗ではなくスキップとして報告されます。",
+  "settings.attachDate": "添付ファイル名に日付を付与",
+  "settings.attachDate.hint": "ダウンロードするファイル名に実際の最終更新日（UTC）を付けます。",
+  "settings.attachDate.tooltip": "ダウンロードする各添付ファイルの実際の最終更新時刻をファイル名に付けます（例: 20260327T125005Z__report.pdf）。ダウンロードしたファイルはブラウザによって保存され、ブラウザはファイルの更新日時を設定できないため、このプレフィックスが実際の日付を保持する手段になります。既定ではオフです。「ファイル」ダウンロードのみに影響します。",
+  "status.filesSkipped": "{n} 件スキップ",
+  "settings.attachSkipTypes": "これらのファイル形式をスキップ",
+  "settings.attachSkipTypes.hint": "スキップする拡張子をカンマ区切りで指定します（例: exe, zip）。空の場合はすべてダウンロードします。",
+  "settings.attachSkipTypes.tooltip": "「ファイル」ダウンロード中、名前がこれらの拡張子のいずれかで終わる添付ファイルをスキップします。カンマ区切りで入力してください（ドットは任意、大文字小文字は問いません）。例: exe, zip, tar.gz。ファイル形式はダウンロード前にわかるため、スキップしたファイルはダウンロードされず、失敗ではなくスキップとして報告されます。空（既定）はすべての形式をダウンロードします。",
+  "settings.attachConcurrency": "同時ダウンロード数（詳細設定）",
+  "settings.attachConcurrency.hint": "同時にダウンロードするファイル数。既定は 6 です。",
+  "settings.attachConcurrency.tooltip": "詳細設定。「ファイル」ダウンロード中に同時にダウンロードする添付ファイルの数を 1 から 8（既定 6）で設定します。高くすると高速回線では速くなることがありますが、SharePoint がバーストを抑制し、失敗して再試行するファイルが増える場合があります。低くすると負荷は軽くなりますが遅くなります。変更する理由がなければ 6 のままにしてください。「ファイル」ダウンロードのみに影響します。"
 }

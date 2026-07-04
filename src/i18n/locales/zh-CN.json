@@ -311,5 +311,19 @@
   "settings.grp.export": "导出",
   "settings.grp.images": "图片",
   "settings.grp.help": "帮助与反馈",
-  "common.search": "搜索"
+  "common.search": "搜索",
+  "settings.grp.attachments": "附件",
+  "settings.attachSizeCap": "跳过大于此大小的文件 (MB)",
+  "settings.attachSizeCap.hint": "不下载过大的文件。0 表示无限制。",
+  "settings.attachSizeCap.tooltip": "在下载文件阶段，跳过大于此兆字节数的任何附件，依据下载前读取的文件大小判断。可用于将超大视频排除在大型导出之外。0（默认）会下载全部文件。被跳过的文件记为已跳过，而非失败。",
+  "settings.attachDate": "附件文件名中包含日期",
+  "settings.attachDate.hint": "在下载的文件名前加上文件真实的最后修改日期（UTC）。",
+  "settings.attachDate.tooltip": "为每个下载的附件文件名加入文件真实的最后修改时间，例如 20260327T125005Z__report.pdf。下载的文件由浏览器保存，而浏览器无法设置文件的修改日期，因此这个前缀是保留真实日期的方式。默认关闭；仅影响下载文件阶段。",
+  "status.filesSkipped": "{n} 个已跳过",
+  "settings.attachSkipTypes": "跳过这些文件类型",
+  "settings.attachSkipTypes.hint": "以逗号分隔要跳过的扩展名，例如：exe, zip。留空则下载全部。",
+  "settings.attachSkipTypes.tooltip": "在下载文件阶段，跳过名称以这些扩展名之一结尾的任何附件。以逗号分隔输入（点号可选，不区分大小写），例如：exe, zip, tar.gz。文件类型在下载前即可获知，因此被跳过的文件不会下载，并记为已跳过，而非失败。留空（默认）会下载所有类型。",
+  "settings.attachConcurrency": "同时下载数（高级）",
+  "settings.attachConcurrency.hint": "同时下载多少个文件。默认 6。",
+  "settings.attachConcurrency.tooltip": "高级选项。设置在下载文件阶段同时下载多少个附件，范围 1 到 8（默认 6）。在快速连接下，较高的值可能更快，但可能导致 SharePoint 对突发请求进行限流，从而更多文件失败并重试。较低的值更温和但更慢。除非有理由更改，否则保持为 6。仅影响下载文件阶段。"
 }

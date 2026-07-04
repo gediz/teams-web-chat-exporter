@@ -311,5 +311,19 @@
   "settings.grp.export": "Esportazione",
   "settings.grp.images": "Immagini",
   "settings.grp.help": "Aiuto e feedback",
-  "common.search": "Cerca"
+  "common.search": "Cerca",
+  "settings.grp.attachments": "Allegati",
+  "settings.attachSizeCap": "Salta i file più grandi di (MB)",
+  "settings.attachSizeCap.hint": "Escludi i download grandi. 0 significa nessun limite.",
+  "settings.attachSizeCap.tooltip": "Durante il download dei file, salta qualsiasi allegato più grande di questo numero di megabyte, in base alla dimensione del file letta prima del download. Usalo per tenere i video enormi fuori da un export grande. 0 (predefinito) scarica tutto. I file saltati vengono segnalati come saltati, non come non riusciti.",
+  "settings.attachDate": "Data nei nomi dei file allegati",
+  "settings.attachDate.hint": "Aggiunge ai nomi dei file scaricati la loro reale data di ultima modifica (UTC).",
+  "settings.attachDate.tooltip": "Aggiunge al nome di ogni allegato scaricato la sua reale ora di ultima modifica, ad esempio 20260327T125005Z__report.pdf. I file scaricati vengono salvati dal browser, che non può impostare la data di modifica di un file, quindi questo prefisso è il modo per conservare la data reale. Disattivato per impostazione predefinita; riguarda solo il download dei file.",
+  "status.filesSkipped": "{n} saltati",
+  "settings.attachSkipTypes": "Salta questi tipi di file",
+  "settings.attachSkipTypes.hint": "Estensioni separate da virgola da saltare, ad esempio: exe, zip. Vuoto scarica tutto.",
+  "settings.attachSkipTypes.tooltip": "Durante il download dei file, salta qualsiasi allegato il cui nome termina con una di queste estensioni. Inseriscile separate da virgola (i punti sono facoltativi, le maiuscole non contano), ad esempio: exe, zip, tar.gz. Il tipo di file è noto prima del download, quindi i file saltati non vengono mai scaricati e vengono segnalati come saltati, non come non riusciti. Vuoto (predefinito) scarica ogni tipo.",
+  "settings.attachConcurrency": "Download simultanei (avanzate)",
+  "settings.attachConcurrency.hint": "Quanti file scaricare contemporaneamente. Predefinito 6.",
+  "settings.attachConcurrency.tooltip": "Avanzate. Imposta quanti allegati vengono scaricati contemporaneamente durante il download dei file, da 1 a 8 (predefinito 6). Un valore più alto può essere più veloce con una connessione rapida, ma può indurre SharePoint a limitare la raffica, così più file falliscono e vengono riprovati. Un valore più basso è più delicato ma più lento. Lascia 6 a meno che tu non abbia un motivo per cambiarlo. Riguarda solo il download dei file."
 }

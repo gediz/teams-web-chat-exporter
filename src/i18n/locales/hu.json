@@ -311,5 +311,19 @@
   "settings.grp.export": "Exportálás",
   "settings.grp.images": "Képek",
   "settings.grp.help": "Súgó és visszajelzés",
-  "common.search": "Keresés"
+  "common.search": "Keresés",
+  "settings.grp.attachments": "Mellékletek",
+  "settings.attachSizeCap": "Ennél nagyobb fájlok kihagyása (MB)",
+  "settings.attachSizeCap.hint": "Nagy letöltések kihagyása. A 0 azt jelenti, nincs korlát.",
+  "settings.attachSizeCap.tooltip": "A fájlok letöltése során kihagyja az ennyi megabájtnál nagyobb mellékleteket a letöltés előtt kiolvasott fájlméret alapján. Használd, hogy a hatalmas videók kimaradjanak egy nagy exportból. A 0 (alapértelmezett) mindent letölt. A kihagyott fájlok kihagyottként, nem sikertelenként jelennek meg.",
+  "settings.attachDate": "Dátum a mellékletfájlnevekben",
+  "settings.attachDate.hint": "A letöltött fájlnevek elé fűzi a valódi utolsó módosítási dátumot (UTC).",
+  "settings.attachDate.tooltip": "Minden letöltött melléklet valódi utolsó módosítási idejét hozzáadja a fájlnevéhez, például 20260327T125005Z__report.pdf. A letöltött fájlokat a böngésző menti, amely nem tudja beállítani a fájl módosítási dátumát, így ez az előtag az egyetlen mód a valódi dátum megőrzésére. Alapból kikapcsolva; csak a fájlok letöltését érinti.",
+  "status.filesSkipped": "{n} kihagyva",
+  "settings.attachSkipTypes": "Ezen fájltípusok kihagyása",
+  "settings.attachSkipTypes.hint": "Vesszővel elválasztott kihagyandó kiterjesztések, például: exe, zip. Üresen hagyva mindent letölt.",
+  "settings.attachSkipTypes.tooltip": "A fájlok letöltése során kihagyja azokat a mellékleteket, amelyek neve az egyik itt megadott kiterjesztésre végződik. Add meg őket vesszővel elválasztva (a pontok elhagyhatók, a kis- és nagybetű nem számít), például: exe, zip, tar.gz. A fájltípus letöltés előtt ismert, így a kihagyott fájlok soha nem töltődnek le, és kihagyottként, nem sikertelenként jelennek meg. Üresen (alapértelmezett) minden típust letölt.",
+  "settings.attachConcurrency": "Egyidejű letöltések (haladó)",
+  "settings.attachConcurrency.hint": "Hány fájl töltődik le egyszerre. Alapértelmezett 6.",
+  "settings.attachConcurrency.tooltip": "Haladó. Beállítja, hány melléklet töltődik le egyszerre a fájlok letöltése során, 1-től 8-ig (alapértelmezett 6). A magasabb érték gyorsabb lehet gyors kapcsolaton, de a SharePoint korlátozhatja a hirtelen forgalmat, így több fájl válik sikertelenné és próbálkozik újra. Az alacsonyabb kíméletesebb, de lassabb. Hagyd 6-on, hacsak nincs okod megváltoztatni. Csak a fájlok letöltését érinti."
 }
