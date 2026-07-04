@@ -62,6 +62,11 @@ type DownloadsApi = Pick<typeof chrome.downloads, 'download' | 'search' | 'remov
 export interface ShareResolveOutcome {
   downloadUrl?: string;
   blocksDownload?: boolean;
+  // driveItem.size in bytes and driveItem.lastModifiedDateTime (ISO-8601), when
+  // the resolve select requested them. Feed the size cap, big-file lane, and
+  // optional filename date prefix. Absent => unknown, so those features no-op.
+  size?: number;
+  lastModifiedDateTime?: string;
 }
 
 export interface AttachmentDownloadDeps {
@@ -72,13 +77,14 @@ export interface AttachmentDownloadDeps {
   // popup's progress is real and monotonic. `total` is the candidate count.
   onProgress?: (done: number, total: number) => void;
   log?: (msg: string) => void;
-  // Optional: resolve a file's sharing link to a pre-authenticated download
-  // URL (background wires this to a content-script RPC). When present and a
-  // candidate has a shareUrl, the resolved URL is used instead of the raw
+  // Optional: resolve a file to a pre-authenticated download URL (background
+  // wires this to a content-script RPC). Given a candidate's sharing link
+  // and/or its stable GUID, the resolved URL is used instead of the raw
   // SharePoint path, which downloads even when the host session cookie is
-  // stale. Returns null on any failure, and the raw-URL path is used as a
-  // fallback so nothing regresses.
-  resolveShare?: (shareUrl: string) => Promise<ShareResolveOutcome | null>;
+  // stale. The share link is tried first; own uploads carry a GUID but no link,
+  // so the GUID path recovers them. Returns null on any failure, and the
+  // raw-URL path is used as a fallback so nothing regresses.
+  resolveShare?: (req: { shareUrl?: string; itemid?: string; href: string }) => Promise<ShareResolveOutcome | null>;
 }
 
 export interface AttachmentDownloadSummary {
@@ -89,7 +95,56 @@ export interface AttachmentDownloadSummary {
   failed: number;    // dispatch failures (sync or async) + verified failures
                      // (no-access pages, server-interrupted transfers)
   cancelled: number; // stopped before finishing (user cancel / STOP_EXPORT)
+  skipped: number;   // intentionally not downloaded: over the size cap (not a failure)
   failures: Array<{ name: string; reason: string }>;
+}
+
+export interface AttachmentDownloadOpts {
+  // Bounded-pool ceiling (both engines pass 6). 0/undefined -> Chrome
+  // fire-and-forget path.
+  maxConcurrent?: number;
+  // Skip any file whose resolved size exceeds this many bytes (size cap). 0 or
+  // undefined disables it. Files whose size is unknown are never skipped.
+  sizeCapBytes?: number;
+  // Prefix each attachment filename with its real last-modified datetime
+  // (from the resolve). Off unless set. No effect on files with no resolved date.
+  filenameDate?: boolean;
+  // Serialize very large files: any file whose resolved size exceeds this many
+  // bytes waits for a big-file lane slot (BIG_LANE_MAX) before downloading, so a
+  // few giant streams cannot saturate the link and NETWORK_FAIL the rest. Only
+  // active on the bounded-pool path (which awaits each transfer). Unknown-size
+  // files take the normal path.
+  bigFileBytes?: number;
+  // Base retry backoff in ms (advanced; defaults to 3000). Retries use jittered
+  // exponential backoff from this base. Lowered by the test harness for speed.
+  retryBackoffMs?: number;
+  // Comma-separated extensions to skip (deny-list). Matched against each file's
+  // name before resolving, so denied files never resolve or download. Empty /
+  // undefined = download every type. Counted in summary.skipped.
+  skipTypes?: string;
+}
+
+/** Parse a comma-separated extension deny-list into a normalized lowercase set. */
+export function parseExtDenyList(raw?: string): Set<string> {
+  const out = new Set<string>();
+  if (!raw) return out;
+  for (const part of raw.split(',')) {
+    const ext = part.trim().replace(/^\.+/, '').toLowerCase();
+    if (ext) out.add(ext);
+  }
+  return out;
+}
+
+/**
+ * True when `name` ends with one of the denied extensions. Case-insensitive; a
+ * single rule covers `.pdf` and multi-dot `.tar.gz`. A name with no extension
+ * (nothing after a dot) matches nothing, so it always downloads.
+ */
+export function isDeniedByType(name: string, deny: Set<string>): boolean {
+  if (!deny.size || !name) return false;
+  const lower = name.toLowerCase();
+  for (const ext of deny) if (lower.endsWith('.' + ext)) return true;
+  return false;
 }
 
 export interface AttachmentCandidate {
@@ -99,6 +154,8 @@ export interface AttachmentCandidate {
   itemid?: string;     // stable file GUID (== listItemUniqueId); the download.aspx UniqueId for markup types
   shareUrl?: string;   // SharePoint sharing link, for the resolver (see resolveShare)
   resolvedUrl?: string; // set by the resolve phase: pre-authenticated download URL
+  size?: number;       // set by the resolve phase: file size in bytes (for size cap + big-file lane)
+  lastModifiedDateTime?: string; // set by the resolve phase: ISO-8601 last-modified time
 }
 
 // fileType values the converter routes to an AMS preview URL (so their href is
@@ -232,6 +289,21 @@ export function buildAttachmentPath(exportFolder: string, chatFolder: string, na
   return [exportFolder, chatFolder, 'attachments', safeName]
     .filter(s => s && s.length)
     .join('/');
+}
+
+/**
+ * Compact UTC datetime prefix for an attachment filename, e.g.
+ * `20260327T125005Z__`. Mirrors the inline-image date-stamp shape. Because
+ * chrome.downloads cannot set a saved file's modification time, this is the one
+ * way to convey a file's real last-modified date on the loose downloaded files.
+ * Returns '' for an unparseable/out-of-range date so the name is left untouched.
+ */
+export function attachmentDatePrefix(iso: string): string {
+  const d = new Date(iso);
+  const y = d.getUTCFullYear();
+  if (isNaN(d.getTime()) || y < 1980 || y > 2099) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${y}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}T${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z__`;
 }
 
 /**
@@ -544,10 +616,12 @@ export async function downloadAttachments(
   exportFolder: string,
   deps: AttachmentDownloadDeps,
   signal: AbortSignal,
-  opts: { maxConcurrent?: number } = {},
+  opts: AttachmentDownloadOpts = {},
 ): Promise<AttachmentDownloadSummary> {
-  const summary: AttachmentDownloadSummary = { total: items.length, saved: 0, links: 0, failed: 0, cancelled: 0, failures: [] };
+  const summary: AttachmentDownloadSummary = { total: items.length, saved: 0, links: 0, failed: 0, cancelled: 0, skipped: 0, failures: [] };
   if (!items.length) return summary;
+  // Extension deny-list, parsed once. Empty set => nothing is filtered by type.
+  const denyTypes = parseExtDenyList(opts.skipTypes);
   // Suppress mid-phase FAILURES.txt writes; flush once at the end (below).
   failuresWriteSuppressed = true;
 
@@ -589,9 +663,38 @@ export async function downloadAttachments(
   // that record. Access denials and cancels are never retried.
   const enrolledItem = new Map<number, AttachmentCandidate>(); // id -> candidate (for retry)
   const retryCount = new Map<string, number>();                 // href -> attempts used
-  const MAX_RETRIES = 2;
-  const RETRY_BACKOFF_MS = 3_000;
+  const MAX_RETRIES = 3;
+  const RETRY_BACKOFF_MS = opts.retryBackoffMs && opts.retryBackoffMs > 0 ? opts.retryBackoffMs : 3_000;
+  const RETRY_BACKOFF_CAP_MS = Math.max(RETRY_BACKOFF_MS, 30_000);
+  // Jittered exponential backoff: base*2^(attempt-1) capped, plus up to one base
+  // of random jitter. Longer, spread-out retries land after a saturating sibling
+  // drains, and jitter de-synchronizes a cluster of retries that failed together.
+  const retryDelay = (attempt: number) =>
+    Math.min(RETRY_BACKOFF_CAP_MS, RETRY_BACKOFF_MS * Math.pow(2, Math.max(0, attempt - 1)))
+    + Math.floor(Math.random() * RETRY_BACKOFF_MS);
   const keyOf = (it: AttachmentCandidate) => it.href;
+  // Big-file lane: at most BIG_LANE_MAX resolved-large files transfer at once,
+  // regardless of the pool width. A lone multi-GB stream is the top saturator; a
+  // couple of them together are what NETWORK_FAILs the small files around them.
+  const BIG_LANE_MAX = 2;
+  // Delay each pool worker's FIRST dispatch by workerIndex * this, so the N
+  // transfers do not all ramp at once (correlated TCP ramp-up is a top cause of
+  // the clustered NETWORK_FAILED). Costs a few seconds at ramp-up only.
+  const DISPATCH_STAGGER_MS = 300;
+  let bigActive = 0;
+  const acquireBigLane = async (size?: number): Promise<() => void> => {
+    if (!opts.bigFileBytes || !size || size <= opts.bigFileBytes) return () => { /* not a big file */ };
+    while (bigActive >= BIG_LANE_MAX && !signal.aborted && !runEnded) {
+      await new Promise<void>(res => setTimeout(res, 250));
+    }
+    bigActive++;
+    let released = false;
+    return () => { if (released) return; released = true; bigActive = Math.max(0, bigActive - 1); };
+  };
+  // Big-file lane held by a RETRY dispatch (fire-and-forget, not inside a pool
+  // worker), keyed by the retry's enrolled id. Released in onDownloadSettled when
+  // that id terminates, so a retried giant respects the same ≤2 lane as the pool.
+  const retryLaneRelease = new Map<number, () => void>();
   // Live in-flight download count (enrolled, not-yet-settled). A retry waits for
   // a free slot before re-dispatching so retries respect the same concurrency
   // ceiling as the initial pool instead of piling on top of it (which added
@@ -617,6 +720,10 @@ export async function downloadAttachments(
     if (runEnded) { pendingIds.delete(id); enrolledItem.delete(id); return; }
     if (!pendingIds.delete(id)) return; // event+poll double delivery guard
     activeDownloads = Math.max(0, activeDownloads - 1);
+    // Free the big-file lane slot a retry dispatch held for this id (no-op for
+    // pool-dispatched ids, which release via their worker's releaseBigLane).
+    const laneRel = retryLaneRelease.get(id);
+    if (laneRel) { laneRel(); retryLaneRelease.delete(id); }
     const item = enrolledItem.get(id);
     enrolledItem.delete(id);
     if (kind === 'failed' && item && !signal.aborted && isTransientReason(reason)
@@ -648,21 +755,32 @@ export async function downloadAttachments(
       let spec: NonNullable<ReturnType<typeof prep>> | undefined;
       try {
         const p = await prepAsync(item);
+        // The run may have ended (abort / stall-break) during the resolve above;
+        // the reconcile already accounted this still-pending item, so touching a
+        // bucket now would double-count it. settledOne is runEnded-guarded, but
+        // the summary.xxx++ before it is not — so re-check here.
+        if (runEnded) return;
+        if (p.kind === 'skip') { summary.skipped++; settledOne(); return; }
         if (p.kind !== 'spec') { summary.failed++; settledOne(); return; }
         spec = p.spec;
-      } catch { summary.failed++; settledOne(); return; }
+      } catch { if (!runEnded) { summary.failed++; settledOne(); } return; }
       // Wait for a free download slot so retries don't exceed the pool ceiling.
       while (activeDownloads >= MAX_INFLIGHT && !runEnded && !signal.aborted) {
         await new Promise<void>(res => setTimeout(res, 250));
       }
       if (runEnded || signal.aborted) { if (!runEnded) { summary.failed++; settledOne(); } return; }
+      // A retried GIANT waits for a big-file lane slot too, so it can't sneak past
+      // the ≤2 cap the pool enforces. Released in onDownloadSettled for this id.
+      const releaseLane = await acquireBigLane(spec.size);
+      if (runEnded) { releaseLane(); return; }
       let id: number | undefined;
       try {
         id = await Promise.resolve(deps.downloads.download({ url: spec.url, filename: spec.filename, saveAs: false, conflictAction: 'uniquify' }));
-      } catch (e) { dispatchFailed(spec.name, errMsg(e)); return; }
-      if (typeof id !== 'number') { dispatchFailed(spec.name, 'no download id'); return; }
+      } catch (e) { releaseLane(); dispatchFailed(spec.name, errMsg(e)); return; }
+      if (typeof id !== 'number') { releaseLane(); dispatchFailed(spec.name, 'no download id'); return; }
       enroll(id, item, spec.name, spec.markup);
-    }, RETRY_BACKOFF_MS * attempt);
+      retryLaneRelease.set(id, releaseLane);
+    }, retryDelay(attempt));
   };
   const dispatchFailed = (name: string, reason: string) => {
     if (runEnded) return;
@@ -685,7 +803,7 @@ export async function downloadAttachments(
   // Resolve is done JUST-IN-TIME per item (inside prepAsync, right before that
   // item's download() call), never all-upfront — the pre-authenticated URL is
   // short-lived, so it must be fetched seconds before use, not minutes.
-  const needResolve = Boolean(deps.resolveShare) && items.some(i => i.shareUrl);
+  const needResolve = Boolean(deps.resolveShare) && items.some(i => i.shareUrl || i.itemid);
 
   // Per-item prep (raw-URL transport, no resolve). Returns the download spec, or
   // null for a host-gated link. `markup` is the file TYPE (so the verifier knows
@@ -697,23 +815,34 @@ export async function downloadAttachments(
     const url = item.resolvedUrl || toDownloadUrl(item.href, item.itemid);
     const viaDownloadAspx = isDownloadAspxUrl(url);
     const markup = isMarkupFile(item.href);
-    return { name, url, viaDownloadAspx, markup, filename: buildAttachmentPath(exportFolder, item.chatFolder, rawName) };
+    return { name, rawName, url, viaDownloadAspx, markup, size: item.size, filename: buildAttachmentPath(exportFolder, item.chatFolder, rawName) };
   };
 
   // Async prep: resolve the sharing link to a fresh pre-authenticated URL right
-  // before dispatch. Returns a kind:
+  // before dispatch, and read the size/date the resolve returns. Returns a kind:
   //   'link' — host-gated, kept as a link (counted as such);
+  //   'skip' — over the size cap, intentionally not downloaded;
   //   'spec' — a download spec (resolved URL when available, else raw URL).
   // Any resolve failure leaves the raw-URL spec, so nothing regresses.
   type Prepped =
     | { kind: 'link' }
+    | { kind: 'skip'; name: string }
     | { kind: 'spec'; spec: NonNullable<ReturnType<typeof prep>> };
   const prepAsync = async (item: AttachmentCandidate): Promise<Prepped> => {
     const base = prep(item);
     if (!base) return { kind: 'link' };
-    if (needResolve && deps.resolveShare && item.shareUrl && !item.resolvedUrl) {
+    // Filetype deny-list: the extension is known with no network call, so skip
+    // a denied file BEFORE resolving it (costs zero resolves; honors the
+    // rate-limit caution). Counted in summary.skipped like the size cap.
+    if (denyTypes.size && isDeniedByType(base.rawName, denyTypes)) return { kind: 'skip', name: base.name };
+    if (needResolve && deps.resolveShare && (item.shareUrl || item.itemid) && !item.resolvedUrl) {
       try {
-        const r = await deps.resolveShare(item.shareUrl);
+        const r = await deps.resolveShare({ shareUrl: item.shareUrl, itemid: item.itemid, href: item.href });
+        // Metadata rides along on the resolve (no extra request): remember the
+        // size (size cap + big-file lane) and last-modified date (filename
+        // prefix). Absent values leave those features inert for this file.
+        if (r && typeof r.size === 'number') item.size = r.size;
+        if (r && typeof r.lastModifiedDateTime === 'string') item.lastModifiedDateTime = r.lastModifiedDateTime;
         // Adopt the resolved pre-auth URL only when the role does NOT block
         // download AND the URL is a gated SharePoint host (the URL is
         // server-controlled, so gate it like the raw href). blocksDownload is
@@ -723,12 +852,20 @@ export async function downloadAttachments(
         // than not resolving at all.
         if (r?.downloadUrl && r.blocksDownload !== true && isSharePointFileHost(r.downloadUrl)) {
           item.resolvedUrl = r.downloadUrl;
-          const url = r.downloadUrl;
-          return { kind: 'spec', spec: { ...base, url, viaDownloadAspx: isDownloadAspxUrl(url) } };
         }
       } catch { /* leave the raw-URL spec */ }
     }
-    return { kind: 'spec', spec: base };
+    // Size cap: skip a file whose RESOLVED size exceeds the cap. An unknown size
+    // is never skipped — we only skip when we are sure the file is too big.
+    if (opts.sizeCapBytes && item.size && item.size > opts.sizeCapBytes) {
+      return { kind: 'skip', name: base.name };
+    }
+    // Finalize: resolved URL when adopted (else raw), and the filename with the
+    // optional last-modified date prefix now that the resolve supplied the date.
+    const url = item.resolvedUrl || base.url;
+    const prefix = (opts.filenameDate && item.lastModifiedDateTime) ? attachmentDatePrefix(item.lastModifiedDateTime) : '';
+    const filename = prefix ? buildAttachmentPath(exportFolder, item.chatFolder, prefix + base.rawName) : base.filename;
+    return { kind: 'spec', spec: { ...base, url, filename, viaDownloadAspx: isDownloadAspxUrl(url), size: item.size } };
   };
   const enroll = (id: number, item: AttachmentCandidate, name: string, markup: boolean) => {
     // pendingIds BEFORE pendingVerify: the terminal event can fire the moment
@@ -775,24 +912,32 @@ export async function downloadAttachments(
     // SharePoint. A worker resolves (JIT), dispatches, then awaits its download's
     // terminal state before the next — so the resolved URL is seconds old.
     let cursor = 0;
-    const worker = async (): Promise<void> => {
+    const worker = async (workerIndex: number): Promise<void> => {
+      // Stagger first starts to spread the transfers' ramp-up (reliability).
+      if (workerIndex > 0) await new Promise<void>(res => setTimeout(res, workerIndex * DISPATCH_STAGGER_MS));
       while (cursor < items.length && !signal.aborted) {
         const item = items[cursor++];
         const p = await prepAsync(item);
         if (p.kind === 'link') { summary.links++; settledOne(); continue; }
+        if (p.kind === 'skip') { summary.skipped++; deps.log?.(`attachment skipped (size cap / type): ${p.name}`); settledOne(); continue; }
         const spec = p.spec;
+        // A resolved-large file waits for a big-file lane slot before it opens a
+        // transfer, so a couple of giants cannot saturate the link. Unknown-size
+        // files take the normal path (acquireBigLane is a no-op for them).
+        const releaseBigLane = await acquireBigLane(spec.size);
         let id: number | undefined;
         try {
           id = await Promise.resolve(deps.downloads.download({ url: spec.url, filename: spec.filename, saveAs: false, conflictAction: 'uniquify' }));
-        } catch (e) { dispatchFailed(spec.name, errMsg(e)); continue; }
-        if (typeof id !== 'number') { dispatchFailed(spec.name, 'no download id'); continue; }
+        } catch (e) { releaseBigLane(); dispatchFailed(spec.name, errMsg(e)); continue; }
+        if (typeof id !== 'number') { releaseBigLane(); dispatchFailed(spec.name, 'no download id'); continue; }
         enroll(id, item, spec.name, spec.markup);
         if (spec.viaDownloadAspx) viaAspx++;
         logDispatch();
         await awaitTerminal(deps, id, signal);
+        releaseBigLane();
       }
     };
-    await Promise.all(Array.from({ length: opts.maxConcurrent }, () => worker()));
+    await Promise.all(Array.from({ length: opts.maxConcurrent }, (_, wi) => worker(wi)));
   } else if (needResolve) {
     // CHROME WITH RESOLVE: a bounded pool resolves each URL just-in-time, then
     // fires its download without awaiting. Bounds resolve concurrency (off the
@@ -803,6 +948,7 @@ export async function downloadAttachments(
         const item = items[cursor++];
         const p = await prepAsync(item);
         if (p.kind === 'link') { summary.links++; settledOne(); continue; }
+        if (p.kind === 'skip') { summary.skipped++; deps.log?.(`attachment skipped (size cap / type): ${p.name}`); settledOne(); continue; }
         fireAndForget(item, p.spec);
       }
     };
@@ -813,9 +959,16 @@ export async function downloadAttachments(
     // only wait — no barrier that could sit idle while Chrome's queue drains.
     for (let i = 0; i < items.length; i++) {
       if (signal.aborted) break;
-      const spec = prep(items[i]);
+      const item = items[i];
+      // Harness-only path (production always sets maxConcurrent). This loop uses
+      // sync prep(), which skips no resolve step, so the filetype deny-list is
+      // applied inline here; the size cap needs a resolve and does not apply.
+      if (denyTypes.size && isDeniedByType(item.name || fileNameFromUrl(item.href) || '', denyTypes)) {
+        summary.skipped++; deps.log?.(`attachment skipped (type): ${item.name}`); settledOne(); continue;
+      }
+      const spec = prep(item);
       if (!spec) { summary.links++; settledOne(); continue; }
-      fireAndForget(items[i], spec);
+      fireAndForget(item, spec);
     }
   }
 
@@ -862,7 +1015,7 @@ export async function downloadAttachments(
   failuresWriteSuppressed = false;
   await flushFailures(deps, exportFolder);
 
-  deps.log?.(`attachment downloads settled: ${summary.saved} saved, ${summary.links} link(s), ${summary.failed} failed, ${summary.cancelled} cancelled of ${summary.total}` + (viaAspx ? ` (${viaAspx} via download.aspx)` : ''));
+  deps.log?.(`attachment downloads settled: ${summary.saved} saved, ${summary.links} link(s), ${summary.failed} failed, ${summary.cancelled} cancelled` + (summary.skipped ? `, ${summary.skipped} skipped` : '') + ` of ${summary.total}` + (viaAspx ? ` (${viaAspx} via download.aspx)` : ''));
   return summary;
 }
 
@@ -982,7 +1135,7 @@ export async function downloadChatAttachments(
   exportFolder: string,
   deps: AttachmentDownloadDeps,
   signal: AbortSignal,
-  opts: { maxConcurrent?: number } = {},
+  opts: AttachmentDownloadOpts = {},
 ): Promise<AttachmentDownloadSummary> {
   const items = collectDocumentAttachments(messages).map(c => ({ ...c, chatFolder: '' }));
   return downloadAttachments(items, exportFolder, deps, signal, opts);
@@ -1008,6 +1161,6 @@ async function awaitTerminal(deps: { downloads: DownloadsApi }, id: number, sign
  * carries attachment file names) so it is never broadcast over runtime
  * messaging or persisted into the active-export snapshot in chrome.storage.
  */
-export function toFilesSummaryWire(s: AttachmentDownloadSummary): { total: number; saved: number; links: number; failed: number; cancelled: number } {
-  return { total: s.total, saved: s.saved, links: s.links, failed: s.failed, cancelled: s.cancelled };
+export function toFilesSummaryWire(s: AttachmentDownloadSummary): { total: number; saved: number; links: number; failed: number; cancelled: number; skipped: number } {
+  return { total: s.total, saved: s.saved, links: s.links, failed: s.failed, cancelled: s.cancelled, skipped: s.skipped };
 }

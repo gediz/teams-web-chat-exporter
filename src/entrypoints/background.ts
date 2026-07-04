@@ -19,6 +19,7 @@ import {
   verifyDownloadOnChanged,
   type AttachmentCandidate,
   type AttachmentDownloadSummary,
+  type AttachmentDownloadOpts,
 } from '../background/attachment-download';
 import { waitForDownloadSettled, type SettledOutcome } from '../background/download-wait';
 import { isSharePointFileHost } from '../utils/teams-urls';
@@ -465,12 +466,49 @@ const sendMessageToTab = (tabId: number, msg: unknown) => new Promise<any>((reso
 // MSAL token) to resolve a sharing link to a pre-authenticated download URL.
 // Returns null on any failure so the attachment falls back to the raw-URL
 // path. The downloadUrl is short-lived and is never logged here.
+// Files bigger than this are serialized through the big-file lane (max 2 at
+// once) so a couple of giant streams cannot saturate the link and NETWORK_FAIL
+// the small files around them. Not user-configurable: it only makes very large
+// transfers safer, never blocks anything.
+const BIG_FILE_BYTES = 100 * 1024 * 1024;
+
+// Build the Files-phase download options from the export's build options: the
+// bounded pool, the optional size cap (MB -> bytes; 0/absent = no cap), the
+// optional filename date prefix, and the always-on big-file lane threshold.
+function attachmentOptsFrom(buildOptions: BuildOptions | undefined): AttachmentDownloadOpts {
+    const capMb = typeof buildOptions?.attachmentSizeCapMb === 'number' && buildOptions.attachmentSizeCapMb > 0
+        ? buildOptions.attachmentSizeCapMb : 0;
+    // Last-gate clamp of the concurrency, defense-in-depth over normalizeOptions:
+    // a finite value is rounded into [1, 8]; anything else falls back to 6, so the
+    // pool can never be spawned at 0 (dead path) or a runaway width.
+    const rawN = buildOptions?.attachmentMaxConcurrent;
+    const maxConcurrent = typeof rawN === 'number' && isFinite(rawN)
+        ? Math.min(8, Math.max(1, Math.round(rawN))) : 6;
+    return {
+        maxConcurrent,
+        sizeCapBytes: capMb > 0 ? Math.round(capMb * 1024 * 1024) : undefined,
+        filenameDate: buildOptions?.attachmentFilenameDate === true,
+        skipTypes: buildOptions?.attachmentSkipTypes || undefined,
+        bigFileBytes: BIG_FILE_BYTES,
+    };
+}
+
 function makeResolveShare(tabId: number) {
-    return async (shareUrl: string): Promise<{ downloadUrl?: string; blocksDownload?: boolean } | null> => {
+    return async (req: { shareUrl?: string; itemid?: string; href: string }): Promise<{ downloadUrl?: string; blocksDownload?: boolean; size?: number; lastModifiedDateTime?: string } | null> => {
         try {
-            const resp = await sendMessageToTab(tabId, { type: 'DOWNLOAD_RESOLVE_SHARE', shareUrl });
-            if (resp && resp.ok && typeof resp.downloadUrl === 'string') {
-                return { downloadUrl: resp.downloadUrl, blocksDownload: resp.blocksDownload };
+            const resp = await sendMessageToTab(tabId, { type: 'DOWNLOAD_RESOLVE_SHARE', shareUrl: req.shareUrl, itemid: req.itemid, href: req.href });
+            // Gate on ok alone: a resolve can succeed with size/lastModified but no
+            // downloadUrl (a 200 driveItem without @content.downloadUrl). Keep the
+            // metadata so the size cap / date prefix still work; prepAsync only
+            // adopts a URL when it is a gated SharePoint host, so a missing/absent
+            // downloadUrl is safe and falls back to the raw-URL path.
+            if (resp && resp.ok) {
+                return {
+                    downloadUrl: typeof resp.downloadUrl === 'string' ? resp.downloadUrl : undefined,
+                    blocksDownload: resp.blocksDownload,
+                    size: resp.size,
+                    lastModifiedDateTime: resp.lastModifiedDateTime,
+                };
             }
         } catch { /* content unreachable — fall back to raw URL */ }
         return null;
@@ -918,7 +956,7 @@ function handleExportWithScrape(
                         // real transfers (a huge file starving the rest) was
                         // seen to cause NETWORK_FAILED en masse; the bounded pool
                         // plus per-item retry recovers those.
-                        { maxConcurrent: 6 },
+                        attachmentOptsFrom(buildOptions),
                     );
                 } finally {
                     untrackFetch(tabId, filesAbort);
@@ -1684,7 +1722,7 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                         },
                         filesAbort.signal,
                         // Bound concurrent downloads on both engines (see single-chat).
-                        { maxConcurrent: 6 },
+                        attachmentOptsFrom(buildOptions),
                     );
                 } finally {
                     untrackFetch(tabId, filesAbort);
@@ -2140,13 +2178,17 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
         (async () => {
             if (!hrefs.length || salvageTabId == null) { log('salvage: nothing to do'); return; }
             log(`salvage: resolving ${hrefs.length} link(s)…`);
-            let results: Array<{ href: string; name: string; ok: boolean; downloadUrl?: string; blocksDownload?: boolean }> = [];
+            let results: Array<{ href: string; name: string; ok: boolean; downloadUrl?: string; blocksDownload?: boolean; via?: string }> = [];
             try {
                 const r = await sendMessageToTab(salvageTabId, { type: 'BATCH_RESOLVE_HREFS', hrefs });
                 if (!r?.ok) { log(`salvage: resolve failed: ${r?.error || 'unknown'}`); return; }
                 results = r.results || [];
             } catch (e: any) { log(`salvage: resolve unreachable: ${e?.message || e}`); return; }
             let saved = 0, unavailable = 0;
+            // Which resolve path produced each SAVED file (diagnostic): shareUrl
+            // = sharing link, driveItem = the GUID fallback that recovers own
+            // uploads, rawUrl = raw href. Tells us the new path actually fired.
+            const savedVia: Record<string, number> = {};
             for (let i = 0; i < results.length; i++) {
                 const res = results[i];
                 if (!res.ok || !res.downloadUrl || !isSharePointFileHost(res.downloadUrl)) { unavailable++; continue; }
@@ -2157,10 +2199,11 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
                 } catch { unavailable++; continue; }
                 if (typeof id !== 'number') { unavailable++; continue; }
                 const outcome = await waitForDownloadSettled({ downloads, onChanged: downloads.onChanged }, id, { pollMs: 1_000, stallMs: 120_000 });
-                if (outcome === 'complete') saved++; else unavailable++;
+                if (outcome === 'complete') { saved++; const v = res.via || 'rawUrl'; savedVia[v] = (savedVia[v] || 0) + 1; } else unavailable++;
                 if ((i + 1) % 10 === 0 || i + 1 === results.length) log(`salvage: ${i + 1}/${results.length} processed (${saved} saved)`);
             }
-            log(`salvage done: ${saved} saved, ${unavailable} unavailable of ${results.length} -> Downloads/TCE-probe/`);
+            const viaSummary = Object.entries(savedVia).map(([k, n]) => `${k}=${n}`).join(', ') || 'none';
+            log(`salvage done: ${saved} saved (${viaSummary}), ${unavailable} unavailable of ${results.length} -> Downloads/TCE-probe/`);
         })();
         return true;
     }
