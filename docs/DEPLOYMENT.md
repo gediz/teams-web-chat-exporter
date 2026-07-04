@@ -30,6 +30,17 @@ Update version in both files before release:
 - `package.json`
 - `wxt.config.ts`
 
+Then update `CHANGELOG.md`. The entry must cover **every** user-facing change
+since the previous tag, not just the last thing worked on. List the full commit
+range and check each one is either reflected in the entry or is internal-only:
+
+```sh
+git log --oneline v<previous>..HEAD
+```
+
+Internal commits (docs, i18n string files, dead-code removal, dev-only tweaks)
+can be left out; every feature or fix a user would notice must appear.
+
 ## Store uploads
 
 - Chrome Web Store: upload Chrome zip (`pnpm zip` output).
@@ -59,9 +70,19 @@ to the extension developer.
 ## Release checklist
 
 1. Update versions in both `package.json` and `wxt.config.ts`.
-2. Run `pnpm check`.
-3. Build all targets (`pnpm build`, `pnpm build:edge`, and `pnpm build:firefox`).
-4. Create all zip packages (`pnpm zip`, `pnpm zip:edge`, and `pnpm zip:firefox`).
-5. Verify install in target browsers.
-6. Upload to stores.
-7. Tag and publish release notes.
+2. Update `CHANGELOG.md` to cover **all** user-facing changes since the previous
+   tag. Verify against `git log --oneline v<previous>..HEAD` so nothing is
+   missed (this list is the single source of truth for what shipped).
+3. Run `pnpm check`.
+4. Build all targets (`pnpm build`, `pnpm build:edge`, and `pnpm build:firefox`).
+5. Create all zip packages (`pnpm zip`, `pnpm zip:edge`, and `pnpm zip:firefox`).
+6. Verify install in target browsers.
+7. Upload to stores.
+8. Tag and publish release notes. The tag must point at the commit that carries
+   the complete `CHANGELOG.md`.
+
+The version-bump commit (the one that raises the version in `package.json` and
+`wxt.config.ts` and carries the complete `CHANGELOG.md`) must be the **tip** of
+the branch at release time, and the tag points at it. Any docs or chore commits
+(comment cleanups, this checklist, and the like) land **before** it, not after,
+so the last commit on the branch is always the release itself.
