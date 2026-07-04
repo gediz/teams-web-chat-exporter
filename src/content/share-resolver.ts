@@ -28,11 +28,11 @@
 // The response is the file's driveItem: `@content.downloadUrl` (a short-lived
 // PRE-AUTHENTICATED URL that chrome.downloads can fetch with no cookie
 // dependency) plus `currentUserRole.blocksDownload` — an upfront access
-// oracle this project previously believed unobtainable (see
-// tce-debug/ACCESS_DETECTION_FINDINGS.md; that conclusion held only for the
-// background's chrome-extension:// origin, which SharePoint rejects
-// server-side. This module runs in the CONTENT SCRIPT, whose fetches carry
-// the Teams page origin that SharePoint's CORS allows — proven by the HARs).
+// oracle this project previously believed unobtainable. That earlier
+// conclusion held only for the background's chrome-extension:// origin,
+// which SharePoint rejects server-side; this module runs in the CONTENT
+// SCRIPT, whose fetches carry the Teams page origin that SharePoint's CORS
+// allows (proven by HAR captures).
 //
 // SECURITY: href comes from message content (attacker-influenceable), so it
 // is gated to the SharePoint host family before any request is made — same

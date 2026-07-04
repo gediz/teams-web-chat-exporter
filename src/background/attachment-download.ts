@@ -23,7 +23,7 @@
 // API.) See toDownloadUrl.
 //
 // A file the user cannot open can't be detected upfront (no reliable access
-// oracle exists — see tce-debug/ACCESS_DETECTION_FINDINGS.md); it comes down as a
+// oracle exists); it comes down as a
 // "request access" HTML page saved under the real file's name. For non-markup
 // files that junk is cleaned up after the fact by verifyDownloadOnChanged
 // (below); markup is ambiguous (a real .html is also text/html) so a genuinely
