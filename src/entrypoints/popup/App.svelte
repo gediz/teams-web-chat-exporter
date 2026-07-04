@@ -1126,6 +1126,8 @@
         // Host-gate links kept as links rather than downloaded.
         if (fs.links > 0) parts.push(t("status.filesLinks", { n: fs.links }, langNow));
         if (fs.failed > 0) parts.push(t("status.filesFailed", { n: fs.failed }, langNow));
+        // Intentionally not downloaded (over the size cap / excluded type).
+        if (fs.skipped && fs.skipped > 0) parts.push(t("status.filesSkipped", { n: fs.skipped }, langNow));
         completeText += " · " + parts.join(" · ");
       }
       setStatus(completeText, { stopElapsed: true });
@@ -1334,6 +1336,10 @@
             embedAvatars,
             downloadImages,
             downloadFiles,
+            attachmentSizeCapMb: options.attachmentSizeCapMb,
+            attachmentFilenameDate: options.attachmentFilenameDate,
+            attachmentSkipTypes: options.attachmentSkipTypes,
+            attachmentMaxConcurrent: options.attachmentMaxConcurrent,
             imageFilenameDate,
             imageModifiedDate,
             afterExport: options.afterExport,
@@ -1426,6 +1432,10 @@
           embedAvatars,
           downloadImages,
           downloadFiles,
+          attachmentSizeCapMb: options.attachmentSizeCapMb,
+          attachmentFilenameDate: options.attachmentFilenameDate,
+          attachmentSkipTypes: options.attachmentSkipTypes,
+          attachmentMaxConcurrent: options.attachmentMaxConcurrent,
           imageFilenameDate,
           imageModifiedDate,
           afterExport: options.afterExport,
@@ -1793,6 +1803,10 @@
         fullResImages={options.fullResImages}
         imageFilenameDate={options.imageFilenameDate}
         imageModifiedDate={options.imageModifiedDate}
+        attachmentSizeCapMb={options.attachmentSizeCapMb}
+        attachmentFilenameDate={options.attachmentFilenameDate}
+        attachmentSkipTypes={options.attachmentSkipTypes}
+        attachmentMaxConcurrent={options.attachmentMaxConcurrent}
         on:back={() => (showSettings = false)}
         on:themeChange={(e) => updateOption("theme", e.detail)}
         on:langChange={(e) => updateOption("lang", e.detail)}
@@ -1806,6 +1820,10 @@
         on:fullResImagesChange={(e) => updateOption("fullResImages", e.detail)}
         on:imageFilenameDateChange={(e) => updateOption("imageFilenameDate", e.detail)}
         on:imageModifiedDateChange={(e) => updateOption("imageModifiedDate", e.detail)}
+        on:attachmentSizeCapMbChange={(e) => updateOption("attachmentSizeCapMb", e.detail)}
+        on:attachmentFilenameDateChange={(e) => updateOption("attachmentFilenameDate", e.detail)}
+        on:attachmentSkipTypesChange={(e) => updateOption("attachmentSkipTypes", e.detail)}
+        on:attachmentMaxConcurrentChange={(e) => updateOption("attachmentMaxConcurrent", e.detail)}
         on:replayTour={replayTour}
         on:openDiagnostics={() => { showSettings = false; showDiagnostics = true; }}
       />

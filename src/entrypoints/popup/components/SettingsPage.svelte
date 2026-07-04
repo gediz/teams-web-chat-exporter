@@ -56,6 +56,13 @@
   export let fullResImages = false;
   export let imageFilenameDate = false;
   export let imageModifiedDate = false;
+  export let attachmentSizeCapMb = 0;
+  export let attachmentFilenameDate = false;
+  export let attachmentSkipTypes = '';
+  export let attachmentMaxConcurrent = 6;
+  // Keep in sync with ATTACH_CONCURRENCY_MIN/MAX in src/utils/options.ts.
+  const ATTACH_CONCURRENCY_MIN = 1;
+  const ATTACH_CONCURRENCY_MAX = 8;
 
   const dispatch = createEventDispatcher<{
     back: void;
@@ -71,6 +78,10 @@
     fullResImagesChange: boolean;
     imageFilenameDateChange: boolean;
     imageModifiedDateChange: boolean;
+    attachmentSizeCapMbChange: number;
+    attachmentFilenameDateChange: boolean;
+    attachmentSkipTypesChange: string;
+    attachmentMaxConcurrentChange: number;
     replayTour: void;
     openDiagnostics: void;
   }>();
@@ -116,6 +127,32 @@
 
   function onImageModifiedDateChange(e: Event) {
     dispatch('imageModifiedDateChange', (e.target as HTMLInputElement).checked);
+  }
+
+  // Size cap in MB. Empty or non-positive means "no cap" (0). Clamp negatives
+  // and junk to 0 so a bad value can never skip every attachment.
+  function onAttachmentSizeCapChange(e: Event) {
+    const raw = Number((e.target as HTMLInputElement).value);
+    const mb = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+    dispatch('attachmentSizeCapMbChange', mb);
+  }
+
+  function onAttachmentFilenameDateChange(e: Event) {
+    dispatch('attachmentFilenameDateChange', (e.target as HTMLInputElement).checked);
+  }
+
+  function onAttachmentSkipTypesChange(e: Event) {
+    dispatch('attachmentSkipTypesChange', (e.target as HTMLInputElement).value.trim());
+  }
+
+  // Concurrency is a −/+ stepper (like body font size): step by 1 and clamp to
+  // [MIN, MAX]; the buttons disable at the bounds so the value can't leave range.
+  function stepConcurrency(delta: number) {
+    const next = Math.max(
+      ATTACH_CONCURRENCY_MIN,
+      Math.min(ATTACH_CONCURRENCY_MAX, Math.round(attachmentMaxConcurrent) + delta),
+    );
+    if (next !== attachmentMaxConcurrent) dispatch('attachmentMaxConcurrentChange', next);
   }
 
   function onPdfIncludeAvatarsChange(e: Event) {
@@ -448,6 +485,114 @@
             <span class="track"></span>
           </span>
         </label>
+      </div>
+    </section>
+
+    <!-- Attachments: only take effect when the "Files" toggle is on. -->
+    <section class="ac">
+      <div class="ah"><FileText size={14} /> {t('settings.grp.attachments', {}, lang)}</div>
+      <div class="group">
+        <div class="srow stacked">
+          <span class="txt">
+            <span class="label-row">
+              <span class="label">{t('settings.attachSizeCap', {}, lang)}</span>
+              <button
+                type="button"
+                class="info-btn"
+                title={t('settings.attachSizeCap.tooltip', {}, lang)}
+                aria-label={t('settings.attachSizeCap.tooltip', {}, lang)}
+                on:click|stopPropagation|preventDefault={() => {}}
+              >ⓘ</button>
+            </span>
+            <span class="sub">{t('settings.attachSizeCap.hint', {}, lang)}</span>
+          </span>
+          <input
+            class="field num"
+            type="number"
+            min="0"
+            step="1"
+            inputmode="numeric"
+            value={attachmentSizeCapMb || ''}
+            placeholder="0"
+            aria-label={t('settings.attachSizeCap', {}, lang)}
+            on:change={onAttachmentSizeCapChange}
+          />
+        </div>
+
+        <div class="srow stacked">
+          <span class="txt">
+            <span class="label-row">
+              <span class="label">{t('settings.attachSkipTypes', {}, lang)}</span>
+              <button
+                type="button"
+                class="info-btn"
+                title={t('settings.attachSkipTypes.tooltip', {}, lang)}
+                aria-label={t('settings.attachSkipTypes.tooltip', {}, lang)}
+                on:click|stopPropagation|preventDefault={() => {}}
+              >ⓘ</button>
+            </span>
+            <span class="sub">{t('settings.attachSkipTypes.hint', {}, lang)}</span>
+          </span>
+          <input
+            class="field"
+            type="text"
+            value={attachmentSkipTypes}
+            placeholder="exe, zip"
+            aria-label={t('settings.attachSkipTypes', {}, lang)}
+            on:change={onAttachmentSkipTypesChange}
+          />
+        </div>
+
+        <label class="srow toggle" for="opt-attach-date">
+          <span class="txt">
+            <span class="label-row">
+              <span class="label">{t('settings.attachDate', {}, lang)}</span>
+              <button
+                type="button"
+                class="info-btn"
+                title={t('settings.attachDate.tooltip', {}, lang)}
+                aria-label={t('settings.attachDate.tooltip', {}, lang)}
+                on:click|stopPropagation|preventDefault={() => {}}
+              >ⓘ</button>
+            </span>
+            <span class="sub">{t('settings.attachDate.hint', {}, lang)}</span>
+          </span>
+          <span class="switch">
+            <input id="opt-attach-date" type="checkbox" checked={attachmentFilenameDate} on:change={onAttachmentFilenameDateChange} />
+            <span class="track"></span>
+          </span>
+        </label>
+
+        <div class="srow">
+          <span class="txt">
+            <span class="label-row">
+              <span class="label">{t('settings.attachConcurrency', {}, lang)}</span>
+              <button
+                type="button"
+                class="info-btn"
+                title={t('settings.attachConcurrency.tooltip', {}, lang)}
+                aria-label={t('settings.attachConcurrency.tooltip', {}, lang)}
+                on:click|stopPropagation|preventDefault={() => {}}
+              >ⓘ</button>
+            </span>
+            <span class="sub">{t('settings.attachConcurrency.hint', {}, lang)}</span>
+          </span>
+          <span class="stepper" role="group" aria-label={t('settings.attachConcurrency', {}, lang)}>
+            <button
+              type="button"
+              class="step-btn"
+              on:click={() => stepConcurrency(-1)}
+              disabled={attachmentMaxConcurrent <= ATTACH_CONCURRENCY_MIN}
+            >−</button>
+            <span class="step-val">{attachmentMaxConcurrent}</span>
+            <button
+              type="button"
+              class="step-btn"
+              on:click={() => stepConcurrency(1)}
+              disabled={attachmentMaxConcurrent >= ATTACH_CONCURRENCY_MAX}
+            >+</button>
+          </span>
+        </div>
       </div>
     </section>
 
@@ -806,6 +951,14 @@
     width: auto;
     flex: 0 0 auto;
     min-width: 96px;
+  }
+  /* Small number field in a stacked row: compact and left-aligned, not the
+     full-width box a free-text field wants. */
+  .field.num {
+    align-self: flex-start;
+    width: auto;
+    min-width: 90px;
+    max-width: 140px;
   }
   /* −/+ font-size stepper, pinned right. */
   .stepper {
