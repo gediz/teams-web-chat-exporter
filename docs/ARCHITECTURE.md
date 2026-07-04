@@ -123,6 +123,18 @@ Single-chat export runs go through `START_EXPORT`. Multi-chat bundle runs go thr
 8. After a successful download (or cancel) background appends a `HistoryEntry` to `chrome.storage.local` under `teamsExporterHistory` and honors `afterExport: 'show' | 'manual'` to auto-show the file in its folder.
 9. Background sends progress/status updates back to popup via `EXPORT_STATUS` and forwards scrape progress as `EXPORT_PROGRESS`. The current `activeExports` map is mirrored to `teamsExporterActiveExports` in storage so a reopened popup can rehydrate its state without waiting for a message round-trip.
 
+### API fetch vs DOM fallback
+
+The API fetch is the primary path and captures the full message envelope: complete
+server history, resolved identities (including reactors, forwarders, and roster
+members who never posted), deleted-message tombstones, forwarded-message context,
+structured mentions, exact file metadata with download links, and call/recording
+details. The DOM-scroll fallback reads only what Teams has rendered as you scroll
+up, so it can stop short of the true top of history and never populates those
+fields, capturing reactions, attachments, and system messages in approximate form.
+The one place it does more is channel reply threads, which it opens and scrapes per
+chain; the API single-conversation fetch does not thread those per-message.
+
 ## Multi-chat bundle export
 
 When the picker has 2+ conversations selected, the popup sends `START_BUNDLE_EXPORT` instead of `START_EXPORT`. The background handler runs the per-chat scrape pipeline serially:

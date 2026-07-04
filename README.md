@@ -2,7 +2,7 @@
 
 Browser extension for exporting Microsoft Teams web chat data.
 
-Free, open source, MIT-licensed. Runs entirely as the signed-in user, on the user's own machine. No server, no admin, no IT involvement.
+Free and open source under the MIT license. It runs entirely as the signed-in user, on your own machine, with the access you already have. Nothing to install or run server-side.
 
 Supports Chrome, Edge, and Firefox. Works with commercial, GCC High, and MCAS-proxied Teams environments.
 
@@ -10,32 +10,26 @@ Supports Chrome, Edge, and Firefox. Works with commercial, GCC High, and MCAS-pr
 
 ![Teams Chat Exporter popup](screenshots/default-light.png)
 
+> [!IMPORTANT]
+> You are responsible for following your organization's and Microsoft's policies when exporting conversations.
+
 ## Why this exists
 
-Microsoft Teams has no end-user export button. The platform routes users to admin tooling they do not control, and most third-party tools want enterprise pricing or a server-side install. This extension fills that gap: open a chat, click the extension icon, save a file. Works for leaving a job, handing work over, feeding chats to an LLM, or just keeping your own copy.
+Teams has no built-in, on-demand way to save a single chat: its data export is a delayed, account-wide archive, and the alternatives are admin tooling you do not control or paid server-side tools. This extension does that directly: open a chat, click the icon, save a file. Good for leaving a job, handing work over, feeding chats to an LLM, or keeping your own copy.
 
 ## What it exports
 
-- Formats: JSON, CSV, HTML, TXT, PDF (pick any one, or several together; multi-format runs are packaged as a single `bundle.zip`)
-- Sources: chat conversations and team channels
-- Multi-chat bundles: pick several chats in the popup picker, get one outer `TeamsExport_bundle_<stamp>.zip` with a per-chat folder inside (`messages.{json,csv,html,txt,pdf}` + `images/` where applicable, plus `FAILURES.txt` if any chat errored)
-- Date range filtering
-- Toggleable per export: replies, reactions, system messages, avatars, inline images
-- Picker filters: by kind (Chats / Groups / Meetings / Channels) and by Teams folder (Favorites + your custom folders), both axes persist across popup opens
-
-Every message includes text, timestamp, and author. Forwarded messages, mentions, reactions (with reactor names when available), and file metadata (name, type, size, link) are captured where the format supports it. With the "File attachments" toggle on, shared SharePoint/OneDrive documents are also downloaded: the export and an `attachments/` folder are saved together in one folder in Downloads (named after the export), and files that could not be retrieved are listed in a `FAILURES.txt` inside the `attachments/` folder. With the toggle off, files stay links.
-
-Inline images, GIFs, and audio (voice messages) are embedded when the "Inline images" toggle is on. HTML embeds them via `<img src="data:...">` by default; Settings → Avatars in HTML → "Save as separate files" switches HTML output to a `.zip` that contains the HTML file plus `images/` and `avatars/` folders. PDF always embeds inline image attachments it can decode (PNG, JPEG) and rasterized Twemoji for emoji. Video thumbnails are embedded across formats; the video file itself is only linked.
-
-HTML and JSON include the richest data. PDF offers a page-ready layout with colour emoji, clickable URLs, and avatars. CSV and TXT include the basics.
-
-Exports completed in the session are listed on the History page inside the popup, where you can re-open the saved file or show it in its folder.
+- **Formats:** JSON, CSV, HTML, TXT, PDF. Pick one or several; multi-format runs come out as a single `bundle.zip`.
+- **Sources:** chats and team channels, one at a time or as a multi-chat bundle (one zip, a folder per chat).
+- **Per message:** text, timestamp, and author, plus forwards, mentions, reactions (with reactor names), and file metadata, wherever the format supports it.
+- **Per-export options:** date range, plus toggles for replies, reactions, system messages, avatars, and inline images.
+- **Inline media:** images, GIFs, and voice messages are embedded when the images toggle is on; video is linked with a thumbnail.
+- **File attachments:** optionally download shared SharePoint/OneDrive files into an `attachments/` folder beside the export, with per-run size, type, and date-stamp controls.
+- **History:** the popup lists this session's exports, with re-open and show-in-folder.
 
 ## How it works
 
-The extension fetches messages through the Teams Chat Service API using your existing session tokens. For single-chat exports, if the API fails, it falls back to scrolling the Teams web UI and reading messages from the DOM. For multi-chat bundles, any chat the API can't reach is recorded in `FAILURES.txt` inside the bundle and the run continues with the remaining chats. DOM fallback is intentionally disabled in bundle mode because it would scrape whichever chat is currently visible in your tab, not the target chat.
-
-The result is built into your chosen format and downloaded locally. No data is sent to any third-party server.
+The extension reads messages from the Teams Chat Service API using your existing session. If the API cannot be reached for a single chat, it falls back to reading messages off the Teams web UI as it scrolls. That fallback is a last resort: it reads only what Teams has rendered as you scroll, so it can miss older history and captures reactions, attachments, and some metadata in reduced form. It runs only when the API path is unavailable. In a multi-chat bundle, any unreachable chat is recorded in `FAILURES.txt` and the run continues; DOM fallback is off in bundle mode, since it would scrape whatever chat is on screen rather than the target. The result is built into your chosen format and saved on your machine. The extension talks only to Microsoft's own Teams and SharePoint endpoints, the ones you are already signed in to. Nothing goes to any third-party server.
 
 ## Install
 
@@ -62,6 +56,3 @@ If something is broken, the fastest path is to share a diagnostic report alongsi
 - [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 - [docs/TODO.md](docs/TODO.md)
-
-> [!IMPORTANT]
-> You are responsible for following your organization's and Microsoft's policies when exporting conversations.
