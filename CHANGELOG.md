@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.0] - 2026-07-04
+
+Recovers file attachments that used to fail to download, from your own uploaded files to files behind a stale session or a migrated tenant, and makes large attachment downloads far more reliable. Adds controls for the download (a size cap, a file-type skip list, an adjustable number of simultaneous downloads, and an optional last-modified date in each file's name), a Diagnostics tool to rescue files that still failed, and opt-in date stamps on saved inline images. The Settings page is reorganised into grouped sections.
+
+### Added
+
+- **Your own uploaded files now download.** A file you uploaded yourself often has no sharing link, so the download step had nothing to redeem and gave up on it. Those files now download the way Teams itself opens them, addressed by the file's own id, so your own shared files are saved like any other. This recovered the bulk of the files that previously failed on a large real-world chat.
+- **Attachments that fail on a stale session now download.** A file whose sharing link could not be fetched with the site's session cookie (for example on a migrated tenant) is now resolved through SharePoint to a short-lived pre-authorized link and downloaded from there. If that path finds nothing (no sharing link, no access, or the file is unreachable), it falls back to the old direct link, so nothing that used to work regresses.
+- **Export and its attachments now save in one folder.** With the "Files" toggle on, an export and its `attachments` tree now save together inside a single folder in Downloads, so one export is one folder. With the toggle off, nothing changes: same filenames, same Save As dialog.
+- **Salvage failed files (Diagnostics).** A new tool on the Diagnostics page takes a text file of file links (a `FAILURES.txt` from an earlier export, or a plain list of URLs), resolves each one, and downloads it one at a time into a `TCE-probe` folder in Downloads. It runs in the background, so you can close the popup while it works, and it lets you recover the files that failed transiently on a big export without re-running the whole export.
+- **File-access probe (Diagnostics).** A new probe lets you paste a file link and see, step by step, whether the extension can resolve and download it, to diagnose why a specific attachment fails.
+- **Size cap.** A new "Skip files larger than (MB)" setting leaves big downloads out of an export. Empty or 0 downloads everything. The size is read before the transfer starts, so a skipped file never downloads and is reported as skipped rather than failed.
+- **Skip by file type.** A new "Skip these file types" setting takes a comma-separated list of extensions (for example: exe, zip) and leaves those out. The type is known before downloading, so a skipped file never transfers.
+- **Date in attachment filenames (opt-in, off by default).** A new setting prefixes each downloaded file's name with its real last-modified date in UTC, so files sort by date in your file manager. Downloaded files are saved by the browser, which cannot set a file's modified date, so the date is carried in the name.
+- **Simultaneous downloads (advanced).** A new setting sets how many attachments download at once, from 1 to 8, default 6. Lower is gentler on a slow or metered connection; higher can be faster but may make the server throttle the burst.
+- **Date in inline-image filenames (opt-in, off by default).** A new setting prefixes each saved inline image's name with the message's share time in UTC (for example `20260628T104615Z__photo.png`), so images pulled out of an export sort by date. Off by default, so existing image names are unchanged unless you turn it on.
+- **Modified date on saved inline images (opt-in, off by default).** A separate new setting sets each saved image's date-modified in the zip to the time it was shared, so the extracted file's "Date modified" reflects when it was sent rather than when it was exported. Whether the date survives depends on the tool used to unzip: 7-Zip, WinRAR, macOS, and Linux keep it; Windows Explorer's "Extract All" and some cloud or Android tools may not.
+
+### Fixed
+
+- **Fewer failed downloads on large exports.** A burst of attachment downloads on a big export could fail in clusters from network contention, and a dropped connection was a permanent failure because nothing retried it. Downloads now stay within a fixed number of transfers at once, retry transient network failures with spread-out backoff and a fresh pre-authorized link each attempt, stagger their starts, and hold very large files (over 100 MB) to a couple at a time, so more come down on the first pass. Interrupted partial files are cleaned up instead of being left behind (a failed run could otherwise orphan over a gigabyte), and the failure list no longer repeats an entry once per attempt.
+- **"N files saved" now reflects real completions.** The Files phase now waits for each attachment to reach a confirmed final state before counting it, and stopping mid-download keeps the saved export, cancels the in-flight transfers, and records them in a separate cancelled section instead of the failed list. The export file itself is also held until the browser confirms it finished, so a genuine failure is reported as an error rather than being mislabelled as complete.
+- **Own uploads keep their size and date even without a download link.** A file resolved by its id that returns its size and last-modified date but no ready-to-fetch link now keeps that information, so the size cap and the filename date still apply to it.
+- **Settings fields no longer show stale text.** Typing a value into the size-cap or skip-types field that reduced to the value already stored (for example a negative number, or a trailing space) could leave the typed text on screen while the saved value differed. The field now always shows what is actually saved.
+
+### Changed
+
+- **Settings page redesigned.** Options are now grouped into titled sections (Appearance, Export, Images, Files, PDF, Help & feedback, About) instead of one card per option. The theme choice is a Light/Dark toggle, the language picker moved to its own searchable sub-page instead of a long grid, the four image options are gathered under Images, and each row carries a short hint with an info button that reveals the full detail on hover, focus, or screen reader. A muted version footer was added.
+- **"Inline images (HTML only)" renamed to "Images".** The toggle also controls inline images in the PDF, so the old label was inaccurate. It is now just "Images", matching the "Files" toggle.
+- **Diagnostics page styling fixed in dark mode.** The Diagnostics cards, buttons, and code blocks previously stayed light even with the dark theme on; they now follow the theme. The header buttons on Settings, History, and Diagnostics also match the flat style of the main page.
+
 ## [1.5.2] - 2026-06-29
 
 Adds document download, deleted-message placeholders, and an opt-in full-resolution image setting. Also fixes several image and attachment export-fidelity issues found while auditing a large real-world chat.

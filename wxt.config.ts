@@ -58,7 +58,7 @@ export default defineConfig({
   },
   manifest: ({ manifestVersion }) => ({
     name: '__MSG_extName__',
-    version: '1.5.2',
+    version: '1.6.0',
     description: '__MSG_extDescription__',
     default_locale: 'en',
     homepage_url: 'https://github.com/gediz/teams-web-chat-exporter',
