@@ -30,4 +30,8 @@ jobs:
       # silently regenerating it.
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      # Both targets, always: Chrome MV3 and Firefox MV2 have separate
+      # build outputs and some APIs differ between them, so a green
+      # Chrome build alone doesn't prove Firefox still compiles.
       - run: pnpm build
+      - run: pnpm build:firefox
