@@ -1243,7 +1243,7 @@ export default defineContentScript({
 
                     const wrapped = fetchUrl.match(/[?&]url=([^&]+)/) || url.match(/[?&]url=([^&]+)/);
                     if (wrapped) {
-                        let target: string | null = null;
+                        let target: string;
                         try { target = decodeURIComponent(wrapped[1]); } catch { return null; }
                         return target && isFallbackEligible(target) ? target : null;
                     }
@@ -1734,10 +1734,6 @@ export default defineContentScript({
             };
             await Promise.all(Array.from({ length: MAX_CONCURRENT_FETCHES }, (_, slot) => fetchWorker(slot)));
             console.log(`[Teams Exporter] Image fetch: ${succeeded} succeeded, ${tasks.length - succeeded} failed (of ${tasks.length} attempted)`);
-            // URL-dedup would save (images-unique) fetches. slowestMs >> totalMs/images
-            // means batch-boundary stalls dominate (one slow image per batch of 6).
-            if (tasks.length > 0) {
-            }
             if (imgFetchStats.directRecovered > 0 || imgFetchStats.directFailed > 0) {
                 console.log(`[Teams Exporter] Image fetch fallback: ${imgFetchStats.directRecovered} recovered, ${imgFetchStats.directFailed} still failed via direct upstream fetch.`);
             }
@@ -2230,7 +2226,7 @@ export default defineContentScript({
             );
             if (!btn) return;
             if (btn.getAttribute('aria-expanded') === 'true') return;
-            try { btn.click(); } catch {}
+            try { btn.click(); } catch { /* noop: best-effort expand; a failed click just exports the collapsed text */ }
             await sleep(160);
         }
 
@@ -2493,14 +2489,14 @@ export default defineContentScript({
             for (const selector of selectors) {
                 const btn = document.querySelector<HTMLButtonElement>(selector);
                 if (btn && btn.offsetParent !== null) {
-                    try { btn.click(); } catch {}
+                    try { btn.click(); } catch { /* noop: best-effort close; the Escape fallback and runway poll below recover */ }
                     await sleep(200);
                     break;
                 }
             }
             try {
                 document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
-            } catch {}
+            } catch { /* noop: best-effort Escape; the runway poll below verifies whether the pane closed */ }
             const start = Date.now();
             while (getRepliesRunway() && Date.now() - start < 2000) {
                 await sleep(100);
@@ -2537,7 +2533,7 @@ export default defineContentScript({
           
 
         async function realClick(el: HTMLElement) {
-        try { el.scrollIntoView({ block: "center" }); } catch {}
+        try { el.scrollIntoView({ block: "center" }); } catch { /* noop: positioning aid; the synthetic clicks below still dispatch */ }
         await sleep(80);
 
         const opts: MouseEventInit = { bubbles: true, cancelable: true, composed: true, view: window };
@@ -2825,17 +2821,15 @@ export default defineContentScript({
                 item instanceof HTMLElement &&
                 item.getAttribute('data-tid') === 'channel-replies-pane-message';
 
-            let wrapperWithMid: HTMLElement | null = null;
-            let wrapperItem: HTMLElement | null = null;
-            let body: HTMLElement | null = null;
-            let itemScope: Element = item;
-            let hasMessage = false;
+            let wrapperWithMid: HTMLElement | null;
+            let body: HTMLElement | null;
+            let itemScope: Element;
+            let hasMessage: boolean;
 
             if (isReplyItem) {
                 // In the replies runway, `item` is already the message container.
                 // Do NOT climb up with `closest`, or you risk grabbing the parent post.
                 wrapperWithMid = item.querySelector<HTMLElement>('[data-mid]') || null;
-                wrapperItem = item;
                 body = item;
                 itemScope = item;
                 hasMessage = true;
@@ -2846,7 +2840,7 @@ export default defineContentScript({
                     item.querySelector<HTMLElement>('[data-tid="channel-replies-pane-message"] [data-mid]') ||
                     item.querySelector<HTMLElement>('[data-mid]');
 
-                wrapperItem = wrapperWithMid
+                const wrapperItem = wrapperWithMid
                     ? wrapperWithMid.closest<HTMLElement>(
                         '[data-tid="channel-replies-pane-message"], [data-tid="channel-pane-message"], [data-tid="chat-pane-message"], [id^="message-body-"][aria-labelledby]'
                     )
@@ -3892,10 +3886,10 @@ export default defineContentScript({
                                     // Fetch inline images (content script has auth cookies, URLs expire).
                                     // Skipped when the target format won't render them.
                                     if (needImages) {
-                                        try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length } }); } catch {}
+                                        try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length } }); } catch { /* noop: progress ping is best-effort */ }
                                         await fetchInlineImages(converted, (done, total) => {
                                             if (done % 10 === 0 || done === total) {
-                                                try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length, imagesDone: done, imagesTotal: total } }); } catch {}
+                                                try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length, imagesDone: done, imagesTotal: total } }); } catch { /* noop: progress ping is best-effort */ }
                                             }
                                         }, { userId: apiResult.userId, userRegion: apiResult.userRegion, ic3Token: apiResult.ic3Token }, fullResImages === true);
                                     } else {
@@ -3904,7 +3898,7 @@ export default defineContentScript({
                                     // Fetch profile photos via Graph API.
                                     // Skipped when the format/options don't render avatars.
                                     if (needAvatars) {
-                                        try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'avatars', messagesVisible: converted.length } }); } catch {}
+                                        try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'avatars', messagesVisible: converted.length } }); } catch { /* noop: progress ping is best-effort */ }
                                         await fetchApiAvatars(converted, apiResult.messages);
                                     } else {
                                         console.log(`[Teams Exporter] Skipping avatar fetch — formats=${fmtList.join(',')}, embedAvatars=${embedAvatars}`);

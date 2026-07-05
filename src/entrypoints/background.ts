@@ -234,7 +234,7 @@ const badge = createBadgeManager(action);
 const { reset: resetBadge, updateForStatus: updateBadgeForStatus, updateForProgress: updateBadgeForProgress } = badge;
 const isFirefox = typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox');
 
-function log(...a: unknown[]) { try { console.log("[Teams Exporter SW]", ...a) } catch { } }
+function log(...a: unknown[]) { try { console.log("[Teams Exporter SW]", ...a) } catch { /* never break logging */ } }
 // Per-build identifier (git hash + build time), injected at build time. Logged
 // at boot and at each export start/end so any SW console / export can be tied to
 // the exact build — no more guessing whether a stale service worker is running.
@@ -2067,11 +2067,11 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
         // state and on-disk byte usage so the popup can render the
         // storage info row without an extra round-trip.
         (async () => {
-            // Default to null so a getBytesInUse failure (Firefox's
-            // older polyfill rejects with "Not supported" instead of
-            // returning a number) shows up as "unknown size" in the
-            // UI rather than misleading "0 B".
-            let bytesUsed: number | null = null;
+            // Assigned on every path: getBytesInUse on success, null when
+            // older Firefox rejects it ("Not supported", shows as
+            // "unknown size" rather than a misleading "0 B"), and 0 when
+            // persistence is off.
+            let bytesUsed: number | null;
             if (diagLogPersistEnabled) {
                 try {
                     bytesUsed = await chrome.storage.local.getBytesInUse(DIAG_LOG_STORAGE_KEY);
@@ -2189,7 +2189,7 @@ runtime.onMessage.addListener((msg: BackgroundIncomingMessage, sender, sendRespo
         (async () => {
             if (!hrefs.length || salvageTabId == null) { log('salvage: nothing to do'); return; }
             log(`salvage: resolving ${hrefs.length} link(s)…`);
-            let results: Array<{ href: string; name: string; ok: boolean; downloadUrl?: string; blocksDownload?: boolean; via?: string }> = [];
+            let results: Array<{ href: string; name: string; ok: boolean; downloadUrl?: string; blocksDownload?: boolean; via?: string }>;
             try {
                 const r = await sendMessageToTab(salvageTabId, { type: 'BATCH_RESOLVE_HREFS', hrefs });
                 if (!r?.ok) { log(`salvage: resolve failed: ${r?.error || 'unknown'}`); return; }

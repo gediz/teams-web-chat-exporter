@@ -147,7 +147,7 @@ export async function autoScrollAggregate<M extends ExportMessage>(
 const dispatchWheel = (el: HTMLElement, deltaY: number) => {
   try {
     el.dispatchEvent(new WheelEvent('wheel', { deltaY, deltaMode: 0, bubbles: true, cancelable: true }));
-  } catch {}
+  } catch { /* noop: best-effort wheel nudge for the virtual list; fires every pass, and a throw must not stop the scroll */ }
 };
 
 const slowScrollUp = (el: HTMLElement, stepPx = 0) => {
@@ -285,7 +285,7 @@ const forceScrollUp = (el: HTMLElement, multiplier = 2) => {
           },
         });
         if (msgPromise && msgPromise.catch) msgPromise.catch(() => {});
-      } catch {}
+      } catch { /* noop: progress ping is best-effort; a closed popup or invalidated context must not stop the scroll */ }
 
       if (startLimit != null && oldestTs != null && oldestTs <= startLimit) {
         console.log('[Teams Exporter] scroll stop: startAt date reached', { oldestTimeAttr, startAtISO });

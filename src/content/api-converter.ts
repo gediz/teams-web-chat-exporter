@@ -801,7 +801,7 @@ function convertLinkPreviews(properties: Record<string, unknown>, existingHrefs:
     if (linkUrl && existingHrefs.has(linkUrl)) continue;
 
     // Build source label from domain
-    let sourceLabel = '';
+    let sourceLabel: string;
     try {
       sourceLabel = new URL(linkUrl).hostname;
     } catch {

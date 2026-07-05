@@ -25,6 +25,7 @@
   let pulseActive = false;
   let lastPulseSeen = 0;
   $: if (pulseHistoryIcon !== lastPulseSeen) {
+    // eslint-disable-next-line no-useless-assignment -- one-shot latch: read by this $: block's own guard on the next reactive run
     lastPulseSeen = pulseHistoryIcon;
     void replayPulse();
   }

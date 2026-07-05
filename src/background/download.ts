@@ -346,11 +346,11 @@ function buildExportInternal(options: BuildExportOptions, imageMode: ImageMode):
   const base = computeBaseName(enrichedMeta);
   const baseFolder = base;
 
-  let filename = base;
-  let mime = 'application/json';
-  let content: string | string[] = '';
+  let filename: string;
+  let mime: string;
+  let content: string | string[];
   let inlineImages: InlineImage[] = [];
-  let finalMessages = processedMessages;
+  let finalMessages: ExportMessage[];
 
   if (format === 'html') {
     const mode: ImageMode = imageMode;
@@ -840,11 +840,8 @@ export async function buildOneChatForBundle(
       const inner = e instanceof Error ? e.message : String(e);
       console.log(`[bundle] build:${format} failed for "${titleForLog}": ${inner}`);
       formatFailures.push({ format, error: `build:${format} — ${inner}` });
-    } finally {
     }
   }
-
-  // stage is PDF vs the text formats. Remove after perf run.
 
   return { files: out, formatFailures };
 }

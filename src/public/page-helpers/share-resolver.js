@@ -37,7 +37,7 @@
     async function attempt(mode) {
       var resp = await fetch(data.url, { method: 'GET', credentials: mode, headers: data.headers || {} });
       if (!resp.ok) return { ok: false, status: resp.status, mode: mode };
-      var json = null;
+      var json;
       try { json = await resp.json(); } catch (_) { json = null; }
       return { ok: true, status: resp.status, json: json, mode: mode };
     }

@@ -75,6 +75,7 @@
   let flashActive = false;
   let lastFlashSeen = 0;
   $: if (flashTrigger !== lastFlashSeen) {
+    // eslint-disable-next-line no-useless-assignment -- one-shot latch: read by this $: block's own guard on the next reactive run
     lastFlashSeen = flashTrigger;
     void replayFlash();
   }
@@ -96,7 +97,9 @@
   let animArmed = false;
   let animReady = false;
   $: if (!animArmed && busy && segments.some((s) => s != null)) {
+    // eslint-disable-next-line no-useless-assignment -- re-entry latch: read by this $: block's own guard on the next reactive run
     animArmed = true;
+    // eslint-disable-next-line svelte/infinite-reactive-loop -- one-shot: animReady is written here but never read by any reactive statement (template-only), and the animArmed guard latches true synchronously before this async write, so this block can never re-enter
     tick().then(() => requestAnimationFrame(() => { animReady = true; }));
   }
 

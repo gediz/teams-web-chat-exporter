@@ -204,7 +204,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     });
   const formatInline = (segment: string) => {
     const parts = segment.split('`');
-    let html = '';
+    let html: string;
     if (parts.length >= 3 && parts.length % 2 === 1) {
       html = parts
         .map((part, idx) => {

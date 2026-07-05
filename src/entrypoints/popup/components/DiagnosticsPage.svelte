@@ -220,7 +220,7 @@
     // determine). Conflating null with false made the report tell the
     // analyst "tell the user to grant the permission" when the user
     // already had.
-    let allUrlsGranted: boolean | null = null;
+    let allUrlsGranted: boolean | null;
     try {
       allUrlsGranted = await permissions.contains({ origins: ['<all_urls>'] });
     } catch {

@@ -161,6 +161,7 @@
   let scrolledToSelection = false;
   let listEl: HTMLDivElement | undefined;
   $: if (!scrolledToSelection && selectedIds.length > 0 && conversations.length > 0) {
+    // eslint-disable-next-line no-useless-assignment -- run-once latch: read by this $: block's own guard on the next reactive run
     scrolledToSelection = true;
     tick().then(() => {
       const el = listEl?.querySelector('.picker-row.selected') as HTMLElement | null;

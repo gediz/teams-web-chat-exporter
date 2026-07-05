@@ -376,7 +376,7 @@ export async function buildPdf(
       const page = pages[p];
       const label = `${p + 1} / ${totalPages}`;
       // Measure via the regular font so we can center.
-      let textW = 0;
+      let textW: number;
       try { textW = fonts.regular.widthOfTextAtSize(label, fsize); } catch { textW = label.length * fsize * 0.5; }
       const x = (layout.pageW - textW) / 2;
       const y = MARGIN / 2;
