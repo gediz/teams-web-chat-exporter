@@ -1,6 +1,10 @@
 {
   "extends": "@tsconfig/svelte/tsconfig.json",
   "compilerOptions": {
+    // Base @tsconfig/svelte pins es2017; Error({ cause }) needs the
+    // ES2022 lib types. Type-check only: vite/esbuild transpiles with
+    // its own target, so the shipped bundles are unaffected.
+    "target": "ES2022",
     "strict": true,
     "baseUrl": ".",
     "allowJs": false,

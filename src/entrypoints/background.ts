@@ -531,7 +531,7 @@ async function ensureContentScript(tabId: number) {
         injectResult = (await scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content-scripts/content.js'] })) as FrameResult[];
     } catch (e) {
         log('ensureContentScript: executeScript threw:', e);
-        throw new Error(`Could not inject content script: ${(e as Error)?.message || String(e)}`);
+        throw new Error(`Could not inject content script: ${(e as Error)?.message || String(e)}`, { cause: e });
     }
     // executeScript returned a per-frame result. Surface frame-level
     // errors when the top frame failed to load the script. Common

@@ -433,7 +433,7 @@ export async function buildAndDownload(
     } catch (e: any) {
       console.log(`[pdf-single] downloads.download rejected: ${e?.message || String(e)}`);
       revokeDownloadUrl(url);
-      throw new Error(e?.message || String(e));
+      throw new Error(e?.message || String(e), { cause: e });
     }
   }
 
@@ -494,7 +494,7 @@ export async function buildAndDownload(
     } catch (e2: any) {
       console.log(`[text-single] downloads.download retry rejected: ${e2?.message || String(e2)}`);
       if (url2) revokeDownloadUrl(url2);
-      throw new Error(e2?.message || String(e2));
+      throw new Error(e2?.message || String(e2), { cause: e2 });
     }
   }
 }
@@ -577,7 +577,7 @@ export async function buildAndDownloadZip(
   } catch (e: any) {
     console.log(`[html-zip] downloads.download rejected: ${e?.message || String(e)}`);
     revokeDownloadUrl(url);
-    throw new Error(e?.message || String(e));
+    throw new Error(e?.message || String(e), { cause: e });
   }
 }
 
@@ -717,7 +717,7 @@ export async function buildAndDownloadBundle(
   } catch (e: any) {
     console.log(`[per-chat-zip] downloads.download rejected: ${e?.message || String(e)}`);
     revokeDownloadUrl(url);
-    throw new Error(e?.message || String(e));
+    throw new Error(e?.message || String(e), { cause: e });
   }
 }
 
@@ -993,7 +993,7 @@ export async function buildAndDownloadBundlesZip(
   } catch (e: any) {
     console.log(`[bundle-outer] downloads.download rejected: ${e?.message || String(e)}`);
     revokeDownloadUrl(url);
-    throw new Error(e?.message || String(e));
+    throw new Error(e?.message || String(e), { cause: e });
   }
 }
 

@@ -626,6 +626,7 @@
   let currentTabId: number | null = null;
   let startedAtMs: number | null = null;
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
+  // eslint-disable-next-line no-useless-assignment -- template-bound default; overwritten by the $: summary block via Svelte reactivity, which this rule's code-path analysis cannot see
   let exportSummary = "";
 
   // Phase-tracker state for the export button. The 4 segments map to
@@ -1019,7 +1020,7 @@
         ? t("errors.startAfterEnd")
         : t("errors.invalidRange");
       showErrorBanner(msg);
-      throw new Error(msg);
+      throw new Error(msg, { cause: e });
     }
   };
 

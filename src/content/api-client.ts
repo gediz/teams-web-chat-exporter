@@ -1923,7 +1923,7 @@ async function fetchPageWithRetry(
       // apiScrape's isNetworkError() classifier picks it up — that's
       // what flips the export to partial=network downstream.
       if (timeoutSignal.aborted) {
-        throw new TypeError(`NetworkError: fetch timed out after 30s (no network?) for ${url.slice(0, 200)}`);
+        throw new TypeError(`NetworkError: fetch timed out after 30s (no network?) for ${url.slice(0, 200)}`, { cause: err });
       }
       throw err;
     }
