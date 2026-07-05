@@ -1,0 +1,17 @@
+# Not a workspace: this file is pnpm's settings home (pnpm >= 10.16),
+# valid in a single-package repo. No `packages:` key on purpose.
+#
+# Supply-chain cooldown: refuse to install any dependency version
+# published less than this many MINUTES ago (4320 = 3 days). Applies to
+# transitive dependencies too. Freshly-published malicious versions of
+# hijacked packages are typically pulled within hours to ~3 days, and
+# npm's own unpublish window is 72 h, so 3 days clears the common
+# smash-and-grab class. CI installs with --frozen-lockfile and is
+# unaffected; the cooldown gates local `pnpm update` / `pnpm add`.
+#
+# Trade-off: a legitimate security patch is delayed by the same window.
+# To pull one urgent package past the cooldown, list it under
+# minimumReleaseAgeExclude:
+#   minimumReleaseAgeExclude:
+#     - <pkg>
+minimumReleaseAge: 4320
