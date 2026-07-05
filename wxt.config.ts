@@ -78,7 +78,7 @@ export default defineConfig({
       gecko: {
         id: 'n.gedizaydindogmus@gmail.com',
         strict_min_version: '109.0',
-        // @ts-ignore - data_collection_permissions is required by Firefox but not yet in WXT types
+        // data_collection_permissions is required by Firefox but not yet in WXT types (hence the as-any cast on this object)
         data_collection_permissions: {
           required: ["none"], // This extension does not collect or transmit any data
         },

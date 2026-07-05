@@ -1982,7 +1982,6 @@ async function handleFallbackStatusMessage(sendResponse: (resp: unknown) => void
             sendResponse({ enabled: false });
             return;
         }
-        // @ts-ignore - browser global on Firefox; chrome polyfill on Chrome
         const permsApi = typeof browser !== 'undefined' ? browser.permissions : chrome.permissions;
         const granted = await permsApi.contains({ origins: ['<all_urls>'] });
         sendResponse({ enabled: !!granted });
@@ -2006,7 +2005,6 @@ async function handleFetchBlobDirectMessage(
     tabId?: number,
 ) {
     try {
-        // @ts-ignore - browser global on Firefox; chrome polyfill on Chrome
         const permsApi = typeof browser !== 'undefined' ? browser.permissions : chrome.permissions;
         const granted = await permsApi.contains({ origins: ['<all_urls>'] });
         if (!granted) {

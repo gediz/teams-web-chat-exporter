@@ -179,9 +179,9 @@
   // doesn't expose `browser` (unless polyfilled). Picking
   // `browser ?? chrome` selects the promise-returning surface on
   // both. Same pattern App.svelte uses for runtime.
-  // @ts-ignore - `browser` is the WebExtension global on Firefox
+  // @ts-expect-error - browser is the WebExtension global on Firefox; this file has no local declare for it
   const permsApi: typeof browser.permissions =
-    // @ts-ignore
+    // @ts-expect-error - browser only exists at runtime on Firefox; typeof guard selects chrome elsewhere
     typeof browser !== 'undefined' ? browser.permissions : chrome.permissions;
 
   // Image-fetch-fallback toggle. Two-phase because flipping ON has to

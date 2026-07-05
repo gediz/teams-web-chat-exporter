@@ -1575,7 +1575,6 @@
       // permission removal listener only catches in-popup-session
       // changes. Failure to call the API leaves the option alone.
       try {
-        // @ts-ignore - browser global on Firefox; chrome polyfill on Chrome
         const reconcilePerms = typeof browser !== 'undefined' ? browser.permissions : chrome.permissions;
         const granted = await reconcilePerms.contains({ origins: ['<all_urls>'] });
         if (alive && granted !== options.imageFetchFallback) {
@@ -1758,7 +1757,6 @@
     // revokes outside our UI. We only react to <all_urls> removal —
     // other permission events are unrelated. Use browser.* on Firefox
     // (chrome.* there is callback-only) and chrome.* on Chrome MV3.
-    // @ts-ignore
     const permsEvents = typeof browser !== 'undefined' ? browser.permissions : chrome.permissions;
     permsEvents.onRemoved.addListener(onPermissionsRemoved);
     __popupTrace('listener-registered');
@@ -1769,7 +1767,6 @@
     try { clearInterval(__reportExportStatusRate); } catch { /* noop */ }
     runtime.onMessage.removeListener(onRuntimeMessage);
     try {
-      // @ts-ignore
       const permsEvents = typeof browser !== 'undefined' ? browser.permissions : chrome.permissions;
       (permsEvents.onRemoved as unknown as { removeListener: (cb: typeof onPermissionsRemoved) => void })
         .removeListener(onPermissionsRemoved);
