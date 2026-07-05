@@ -1,10 +1,12 @@
 {
   "extends": "@tsconfig/svelte/tsconfig.json",
   "compilerOptions": {
-    // Base @tsconfig/svelte pins es2017; Error({ cause }) needs the
-    // ES2022 lib types. Type-check only: vite/esbuild transpiles with
-    // its own target, so the shipped bundles are unaffected.
-    "target": "ES2022",
+    // Base @tsconfig/svelte pins target es2017, whose lib predates
+    // Error({ cause }). Widen only `lib` for the newer TYPE declarations;
+    // do NOT raise `target`: esbuild derives class-field emit semantics
+    // (useDefineForClassFields) from it, and raising it to ES2022 was
+    // measured to change the shipped bundle bytes.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
     "baseUrl": ".",
     "allowJs": false,
