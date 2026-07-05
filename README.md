@@ -55,4 +55,3 @@ If something is broken, the fastest path is to share a diagnostic report alongsi
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
-- [docs/TODO.md](docs/TODO.md)

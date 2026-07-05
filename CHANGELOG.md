@@ -381,5 +381,5 @@ The major theme of v1.4 is **scale**: pick many chats and export them all at onc
 
 ### Known limitations
 
-- Teams Free legacy Skype-imported 1:1 chats (id ends in `@oneToOne.skype` with `threadProperties.isMigrated`): Microsoft never migrated those histories into the consumer chat backend, so the server returns `messages: []`. Listed in `NO_HISTORY.txt`. See `docs/TODO.md` for a possible recovery path via the legacy Skype API.
+- Teams Free legacy Skype-imported 1:1 chats (id ends in `@oneToOne.skype` with `threadProperties.isMigrated`): Microsoft never migrated those histories into the consumer chat backend, so the server returns `messages: []`. Listed in `NO_HISTORY.txt`. A recovery path via the legacy Skype API exists but is out of scope.
 - Teams Free SharePoint Personal Content paperclip uploads (consumer OneDrive at `my.microsoftpersonalcontent.com`): cannot fetch programmatically. The host returns a 302 to `login.live.com` for any cross-origin or non-interactive caller. The HTML export still shows the file as a clickable link the user can open in OneDrive manually.

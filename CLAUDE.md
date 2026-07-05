@@ -35,7 +35,6 @@ This file gives quick, accurate context for AI assistants working in this reposi
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 - [docs/MANUAL_INSTALL.md](docs/MANUAL_INSTALL.md)
-- [docs/TODO.md](docs/TODO.md)
 
 ## Assistant Rules
 

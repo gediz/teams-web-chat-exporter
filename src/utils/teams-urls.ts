@@ -71,7 +71,7 @@ export const TEAMS_MATCH_PATTERNS: string[] = TEAMS_DOMAINS.flatMap(
  *  login.live.com has no CORS headers for any non-interactive caller.
  *  Confirmed via probe + console capture in 2026-04. The user has to
  *  click the link in the rendered HTML to open the file in OneDrive
- *  manually. See docs/TODO.md.
+ *  manually.
  */
 export const API_FETCH_PATTERNS: string[] = [
   'https://graph.microsoft.com/*',
