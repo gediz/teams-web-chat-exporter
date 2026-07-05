@@ -69,7 +69,8 @@ to the extension developer.
 
 ## Release checklist
 
-1. Update versions in both `package.json` and `wxt.config.ts`.
+1. Update the version in `package.json` (the manifest version is derived from
+   it at build time; `wxt.config.ts` intentionally declares none).
 2. Update `CHANGELOG.md` to cover **all** user-facing changes since the previous
    tag. Verify against `git log --oneline v<previous>..HEAD` so nothing is
    missed (this list is the single source of truth for what shipped).
@@ -81,8 +82,8 @@ to the extension developer.
 8. Tag and publish release notes. The tag must point at the commit that carries
    the complete `CHANGELOG.md`.
 
-The version-bump commit (the one that raises the version in `package.json` and
-`wxt.config.ts` and carries the complete `CHANGELOG.md`) must be the **tip** of
+The version-bump commit (the one that raises the version in `package.json`
+and carries the complete `CHANGELOG.md`) must be the **tip** of
 the branch at release time, and the tag points at it. Any docs or chore commits
 (comment cleanups, this checklist, and the like) land **before** it, not after,
 so the last commit on the branch is always the release itself.

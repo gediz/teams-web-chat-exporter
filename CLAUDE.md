@@ -5,7 +5,7 @@ This file gives quick, accurate context for AI assistants working in this reposi
 ## Project Snapshot
 
 - Name: Teams Chat Exporter
-- Version: see `package.json` and `wxt.config.ts` (keep in sync)
+- Version: `package.json` is the single source (the manifest version is derived from it at build time)
 - Package manager: **pnpm** (lockfile is `pnpm-lock.yaml`)
 - Stack: WXT + TypeScript + Svelte 5
 - Browsers: Chrome, Edge, Firefox

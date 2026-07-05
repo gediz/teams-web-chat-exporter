@@ -58,7 +58,8 @@ export default defineConfig({
   },
   manifest: ({ manifestVersion }) => ({
     name: '__MSG_extName__',
-    version: '1.6.0',
+    // No `version:` here on purpose: WXT reads it from package.json,
+    // the single source of truth. Bump only package.json on release.
     description: '__MSG_extDescription__',
     default_locale: 'en',
     homepage_url: 'https://github.com/gediz/teams-web-chat-exporter',
