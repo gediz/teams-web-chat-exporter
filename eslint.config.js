@@ -16,6 +16,8 @@ export default tseslint.config(
       // Generated / vendored assets (postinstall writes twemoji + wasm)
       'src/public/twemoji/**',
       'src/public/wasm/**',
+      // Session-memory scratch files, not project code
+      '.remember/**',
     ],
   },
   eslint.configs.recommended,
@@ -53,7 +55,11 @@ export default tseslint.config(
       // intentionally unused params; caughtErrors:none matches the many
       // deliberate `catch { /* noop */ }` blocks.
       '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
+      // ignoreRestSiblings: `const { omitted, ...rest } = obj` declares
+      // `omitted` solely to exclude it from `rest`; that name is unused by
+      // design. varsIgnorePattern extends the _-prefix convention from
+      // parameters to variables.
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none', ignoreRestSiblings: true }],
       '@typescript-eslint/ban-ts-comment': 'warn',
       '@typescript-eslint/no-unused-expressions': 'warn',
       'prefer-const': 'warn',
