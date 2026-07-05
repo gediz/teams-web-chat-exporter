@@ -177,7 +177,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
   // link stops at CJK text / full-width punctuation instead of running through a
   // whole Chinese sentence (Chinese has no spaces for \s to catch). Real hrefs
   // are ASCII (percent-encoded), so this never truncates a genuine URL.
-  const urlRe = /https?:\/\/[^\s<>"\'\u0080-\uFFFF]+/g;
+  const urlRe = /https?:\/\/[^\s<>"'\u0080-\uFFFF]+/g;
   // Trim trailing sentence punctuation and an UNBALANCED closing bracket, so
   // "版本(https://x.com)。" links only "https://x.com", while a wiki-style
   // "/Foo_(bar)" (its "(" is inside the URL) keeps its ")".

@@ -312,7 +312,7 @@ function applyInlineImages(messages: ExportMessage[], mode: ImageMode, withDate 
 
 function prepareMessages(messages: ExportMessage[], meta: ExportMeta, format: BuildExportOptions['format'], embedAvatars: boolean) {
   let processedMessages = messages;
-  let enrichedMeta = { ...meta };
+  const enrichedMeta = { ...meta };
 
   if (embedAvatars && (format === 'json' || format === 'html')) {
     if (format === 'json') {
@@ -604,7 +604,7 @@ export async function buildAndDownloadBundle(
   // calls computeBaseName, but its result for the FIRST text format is
   // only used as a tiebreaker — for PDF we must have the name up front
   // because the PDF builder never touches buildExportInternal.
-  let baseFolder = computeBaseName(meta);
+  const baseFolder = computeBaseName(meta);
 
   // HTML-in-bundle gets the avatars-as-files treatment when avatars
   // are enabled, HTML is selected, AND the user chose 'files' mode.

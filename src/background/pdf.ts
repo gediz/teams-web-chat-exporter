@@ -73,7 +73,7 @@ const EMOJI_FONT_RESOURCE_NAME = 'FE';
 // character (so a link stops at CJK text / full-width punctuation rather than
 // running through a Chinese sentence). Trailing punctuation (.,;!?) is trimmed
 // off post-match to avoid "visit..." swallowing the sentence's trailing period.
-const URL_RE = /https?:\/\/[^\s<>"\')\]}\u0080-\uFFFF]+/g;
+const URL_RE = /https?:\/\/[^\s<>"')\]}\u0080-\uFFFF]+/g;
 
 function trimTrailingPunct(url: string): string {
   return url.replace(/[.,;:!?)\]}]+$/, '');

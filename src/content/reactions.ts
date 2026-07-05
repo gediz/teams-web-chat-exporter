@@ -96,7 +96,7 @@ export function extractReactions(item: Element): Reaction[] {
       /^\d+\s+reactions?\b/i.test(labelText);
     if (labelText && !looksLikeSummary && /react/i.test(labelText)) {
       const beforeReact = labelText.split(/react/i)[0];
-      let names = beforeReact
+      const names = beforeReact
         .split(/,\s*|\s+and\s+/)
         .map(s => s.trim())
         .filter(Boolean)

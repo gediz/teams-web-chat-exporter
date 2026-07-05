@@ -3019,7 +3019,7 @@ export default defineContentScript({
             await expandSeeMore(item);
 
             // Prefer the content-block that corresponds to this mid when possible.
-            let contentEl: Element =
+            const contentEl: Element =
                 (mid
                     ? body.querySelector<HTMLElement>(`[data-tid="message-body"][data-mid="${cssEscape(mid)}"]`) ||
                     body
