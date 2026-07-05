@@ -1,6 +1,6 @@
 import { defineBackground } from 'wxt/sandbox';
 import { createBadgeManager } from '../utils/badge';
-import { isTeamsUrl } from '../utils/teams-urls';
+import { isTeamsUrl, isMicrosoftApiHost } from '../utils/teams-urls';
 import {
   buildAndDownload,
   buildAndDownloadBundle,
@@ -1875,7 +1875,19 @@ async function handleFetchBlobMessage(
     // STOP_EXPORT can abort every in-flight fetch for that tab at once.
     const controller = new AbortController();
     trackFetch(tabId, controller);
-    const init: RequestInit = msg.bearerToken
+    // Attach the bearer token only to Microsoft API hosts. Every current
+    // caller sends a fixed asyncgw/Graph URL, but msg.url crosses a message
+    // boundary, so enforce the same host guard the messaging path uses: a
+    // poisoned URL must never carry the live token off-origin. Refused URLs
+    // fall through to the cookie-only shape; worst case is a 401 placeholder
+    // for that image, never a token leak. Locked by scripts/fetch-blob-guard.test.mjs.
+    const attachBearer = !!msg.bearerToken && isMicrosoftApiHost(msg.url);
+    if (msg.bearerToken && !attachBearer) {
+        let host = 'unparseable';
+        try { host = new URL(msg.url).host; } catch { /* keep placeholder */ }
+        console.warn(`[Teams Exporter] FETCH_BLOB: refusing to attach the bearer token for non-Microsoft host: ${host}`);
+    }
+    const init: RequestInit = attachBearer
         ? { headers: { 'Authorization': `Bearer ${msg.bearerToken}` }, signal: controller.signal }
         : { credentials: 'include', signal: controller.signal };
     const inCoolOff = Date.now() < rateLimitCoolOffUntil;
