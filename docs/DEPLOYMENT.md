@@ -74,12 +74,15 @@ to the extension developer.
 2. Update `CHANGELOG.md` to cover **all** user-facing changes since the previous
    tag. Verify against `git log --oneline v<previous>..HEAD` so nothing is
    missed (this list is the single source of truth for what shipped).
-3. Run `pnpm check`.
-4. Build all targets (`pnpm build`, `pnpm build:edge`, and `pnpm build:firefox`).
-5. Create all zip packages (`pnpm zip`, `pnpm zip:edge`, and `pnpm zip:firefox`).
-6. Verify install in target browsers.
-7. Upload to stores.
-8. Tag and publish release notes. The tag must point at the commit that carries
+3. Run `pnpm audit --prod --audit-level=high` and resolve or consciously accept
+   anything it reports (this is the only scheduled look at dependency CVEs;
+   there is no Dependabot or audit automation by choice).
+4. Run `pnpm check`.
+5. Build all targets (`pnpm build`, `pnpm build:edge`, and `pnpm build:firefox`).
+6. Create all zip packages (`pnpm zip`, `pnpm zip:edge`, and `pnpm zip:firefox`).
+7. Verify install in target browsers.
+8. Upload to stores.
+9. Tag and publish release notes. The tag must point at the commit that carries
    the complete `CHANGELOG.md`.
 
 The version-bump commit (the one that raises the version in `package.json`
