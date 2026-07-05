@@ -56,7 +56,7 @@ export const sanitizeBase = (name: string | null | undefined): string => {
   //   U+202A–U+202E  directional formatting overrides (LRE/RLE/PDF/LRO/RLO)
   //   U+2060–U+2064  word joiner + invisible math operators
   //   U+FEFF         BOM / zero-width no-break space
-  cleaned = cleaned.replace(/[​-‏‪-‮⁠-⁤﻿]/g, '');
+  cleaned = cleaned.replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g, '');
   // Collapse whitespace.
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
   // Strip leading dots (prevents Unix "hidden file" names like ".config")
@@ -97,7 +97,7 @@ export const sanitizeFileName = (name: string | null | undefined): string => {
   cleaned = cleaned.replace(/[<>:"/\\|?*\x00-\x1F\x7F]/g, '-');
   // Zero-width / bidirectional formatting chars (chrome.downloads rejects
   // these as illegal characters; see sanitizeBase / issue #21).
-  cleaned = cleaned.replace(/[​-‏‪-‮⁠-⁤﻿]/g, '');
+  cleaned = cleaned.replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g, '');
   // Collapse ".." runs (traversal once glued into a subpath) and whitespace.
   cleaned = cleaned.replace(/\.{2,}/g, '.').replace(/\s+/g, ' ').trim();
   // Strip leading dots (Unix hidden) and leading dashes; trim trailing

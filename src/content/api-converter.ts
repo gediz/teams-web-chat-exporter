@@ -105,7 +105,7 @@ function htmlToText(html: string, mentionMris?: Array<string | undefined>): stri
     if (prevMention && mentionMris && prevMention.parentNode === el.parentNode) {
       let between = '';
       for (let n = prevMention.nextSibling; n && n !== el; n = n.nextSibling) between += n.textContent || '';
-      const adjacent = between.replace(/ /g, ' ').trim() === '';
+      const adjacent = between.replace(/\u00A0/g, ' ').trim() === '';
       const idA = el.getAttribute('itemid');
       const idB = prevMention.getAttribute('itemid');
       const mri = idA && /^\d+$/.test(idA) ? mentionMris[Number(idA)] : undefined;
