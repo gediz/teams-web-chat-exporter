@@ -31,7 +31,6 @@
     PICKER_FOLDER_STORAGE_KEY,
     PICKER_KIND_STORAGE_KEY,
     PICKER_COLLAPSED_STORAGE_KEY,
-    type OptionFormat,
     type Options,
     type PopupPage,
     type ReviewPromptResponse,
@@ -50,7 +49,6 @@
   import { conversationDisplayName } from "../../utils/conversation-labels";
   import type {
     GetExportStatusRequest,
-    GetExportStatusResponse,
     PingSWRequest,
     StartExportRequest,
     StartExportResponse,
@@ -606,9 +604,6 @@
 
   let options: Options = { ...DEFAULT_OPTIONS };
   const currentLang = () => options.lang || "en";
-  const runLabel = () => t(`actions.export.${options.exportTarget}`, {}, currentLang());
-  const busyExportLabel = () => t("actions.busy.exporting", {}, currentLang());
-  const busyBuildLabel = () => t("actions.busy.building", {}, currentLang());
   const emptyLabel = () => t("status.empty", {}, currentLang());
 
   let quickRanges: QuickRange[] = [
@@ -621,11 +616,8 @@
   let quickActive = "none";
   let statusText = t("status.ready", {}, currentLang());
   let statusBaseText = "";
-  let statusCount = 0;
-  let statusCountLabel = '';
   let alive = true;
   let busy = false;
-  let busyLabel = runLabel();
   // True from popup mount until GET_EXPORT_STATUS has replied. While
   // this is true the export button renders a neutral "checking…" label
   // instead of its idle default, so when the real status arrives (busy
@@ -748,7 +740,6 @@
       { key: "7d", label: t("quick.7d", {}, langNow), icon: "7d" },
       { key: "30d", label: t("quick.30d", {}, langNow), icon: "30d" },
     ];
-    if (!busy) busyLabel = runLabel();
     // Update status text if it's still at "Ready"
     if (!busy && !startedAtMs) {
       statusText = t("status.ready", {}, langNow);
@@ -798,10 +789,9 @@
     quickActive = active;
   };
 
-  const setBusy = (state: boolean, labelText?: string) => {
+  const setBusy = (state: boolean) => {
     if (!alive) return;
     busy = state;
-    busyLabel = state ? (labelText ?? busyExportLabel()) : runLabel();
   };
 
   const updateStatusText = () => {
@@ -897,14 +887,10 @@
     opts: {
       startElapsedAt?: number | null;
       stopElapsed?: boolean;
-      count?: number;
-      countLabel?: string;
     } = {},
   ) => {
     if (!alive) return;
     statusBaseText = text;
-    if (typeof opts.count === "number") statusCount = opts.count;
-    statusCountLabel = opts.countLabel ?? '';
     if (
       typeof opts.startElapsedAt === "number" &&
       !Number.isNaN(opts.startElapsedAt)
@@ -1070,34 +1056,29 @@
     if (phase === "starting") {
       hideErrorBanner(true);
       const startedAt = normalizeStart(msg.startedAt);
-      setBusy(true, busyExportLabel());
+      setBusy(true);
       setStatus(t("status.preparing", {}, langNow), {
         startElapsedAt: startedAt,
       });
     } else if (phase === "scrape:start") {
-      setBusy(true, busyExportLabel());
+      setBusy(true);
       setStatus(t("status.running", {}, langNow));
     } else if (phase === "scrape:complete") {
-      setBusy(true, busyBuildLabel());
-      const count = msg.messages ?? 0;
-      setStatus(t("status.building", {}, langNow), { count });
+      setBusy(true);
+      setStatus(t("status.building", {}, langNow));
     } else if (phase === "build") {
-      setBusy(true, busyBuildLabel());
-      const count = msg.messages ?? 0;
+      setBusy(true);
       const fname = msg.filename || '';
       const isZip = fname.endsWith('.zip');
       const key = isZip ? "status.compressing" : "status.building";
-      setStatus(t(key, {}, langNow), { count });
+      setStatus(t(key, {}, langNow));
     } else if (phase === "downloading-files") {
       // Attachment download (the "Files" toggle). Count is only known after the
       // scrape, so this phase fires after the main export is saved.
-      setBusy(true, busyBuildLabel());
+      setBusy(true);
       const done = msg.filesDone ?? 0;
       const total = msg.filesTotal ?? 0;
-      setStatus(
-        t("status.downloadingFiles", { done, total }, langNow),
-        total > 0 ? { countLabel: `${done}/${total}` } : {},
-      );
+      setStatus(t("status.downloadingFiles", { done, total }, langNow));
     } else if (phase === "empty") {
       const message = msg.message || emptyLabel();
       setBusy(false);
@@ -1183,18 +1164,13 @@
       const p = msg?.type === "EXPORT_PROGRESS" ? msg : (msg.payload || {});
       if (p.phase === "scroll") {
         const seen = p.seen ?? p.aggregated ?? p.messagesVisible ?? 0;
-        setStatus(t("status.scroll", { pass: p.passes ?? 0, seen }, langNow), {
-          count: seen,
-        });
+        setStatus(t("status.scroll", { pass: p.passes ?? 0, seen }, langNow));
       } else if (p.phase === "extract") {
-        setStatus(
-          t("status.extract", { count: p.messagesExtracted ?? 0 }, langNow),
-          { count: p.messagesExtracted ?? 0 },
-        );
+        setStatus(t("status.extract", { count: p.messagesExtracted ?? 0 }, langNow));
       } else if (p.phase === "api-fetch") {
         const count = p.messagesVisible ?? p.messagesSoFar ?? 0;
         const label = t("phase.messages", {}, langNow);
-        setStatus(`${label}…`, { count });
+        setStatus(`${label}…`);
         // Pagination has no known total — drive segment 0 with the
         // indeterminate stripe (-1) and show the running count on the right.
         setPhase(0, -1, label, count.toLocaleString(), t("phase.label.messages", {}, langNow));
@@ -1204,7 +1180,7 @@
         const label = t("phase.images", {}, langNow);
         const lbl = t("phase.label.images", {}, langNow);
         if (total > 0) {
-          setStatus(`${label}…`, { countLabel: `${done}/${total}` });
+          setStatus(`${label}…`);
           setPhase(1, Math.round((done / total) * 100), label, `${done} / ${total}`, lbl);
         } else {
           // No total yet — show 0% fill rather than an indeterminate
@@ -1220,7 +1196,7 @@
         const label = t("phase.avatars", {}, langNow);
         const lbl = t("phase.label.people", {}, langNow);
         if (total > 0) {
-          setStatus(`${label}…`, { countLabel: `${done}/${total}` });
+          setStatus(`${label}…`);
           setPhase(2, Math.round((done / total) * 100), label, `${done} / ${total}`, lbl);
         } else {
           // Same reasoning as 'images' above — start at 0%, not 100%.
@@ -1233,7 +1209,7 @@
         const label = t("phase.build", {}, langNow);
         const lbl = t("phase.label.written", {}, langNow);
         if (total > 0) {
-          setStatus(`${label}…`, { countLabel: `${done}/${total}` });
+          setStatus(`${label}…`);
           setPhase(3, Math.round((done / total) * 100), label, `${done} / ${total}`, lbl);
         } else {
           setStatus(`${label}…`);
@@ -1280,7 +1256,7 @@
       hideErrorBanner(true);
       // Reset the phase tracker so the new export starts at a clean state.
       resetPhaseTracker();
-      setBusy(true, busyExportLabel());
+      setBusy(true);
       setStatus(t("status.preparing", {}, currentLang()));
       const tab = await getActiveTeamsTab();
       if (!alive) return;
@@ -1685,7 +1661,7 @@
               if (preInfo.lastStatus) {
                 handleExportStatus(preInfo.lastStatus);
               } else {
-                setBusy(true, busyExportLabel());
+                setBusy(true);
                 setStatus(t("status.running"));
               }
               // We have a confident pre-state — clear the checking flag
@@ -1711,7 +1687,7 @@
           if (last) {
             handleExportStatus(last);
           } else {
-            setBusy(true, busyExportLabel());
+            setBusy(true);
             setStatus(t("status.running"));
           }
         } else if (busy) {
