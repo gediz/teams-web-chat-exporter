@@ -48,32 +48,21 @@ export default tseslint.config(
   },
   {
     rules: {
-      // Baseline demotions: every rule that fired on the 2026-07 baseline
-      // run starts at warn (see the header comment). Promote a rule to
-      // error once its findings are fixed or individually suppressed.
-      // argsIgnorePattern keeps the established `_`-prefix convention for
-      // intentionally unused params; caughtErrors:none matches the many
-      // deliberate `catch { /* noop */ }` blocks.
+      // The 2026-07 baseline was triaged (fixed, or justified per site
+      // with an inline disable) and every clean rule promoted back to its
+      // recommended error severity. Two stay demoted on purpose:
+      // - no-explicit-any: the per-site typing batch is still in flight.
+      // - no-async-promise-executor: the share-resolver rewrite is
+      //   deferred until a test harness can lock it (SR-EXEC in the
+      //   maintainer notes); the warning IS the tracking signal, so do
+      //   not disable it inline.
       '@typescript-eslint/no-explicit-any': 'warn',
-      // ignoreRestSiblings: `const { omitted, ...rest } = obj` declares
-      // `omitted` solely to exclude it from `rest`; that name is unused by
-      // design. varsIgnorePattern extends the _-prefix convention from
-      // parameters to variables.
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none', ignoreRestSiblings: true }],
-      '@typescript-eslint/ban-ts-comment': 'warn',
-      '@typescript-eslint/no-unused-expressions': 'warn',
-      'prefer-const': 'warn',
-      'no-useless-assignment': 'warn',
-      'no-empty': 'warn',
-      'preserve-caught-error': 'warn',
-      'no-irregular-whitespace': 'warn',
-      'no-control-regex': 'warn',
-      'no-useless-escape': 'warn',
       'no-async-promise-executor': 'warn',
-      'svelte/require-each-key': 'warn',
-      'svelte/prefer-svelte-reactivity': 'warn',
-      'svelte/infinite-reactive-loop': 'warn',
-      'svelte/no-unused-svelte-ignore': 'warn',
+      // argsIgnorePattern/varsIgnorePattern keep the `_`-prefix
+      // convention; caughtErrors:none matches the deliberate
+      // catch { /* noop */ } style; ignoreRestSiblings covers
+      // destructure-to-omit.
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none', ignoreRestSiblings: true }],
     },
   },
 );
