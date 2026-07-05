@@ -29,9 +29,8 @@ export default defineConfig({
   runner: {
     disabled: true, // Don't auto-open browser (you'll load manually)
   },
-  dev: {
-    reloadOnChange: false, // Disable auto-reload to prevent Chrome throttling
-  } as any,
+  // No WXT option exists to disable dev auto-reload; a dead
+  // `dev: { reloadOnChange: false } as any` block was removed here.
   vite: () => ({
     plugins: [svelte()],
     define: {
