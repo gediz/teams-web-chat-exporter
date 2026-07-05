@@ -6,8 +6,6 @@
  * Falls back gracefully — any failure should trigger DOM scroll fallback.
  */
 
-/* eslint-disable no-console */
-
 import type { ConversationSummary, FolderSummary, Participant } from '../types/shared';
 import { isMicrosoftApiHost } from '../utils/teams-urls';
 

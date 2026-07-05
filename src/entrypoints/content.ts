@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 import { defineContentScript } from 'wxt/sandbox';
 import { $ } from '../utils/dom';
 import { uint8ToBase64 } from '../utils/base64';
