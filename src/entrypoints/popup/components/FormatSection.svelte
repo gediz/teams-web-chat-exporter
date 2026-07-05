@@ -102,7 +102,7 @@
       <h2 class="card-title">{t('options.format', {}, lang)}</h2>
     </div>
     <div class="format-grid">
-      {#each allFormats as fmt}
+      {#each allFormats as fmt (fmt.id)}
         {@const Icon = fmt.icon}
         {@const active = formats.includes(fmt.id)}
         {@const onlyOne = active && formats.length === 1}

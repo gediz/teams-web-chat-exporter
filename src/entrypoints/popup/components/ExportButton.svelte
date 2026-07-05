@@ -147,7 +147,9 @@
     </div>
 
     <div class="phase-track" class:instant={!animReady} aria-hidden="true">
-      {#each segments as seg}
+      <!-- index key: fixed-length positional array; values are non-unique
+           and value-keying would recreate nodes and restart the stripe animation -->
+      {#each segments as seg, i (i)}
         <div class="seg {segClass(seg)}">
           <div class="seg-fill" style:width={segWidth(seg)}></div>
         </div>

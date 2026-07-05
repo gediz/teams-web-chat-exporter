@@ -375,7 +375,7 @@
 
     <div class="onb-actions">
       <div class="onb-progress" aria-hidden="true">
-        {#each STEPS as _, i}
+        {#each STEPS as _, i (i)}
           <span class="dot" class:done={i < stepIdx} class:current={i === stepIdx}></span>
         {/each}
       </div>

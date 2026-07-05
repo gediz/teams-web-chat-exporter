@@ -206,7 +206,7 @@
   </div>
 
   <div class="date-chips">
-    {#each ranges as qr}
+    {#each ranges as qr (qr.key)}
       <button
         type="button"
         class="date-chip"

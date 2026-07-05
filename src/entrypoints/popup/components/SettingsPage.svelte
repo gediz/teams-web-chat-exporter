@@ -278,7 +278,6 @@
 
     <div class="lang-search">
       <Search size={15} />
-      <!-- svelte-ignore a11y-autofocus -->
       <input
         type="text"
         bind:value={langQuery}

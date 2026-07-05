@@ -37,7 +37,7 @@
       role="radiogroup"
       aria-label={t("target.title", {}, lang)}
     >
-      {#each targets as item}
+      {#each targets as item (item.id)}
         {@const Icon = item.icon}
         <label class="target-pill" class:active={target === item.id}>
           <input
