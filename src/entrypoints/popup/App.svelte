@@ -841,9 +841,11 @@
   // quick-range feed the summary now (the include toggles were dropped), so
   // those are the only reactive dependencies we touch here.
   $: {
+    /* eslint-disable @typescript-eslint/no-unused-expressions -- Svelte legacy reactive deps: these bare reads register the block's dependencies; computeSummary() reads them inside a function body the compiler can't see */
     options.exportTarget;
     options.formats;
     quickActive;
+    /* eslint-enable @typescript-eslint/no-unused-expressions */
     exportSummary = computeSummary();
   }
 

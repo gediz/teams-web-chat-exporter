@@ -117,6 +117,7 @@
   // their mouse over it. Cheap, silent, and only runs when the user is
   // actually interacting with the list.
   const VERIFY_COOLDOWN_MS = 2000;
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- plain cooldown cache, read only inside verifyOne; UI reactivity flows through existsById, never through this Map
   const lastVerifiedAt = new Map<string, number>();
   const verifyOne = (entry: HistoryEntry) => {
     if ((entry.kind !== 'success' && entry.kind !== 'failed') || entry.downloadId == null) return;
@@ -156,6 +157,7 @@
   };
 
   // Re-run verification whenever `entries` changes (parent removes/clears).
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- the trailing `entries` read is the Svelte legacy reactive dependency; verifyAll() reads entries inside its body where the compiler can't track it
   $: void verifyAll(), entries;
 
   onMount(() => {
@@ -190,8 +192,7 @@
     const date = new Date(savedAt);
     const today = new Date();
     const isToday = date.toDateString() === today.toDateString();
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
+    const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
     const isYesterday = date.toDateString() === yesterday.toDateString();
 
     const hh = String(date.getHours()).padStart(2, '0');

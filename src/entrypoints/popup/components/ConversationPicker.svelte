@@ -308,12 +308,8 @@
   }
   function invertSelection(list: ConversationSummary[]) {
     if (mode === 'single') return;
-    const drop = new Set<string>();
-    const add: string[] = [];
-    for (const c of list) {
-      if (selectedSet.has(c.id)) drop.add(c.id);
-      else add.push(c.id);
-    }
+    const drop = new Set(list.filter(c => selectedSet.has(c.id)).map(c => c.id));
+    const add = list.filter(c => !selectedSet.has(c.id)).map(c => c.id);
     const next = selectedIds.filter(id => !drop.has(id)).concat(add);
     setSelection(next);
   }

@@ -43,6 +43,7 @@ export const sanitizeBase = (name: string | null | undefined): string => {
 
   // Strip control chars + characters illegal on common filesystems.
   // Includes DEL (\x7F) alongside the C0 range.
+  // eslint-disable-next-line no-control-regex -- stripping C0 controls (and DEL) is the purpose of this filename sanitizer
   cleaned = cleaned.replace(/[<>:"/\\|?*\x00-\x1F\x7F]/g, '-');
   // Strip zero-width and bidirectional formatting characters that
   // sometimes appear invisibly in chat names (often pasted from rich
@@ -94,6 +95,7 @@ export const sanitizeFileName = (name: string | null | undefined): string => {
   let cleaned = (name || '').toString();
   // Filesystem-illegal characters (incl. DEL) and C0 controls -> dash. This
   // turns '/' and '\' into '-' too, so no path separator survives.
+  // eslint-disable-next-line no-control-regex -- stripping C0 controls (and DEL) is the purpose of this filename sanitizer
   cleaned = cleaned.replace(/[<>:"/\\|?*\x00-\x1F\x7F]/g, '-');
   // Zero-width / bidirectional formatting chars (chrome.downloads rejects
   // these as illegal characters; see sanitizeBase / issue #21).

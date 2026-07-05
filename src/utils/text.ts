@@ -14,5 +14,6 @@ export const textFrom = (el: Element | null | undefined): string => {
 
 export const cssEscape = (s: string) => {
   if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(s);
+  // eslint-disable-next-line no-control-regex -- CSS.escape fallback: control characters must be matched so they get escaped
   return (s || '').toString().replace(/([\0-\x1f\x7f-\x9f!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1');
 };
