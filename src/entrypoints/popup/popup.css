@@ -548,6 +548,36 @@ body[data-theme='dark'] .export-primary.busy:hover {
   stroke-width: 2;
 }
 
+/* Inline calendar panel. The vanilla-calendar-pro instance renders INTO this
+   div (inline mode). We position it as an absolute popover above the input, but
+   it stays a child of .date-input-wrapper inside .popup-content, so it scrolls
+   with the page content natively (no detach, no jitter). It opens ABOVE because
+   the date fields always sit low in the 600px-capped popup, so a downward panel
+   would overflow the cap (that was #33). The library only draws its own drop
+   shadow in inputMode, so the panel supplies the shadow here. */
+.cal-pop {
+  position: absolute;
+  /* Logical, not physical: this is `left` in LTR and `right` in RTL. In RTL
+     (ar/he) the two-column .settings-grid flips, so the DATE RANGE card moves
+     to the right half; a physical `left: 0` would push the panel off the right
+     edge of the 420px popup. inset-inline-start keeps it anchored to the
+     field's start edge and extending inward in both directions. */
+  inset-inline-start: 0;
+  bottom: calc(100% + 6px);
+  z-index: 60;
+  display: none;
+  border-radius: 12px;
+  box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.28);
+}
+
+.cal-pop.open {
+  display: block;
+}
+
+body[data-theme='dark'] .cal-pop {
+  box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.55);
+}
+
 /* === CHECKBOXES === */
 .checkbox-list {
   display: flex;
