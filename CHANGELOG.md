@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.1] - 2026-07-07
+
+Fixes the date range picker, which could open its calendar past the bottom of the popup and leave a date unselectable, and hardens where the background image fetch may send your session token. Everything else in this release is internal tooling and code cleanup with no change to how the extension behaves.
+
+### Fixed
+
+- **The date range calendar is reachable again.** Opening the "From" or "To" date field could drop the calendar below the field and past the bottom edge of the popup, with no way to scroll to the day numbers, so no date could be selected. Microsoft Edge was hit hardest and cut the calendar off entirely, which is why the extension could look broken there. The calendar now opens above the field and inside the popup's own scroll area, so it stays fully visible, scrolls together with the rest of the popup instead of detaching or jittering, and behaves the same on Chrome, Edge, and Firefox. It also stays on screen in right-to-left languages (Arabic and Hebrew).
+
+### Security
+
+- **The background image fetch only sends your token to Microsoft hosts.** The internal fetch that downloads images and attachments attached your Microsoft session token based on the request it was handed. Every request it receives today already targets a Microsoft address, but as a precaution it now attaches the token only when the target is a Microsoft API host and drops it otherwise, so a malformed request can never carry the token to another site.
+
 ## [1.6.0] - 2026-07-04
 
 Recovers file attachments that used to fail to download, from your own uploaded files to files behind a stale session or a migrated tenant, and makes large attachment downloads far more reliable. Adds controls for the download (a size cap, a file-type skip list, an adjustable number of simultaneous downloads, and an optional last-modified date in each file's name), a Diagnostics tool to rescue files that still failed, and opt-in date stamps on saved inline images. The Settings page is reorganised into grouped sections.
