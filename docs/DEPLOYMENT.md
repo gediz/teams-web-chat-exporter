@@ -25,10 +25,8 @@ pnpm zip:safari
 
 ## Version update
 
-Update version in both files before release:
-
-- `package.json`
-- `wxt.config.ts`
+Bump the version in `package.json` before release. The manifest version is
+derived from it at build time; `wxt.config.ts` declares none.
 
 Then update `CHANGELOG.md`. The entry must cover **every** user-facing change
 since the previous tag, not just the last thing worked on. List the full commit
