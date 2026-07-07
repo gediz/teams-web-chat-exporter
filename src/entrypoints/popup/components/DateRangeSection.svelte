@@ -64,13 +64,16 @@
   }
 
   function showValidationError(inputEl: HTMLInputElement) {
-    // Add error class for visual feedback
     const wrapper = inputEl.closest(".date-input-wrapper");
     if (wrapper) {
+      // Restart the shake on every invalid attempt. Re-adding a class that is
+      // already present does not replay a CSS animation, so remove it, force a
+      // reflow, then add it back.
+      wrapper.classList.remove("validation-error");
+      void (wrapper as HTMLElement).offsetWidth;
       wrapper.classList.add("validation-error");
-      // Clear any existing timer
+      // Clear any existing timer, then drop the class again after 1.5s.
       if (validationErrorTimer) clearTimeout(validationErrorTimer);
-      // Remove error class after 1.5 seconds
       validationErrorTimer = setTimeout(() => {
         wrapper.classList.remove("validation-error");
       }, 1500);
