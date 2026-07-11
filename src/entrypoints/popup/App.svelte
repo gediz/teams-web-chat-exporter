@@ -1314,6 +1314,7 @@
             saveAs: true,
             embedAvatars,
             downloadImages,
+            explainMissing: options.explainMissing,
             downloadFiles,
             attachmentSizeCapMb: options.attachmentSizeCapMb,
             attachmentFilenameDate: options.attachmentFilenameDate,
@@ -1410,6 +1411,7 @@
           saveAs: true,
           embedAvatars,
           downloadImages,
+          explainMissing: options.explainMissing,
           downloadFiles,
           attachmentSizeCapMb: options.attachmentSizeCapMb,
           attachmentFilenameDate: options.attachmentFilenameDate,
@@ -1777,6 +1779,7 @@
         pdfIncludeAvatars={options.pdfIncludeAvatars}
         imageFetchFallback={options.imageFetchFallback}
         fullResImages={options.fullResImages}
+        explainMissing={options.explainMissing}
         imageFilenameDate={options.imageFilenameDate}
         imageModifiedDate={options.imageModifiedDate}
         attachmentSizeCapMb={options.attachmentSizeCapMb}
@@ -1794,6 +1797,7 @@
         on:pdfIncludeAvatarsChange={(e) => updateOption("pdfIncludeAvatars", e.detail)}
         on:imageFetchFallbackChange={(e) => updateOption("imageFetchFallback", e.detail)}
         on:fullResImagesChange={(e) => updateOption("fullResImages", e.detail)}
+        on:explainMissingChange={(e) => updateOption("explainMissing", e.detail)}
         on:imageFilenameDateChange={(e) => updateOption("imageFilenameDate", e.detail)}
         on:imageModifiedDateChange={(e) => updateOption("imageModifiedDate", e.detail)}
         on:attachmentSizeCapMbChange={(e) => updateOption("attachmentSizeCapMb", e.detail)}

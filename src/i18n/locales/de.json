@@ -302,6 +302,8 @@
   "settings.fullRes": "Bilder in voller Auflösung",
   "settings.fullRes.hint": "Bilder in Originalqualität statt der verkleinerten Ansicht speichern. Viel größere Dateien.",
   "settings.fullRes.tooltip": "Speichert das Originalbild statt der von Teams verkleinerten Ansicht. Dateien werden viel größer, besonders PDF, bei gleicher Anzeigegröße. Zu große oder nicht verfügbare Bilder fallen auf die verkleinerte Ansicht zurück, sodass keines verloren geht.",
+  "settings.explainMissing": "Fehlende Bilder erklären",
+  "settings.explainMissing.hint": "Zeigt am Platzhalter, in einer kurzen Zusammenfassung und in einer Liste IMAGES_FAILED.txt, warum ein Bild oder eine Datei nicht eingeschlossen werden konnte (abgelaufen, Anmeldung nötig, Ratenbegrenzung, …). Standardmäßig aktiviert.",
   "settings.imageDate": "Datum in Bilddateinamen",
   "settings.imageDate.hint": "Fügt den gespeicherten Bilddateinamen die Freigabezeit (UTC) hinzu, zum Sortieren und Katalogisieren.",
   "settings.imageDate.tooltip": "Fügt jedem gespeicherten Bilddateinamen die Freigabezeit der Nachricht hinzu, z. B. 20260628T104615Z__photo.png. Nützlich zum Katalogisieren von aus dem Export extrahierten Bildern. Betrifft nur den Ordner images/; standardmäßig aus.",

@@ -239,6 +239,10 @@ export type BuildOptions = {
   // Set each saved inline image's ZIP-entry modified-date to its message share
   // time. Off by default; independent of imageFilenameDate. images/ folder only.
   imageModifiedDate?: boolean;
+  // Failure-transparency: show the reason on missing-image placeholders + the
+  // summary banner + IMAGES_FAILED.txt manifest. On by default; off restores
+  // the plain "(not included)" placeholder.
+  explainMissing?: boolean;
   // Stream non-image SharePoint document attachments to disk via
   // chrome.downloads (the "Files" toggle). Independent of the selected
   // formats; runs after the main export is saved.

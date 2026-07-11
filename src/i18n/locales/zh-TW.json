@@ -302,6 +302,8 @@
   "settings.fullRes": "全解析度圖片",
   "settings.fullRes.hint": "儲存原始品質的圖片，而非縮小後的檢視。檔案會大得多。",
   "settings.fullRes.tooltip": "儲存原始圖片，而非 Teams 縮小後的檢視。在螢幕顯示尺寸相同的情況下，檔案會大得多，尤其是 PDF。過大或無法取得的圖片會退回縮小檢視，因此不會遺漏任何圖片。",
+  "settings.explainMissing": "說明缺少的圖片",
+  "settings.explainMissing.hint": "在預留位置、簡短摘要及 IMAGES_FAILED.txt 清單中，說明圖片或檔案無法納入的原因（連結過期、需要登入、要求過於頻繁……）。預設開啟。",
   "settings.imageDate": "圖片檔名中包含日期",
   "settings.imageDate.hint": "在儲存的圖片檔名中加入分享時間（UTC），便於排序與編目。",
   "settings.imageDate.tooltip": "為每個儲存的圖片檔名加入訊息的分享時間，例如 20260628T104615Z__photo.png。便於編目從匯出中擷取的圖片。僅影響 images/ 資料夾；預設關閉。",

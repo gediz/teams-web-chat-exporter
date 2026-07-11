@@ -302,6 +302,8 @@
   "settings.fullRes": "Tam çözünürlüklü görseller",
   "settings.fullRes.hint": "Küçültülmüş görünüm yerine orijinal kaliteli görselleri kaydedin. Çok daha büyük dosyalar.",
   "settings.fullRes.tooltip": "Teams'in küçültülmüş görünümü yerine orijinal görseli kaydeder. Aynı ekran boyutu için dosyalar, özellikle PDF, çok daha büyük olur. Çok büyük veya erişilemeyen görseller küçültülmüş görünüme döner, hiçbiri atlanmaz.",
+  "settings.explainMissing": "Eksik görselleri açıkla",
+  "settings.explainMissing.hint": "Bir görsel veya dosyanın neden dahil edilemediğini (süresi dolmuş, oturum açma gerekli, hız sınırı, ...) yer tutucuda, kısa bir özette ve bir IMAGES_FAILED.txt listesinde gösterir. Varsayılan olarak açık.",
   "settings.imageDate": "Görsel dosya adlarında tarih",
   "settings.imageDate.hint": "Sıralama ve kataloglama için kaydedilen görsel dosya adlarına paylaşım saatini (UTC) ekler.",
   "settings.imageDate.tooltip": "Kaydedilen her görsel dosya adına iletinin paylaşım saatini ekler, ör. 20260628T104615Z__photo.png. Dışa aktarmadan çıkarılan görselleri kataloglamak için kullanışlıdır. Yalnızca images/ klasörünü etkiler; varsayılan olarak kapalıdır.",

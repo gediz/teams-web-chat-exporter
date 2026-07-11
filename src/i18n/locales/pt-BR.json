@@ -302,6 +302,8 @@
   "settings.fullRes": "Imagens em resolução máxima",
   "settings.fullRes.hint": "Salvar imagens com qualidade original em vez da versão reduzida. Arquivos muito maiores.",
   "settings.fullRes.tooltip": "Salva a imagem original em vez da versão reduzida do Teams. Os arquivos ficam muito maiores, especialmente o PDF, para o mesmo tamanho na tela. Imagens grandes demais ou indisponíveis voltam para a versão reduzida, então nenhuma é descartada.",
+  "settings.explainMissing": "Explicar imagens ausentes",
+  "settings.explainMissing.hint": "Mostra por que uma imagem ou arquivo não pôde ser incluído (link expirado, login necessário, limite de requisições, ...) no espaço reservado, em um breve resumo e em uma lista IMAGES_FAILED.txt. Ativado por padrão.",
   "settings.imageDate": "Data nos nomes de arquivo de imagem",
   "settings.imageDate.hint": "Adiciona a hora de compartilhamento (UTC) aos nomes das imagens salvas, para ordenar e catalogar.",
   "settings.imageDate.tooltip": "Adiciona a hora de compartilhamento da mensagem ao nome de cada imagem salva, por ex. 20260628T104615Z__photo.png. Útil para catalogar imagens extraídas da exportação. Afeta apenas a pasta images/; desativado por padrão.",

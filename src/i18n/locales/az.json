@@ -302,6 +302,8 @@
   "settings.fullRes": "Tam çözünürlüklü şəkillər",
   "settings.fullRes.hint": "Kiçildilmiş görünüş əvəzinə orijinal keyfiyyətli şəkilləri saxlayın. Çox daha böyük fayllar.",
   "settings.fullRes.tooltip": "Teams-in kiçildilmiş görünüşü əvəzinə orijinal şəkli saxlayır. Eyni ekran ölçüsü üçün fayllar, xüsusən PDF, çox daha böyük olur. Çox böyük və ya əlçatmaz şəkillər kiçildilmiş görünüşə qayıdır, heç biri buraxılmır.",
+  "settings.explainMissing": "Çatışmayan şəkilləri izah et",
+  "settings.explainMissing.hint": "Şəkil və ya faylın niyə daxil edilə bilmədiyini (müddəti bitib, giriş tələb olunur, sorğu limiti aşılıb, ...) yer tutucuda, qısa xülasədə və IMAGES_FAILED.txt siyahısında göstərin. Varsayılan olaraq aktivdir.",
   "settings.imageDate": "Şəkil fayl adlarında tarix",
   "settings.imageDate.hint": "Çeşidləmə və kataloqlaşdırma üçün saxlanan şəkil fayl adlarına paylaşma vaxtını (UTC) əlavə edin.",
   "settings.imageDate.tooltip": "Hər saxlanan şəkil fayl adına mesajın paylaşma vaxtını əlavə edir, məsələn 20260628T104615Z__photo.png. İxracdan çıxarılan şəkilləri kataloqlaşdırmaq üçün faydalıdır. Yalnız images/ qovluğuna təsir edir; standart olaraq sönülüdür.",

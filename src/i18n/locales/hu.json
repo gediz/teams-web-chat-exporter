@@ -302,6 +302,8 @@
   "settings.fullRes": "Teljes felbontású képek",
   "settings.fullRes.hint": "Eredeti minőségű képek mentése a kicsinyített nézet helyett. Sokkal nagyobb fájlok.",
   "settings.fullRes.tooltip": "Az eredeti képet menti a Teams kicsinyített nézete helyett. A fájlok sokkal nagyobbak lesznek, különösen a PDF, ugyanakkora képernyőméret mellett. A túl nagy vagy nem elérhető képek a kicsinyített nézetre váltanak, így egyik sem marad ki.",
+  "settings.explainMissing": "Hiányzó képek magyarázata",
+  "settings.explainMissing.hint": "Megmutatja, miért nem lehetett egy képet vagy fájlt beilleszteni (lejárt, bejelentkezés szükséges, kéréskorlát stb.) a helykitöltőn, egy rövid összegzésben és egy IMAGES_FAILED.txt listában. Alapértelmezés szerint bekapcsolva.",
   "settings.imageDate": "Dátum a képfájlnevekben",
   "settings.imageDate.hint": "A megosztás idejét (UTC) hozzáadja a mentett képfájlnevekhez, rendezéshez és katalogizáláshoz.",
   "settings.imageDate.tooltip": "Minden mentett képfájlnévhez hozzáadja az üzenet megosztási idejét, pl. 20260628T104615Z__photo.png. Hasznos az exportból kinyert képek katalogizálásához. Csak az images/ mappát érinti; alapból kikapcsolva.",

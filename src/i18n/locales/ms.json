@@ -302,6 +302,8 @@
   "settings.fullRes": "Imej resolusi penuh",
   "settings.fullRes.hint": "Simpan imej kualiti asal dan bukannya paparan dikecilkan. Fail jauh lebih besar.",
   "settings.fullRes.tooltip": "Menyimpan imej asal dan bukannya paparan dikecilkan Teams. Fail menjadi jauh lebih besar, terutamanya PDF, untuk saiz skrin yang sama. Imej yang terlalu besar atau tidak tersedia kembali kepada paparan dikecilkan, jadi tiada yang tertinggal.",
+  "settings.explainMissing": "Terangkan imej yang hilang",
+  "settings.explainMissing.hint": "Tunjukkan sebab imej atau fail tidak dapat disertakan (tamat tempoh, perlu daftar masuk, dihadkan kadar, ...) pada ruang letak, dalam ringkasan pendek, dan senarai IMAGES_FAILED.txt. Dihidupkan secara lalai.",
   "settings.imageDate": "Tarikh dalam nama fail imej",
   "settings.imageDate.hint": "Tambah masa kongsi (UTC) pada nama fail imej yang disimpan, untuk pengisihan dan pengkatalogan.",
   "settings.imageDate.tooltip": "Menambah masa kongsi mesej pada nama setiap fail imej yang disimpan, cth. 20260628T104615Z__photo.png. Berguna untuk mengkatalogkan imej yang diekstrak daripada eksport. Hanya menjejaskan folder images/; dimatikan secara lalai.",

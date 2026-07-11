@@ -302,6 +302,8 @@
   "settings.fullRes": "Full-resolution images",
   "settings.fullRes.hint": "Save original-quality images instead of the downscaled view. Much larger files.",
   "settings.fullRes.tooltip": "Save the original image instead of Teams' downscaled view. Files get much larger, especially PDF, for the same on-screen size. Images that are too large or unavailable fall back to the downscaled view, so none are dropped.",
+  "settings.explainMissing": "Explain missing images",
+  "settings.explainMissing.hint": "Show why an image or file could not be included (expired, sign-in, rate-limited, ...) on the placeholder, a short summary, and an IMAGES_FAILED.txt list. On by default.",
   "settings.imageDate": "Date in image filenames",
   "settings.imageDate.hint": "Prefix saved image filenames with the share time (UTC), for sorting and cataloguing.",
   "settings.imageDate.tooltip": "Add the message share time to each saved image filename, e.g. 20260628T104615Z__photo.png. Useful for cataloguing images extracted out of the export. Only affects the images/ folder; off by default.",

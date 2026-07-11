@@ -302,6 +302,8 @@
   "settings.fullRes": "Obrázky v plném rozlišení",
   "settings.fullRes.hint": "Ukládat obrázky v původní kvalitě místo zmenšeného náhledu. Mnohem větší soubory.",
   "settings.fullRes.tooltip": "Uloží původní obrázek místo zmenšeného náhledu Teams. Soubory budou mnohem větší, zejména PDF, při stejné velikosti na obrazovce. Příliš velké nebo nedostupné obrázky se vrátí ke zmenšenému náhledu, takže žádný nevynechá.",
+  "settings.explainMissing": "Vysvětlit chybějící obrázky",
+  "settings.explainMissing.hint": "U zástupného symbolu, ve stručném souhrnu a v seznamu IMAGES_FAILED.txt ukáže, proč nebylo možné obrázek nebo soubor zahrnout (vypršelá platnost, přihlášení, omezení rychlosti, …). Ve výchozím nastavení zapnuto.",
   "settings.imageDate": "Datum v názvech souborů obrázků",
   "settings.imageDate.hint": "Přidá k názvům uložených obrázků čas sdílení (UTC) pro řazení a katalogizaci.",
   "settings.imageDate.tooltip": "Přidá k názvu každého uloženého obrázku čas sdílení zprávy, např. 20260628T104615Z__photo.png. Užitečné pro katalogizaci obrázků vytažených z exportu. Týká se pouze složky images/; ve výchozím nastavení vypnuto.",

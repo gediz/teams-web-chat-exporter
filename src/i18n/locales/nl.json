@@ -302,6 +302,8 @@
   "settings.fullRes": "Afbeeldingen op volledige resolutie",
   "settings.fullRes.hint": "Sla afbeeldingen in originele kwaliteit op in plaats van de verkleinde weergave. Veel grotere bestanden.",
   "settings.fullRes.tooltip": "Slaat de originele afbeelding op in plaats van de verkleinde weergave van Teams. Bestanden worden veel groter, vooral PDF, bij dezelfde schermgrootte. Te grote of niet-beschikbare afbeeldingen vallen terug op de verkleinde weergave, zodat er geen wordt overgeslagen.",
+  "settings.explainMissing": "Ontbrekende afbeeldingen toelichten",
+  "settings.explainMissing.hint": "Laat op de placeholder zien waarom een afbeelding of bestand niet kon worden opgenomen (verlopen, aanmelden vereist, verzoeklimiet bereikt, ...), met een korte samenvatting en een IMAGES_FAILED.txt-lijst. Standaard ingeschakeld.",
   "settings.imageDate": "Datum in afbeeldingsbestandsnamen",
   "settings.imageDate.hint": "Voegt de deeltijd (UTC) toe aan de namen van opgeslagen afbeeldingen, voor sorteren en catalogiseren.",
   "settings.imageDate.tooltip": "Voegt de deeltijd van het bericht toe aan de naam van elke opgeslagen afbeelding, bijv. 20260628T104615Z__photo.png. Handig voor het catalogiseren van uit de export gehaalde afbeeldingen. Heeft alleen invloed op de map images/; standaard uit.",

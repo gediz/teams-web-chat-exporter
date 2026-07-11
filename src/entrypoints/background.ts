@@ -45,6 +45,15 @@ import type {
 // Typed globals for Firefox builds
 declare const browser: typeof chrome | undefined;
 
+// Remove every attachment's failReason so the failure-transparency feature
+// emits nothing (no reason word, banner, or manifest). Called when the
+// explainMissing option is off. Mutates in place; safe on any message shape.
+function stripFailReasons(messages: ExportMessage[]): void {
+  for (const m of messages) {
+    if (Array.isArray(m.attachments)) for (const a of m.attachments) delete a.failReason;
+  }
+}
+
 // ===== service-worker.js (WXT version) =====
 export default defineBackground(() => {
 
@@ -1083,6 +1092,10 @@ function handleStartExportMessage(msg: any, sendResponse: (res: any) => void) {
         );
         if (!formats.length) formats.push('json');
         const downloadImages = Boolean(buildOptions.downloadImages);
+        // Failure-transparency toggle (on by default). When off, strip the
+        // per-attachment failReason so no reason word, summary banner, or
+        // IMAGES_FAILED.txt manifest is produced (plain "(not included)").
+        if (buildOptions.explainMissing === false) stripFailReasons(scrapeRes.messages || []);
         const deps = {
             downloads,
             isFirefox,
@@ -1364,6 +1377,9 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
                 }
             }
 
+            // Failure-transparency toggle (on by default): off strips this
+            // chat's per-attachment failReason (no reason word / banner / manifest).
+            if (buildOptions?.explainMissing === false) stripFailReasons(scrapeRes.messages || []);
             try {
                 broadcastStatus({ tabId, phase: 'build', messages: totalMessages, ...bundleCtx });
                 const { files, formatFailures } = await buildOneChatForBundle({

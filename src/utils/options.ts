@@ -61,6 +61,10 @@ export type Options = {
   formats: OptionFormat[];
   includeReplies: boolean;
   includeReactions: boolean;
+  // Show why an image/file could not be fetched: the one-word reason on each
+  // placeholder, the export summary banner, and the IMAGES_FAILED.txt manifest.
+  // On by default; off restores the plain "(not included)" placeholder.
+  explainMissing: boolean;
   includeSystem: boolean;
   embedAvatars: boolean;
   downloadImages: boolean;
@@ -236,6 +240,7 @@ export const DEFAULT_OPTIONS: Options = {
   formats: ['json'],
   includeReplies: true,
   includeReactions: true,
+  explainMissing: true,
   includeSystem: false,
   embedAvatars: false,
   downloadImages: false,
@@ -330,6 +335,10 @@ const normalizeOptions = (raw: LegacyOptions, defaults: Options = DEFAULT_OPTION
   if (typeof merged.imageFetchFallback !== 'boolean') {
     merged.imageFetchFallback = defaults.imageFetchFallback;
   }
+  if (typeof merged.explainMissing !== 'boolean') {
+    merged.explainMissing = defaults.explainMissing;
+  }
+
   if (typeof merged.fullResImages !== 'boolean') {
     merged.fullResImages = defaults.fullResImages;
   }

@@ -54,6 +54,7 @@
   export let pdfIncludeAvatars = true;
   export let imageFetchFallback = false;
   export let fullResImages = false;
+  export let explainMissing = true;
   export let imageFilenameDate = false;
   export let imageModifiedDate = false;
   export let attachmentSizeCapMb = 0;
@@ -78,6 +79,7 @@
     pdfIncludeAvatarsChange: boolean;
     imageFetchFallbackChange: boolean;
     fullResImagesChange: boolean;
+    explainMissingChange: boolean;
     imageFilenameDateChange: boolean;
     imageModifiedDateChange: boolean;
     attachmentSizeCapMbChange: number;
@@ -121,6 +123,9 @@
 
   function onFullResImagesChange(e: Event) {
     dispatch('fullResImagesChange', (e.target as HTMLInputElement).checked);
+  }
+  function onExplainMissingChange(e: Event) {
+    dispatch('explainMissingChange', (e.target as HTMLInputElement).checked);
   }
 
   function onImageFilenameDateChange(e: Event) {
@@ -432,6 +437,19 @@
           </span>
           <span class="switch">
             <input id="opt-full-res" type="checkbox" checked={fullResImages} on:change={onFullResImagesChange} />
+            <span class="track"></span>
+          </span>
+        </label>
+
+        <label class="srow toggle" for="opt-explain-missing">
+          <span class="txt">
+            <span class="label-row">
+              <span class="label">{t('settings.explainMissing', {}, lang)}</span>
+            </span>
+            <span class="sub">{t('settings.explainMissing.hint', {}, lang)}</span>
+          </span>
+          <span class="switch">
+            <input id="opt-explain-missing" type="checkbox" checked={explainMissing} on:change={onExplainMissingChange} />
             <span class="track"></span>
           </span>
         </label>

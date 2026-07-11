@@ -302,6 +302,8 @@
   "settings.fullRes": "전체 해상도 이미지",
   "settings.fullRes.hint": "축소된 보기 대신 원본 품질의 이미지를 저장합니다. 파일이 훨씬 커집니다.",
   "settings.fullRes.tooltip": "Teams의 축소된 보기 대신 원본 이미지를 저장합니다. 화면 크기가 같아도 파일, 특히 PDF가 훨씬 커집니다. 너무 크거나 사용할 수 없는 이미지는 축소된 보기로 대체되므로 누락되지 않습니다.",
+  "settings.explainMissing": "누락된 이미지 설명",
+  "settings.explainMissing.hint": "이미지나 파일을 포함할 수 없었던 이유(만료, 로그인 필요, 요청 제한 등)를 자리표시자와 간단한 요약, 그리고 IMAGES_FAILED.txt 목록에 표시합니다. 기본값은 켜짐.",
   "settings.imageDate": "이미지 파일 이름에 날짜 포함",
   "settings.imageDate.hint": "정렬과 분류를 위해 저장되는 이미지 파일 이름에 공유 시각(UTC)을 추가합니다.",
   "settings.imageDate.tooltip": "저장되는 각 이미지 파일 이름에 메시지 공유 시각을 추가합니다(예: 20260628T104615Z__photo.png). 내보내기에서 추출한 이미지를 날짜로 분류할 때 유용합니다. images/ 폴더에만 적용되며 기본값은 꺼짐입니다.",
