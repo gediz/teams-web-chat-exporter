@@ -73,7 +73,7 @@ export function toCSV(messages: ExportMessage[], meta: ExportMeta = {}) {
         '',
       ].join('\n')
     : '';
-  const header = ['id', 'author', 'timestamp', 'text', 'edited', 'deleted', 'system', 'subject', 'importance', 'mentions', 'reactions_json', 'attachments_json', 'forwarded'];
+  const header = ['id', 'author', 'timestamp', 'text', 'edited', 'deleted', 'system', 'subject', 'importance', 'mentions', 'reactions_json', 'attachments_json', 'forwarded', 'reply_to', 'reactions', 'is_own', 'message_type'];
 
   const rows = (messages || []).map(m => {
     const row = [];
@@ -112,6 +112,42 @@ export function toCSV(messages: ExportMessage[], meta: ExportMeta = {}) {
       : '';
     row.push(forwarded);
 
+    // Reply context. CSV was the only export format that dropped it entirely (no
+    // column ever read m.replyTo), so a reply looked like an ordinary message.
+    // Mirror the `forwarded` column above: "author: text", newlines kept literal
+    // in-quote per RFC 4180. Only emitted when there is quoted text, matching the
+    // TXT/HTML/PDF renderers.
+    const rep = m.replyTo;
+    const replyTo = rep && rep.text
+      ? `${rep.author ? `${rep.author}: ` : ''}${rep.text.replace(/\r\n?/g, '\n')}`
+      : '';
+    row.push(replyTo);
+
+    // Human-readable reactions alongside the machine reactions_json above, so a
+    // spreadsheet reader sees "👍 Alice, You · ❤️ Carol" without parsing JSON.
+    // Every reactor is listed by name (self shows as "You"); API mode always
+    // carries the full reactor list. "×count" is only a fallback for a
+    // DOM-scraped summary label ("5 reactions") that carries no individual
+    // names; a single unnamed reactor shows as a bare emoji. Mirrors the TXT
+    // summary in download.ts.
+    const reactionsText = reactions
+      .map(r => {
+        const names = ((r.reactors || []) as Array<{ name?: string; self?: boolean } | string>)
+          .map(x => (typeof x === 'string' ? x : x.self ? 'You' : x.name))
+          .filter(Boolean);
+        const who = names.length ? ` ${names.join(', ')}` : r.count > 1 ? ` ×${r.count}` : '';
+        return `${r.emoji}${who}`;
+      })
+      .join(' · ');
+    row.push(reactionsText);
+
+    // is_own: was this message written by the current Teams user (the exporter).
+    // Lets a reader filter to their own messages. message_type: the raw kind of
+    // message (e.g. "Text", "RichText/Html", "Event/Call") so call/system rows
+    // can be filtered out from real messages.
+    row.push(m.isOwn ? 'true' : 'false');
+    row.push(m.messageType ?? '');
+
     // RFC 4180 escaping: wrap every field in double quotes and double any
     // internal quote. Quoting every cell means embedded commas and newlines
     // need no special handling.
@@ -128,7 +164,13 @@ export function toCSV(messages: ExportMessage[], meta: ExportMeta = {}) {
     }).join(',');
   });
 
-  return partialBanner + [header.join(','), ...rows].join('\n');
+  // UTF-8 BOM. Excel on Windows otherwise guesses the encoding and mangles
+  // emoji reactions, CJK, Turkish and other non-ASCII into mojibake on a
+  // double-click. The 3-byte BOM (U+FEFF) tells it the file is UTF-8. It is
+  // invisible in the content; programmatic readers should open with
+  // encoding='utf-8-sig' (which strips it) rather than plain 'utf-8'.
+  const BOM = '\uFEFF';
+  return BOM + partialBanner + [header.join(','), ...rows].join('\n');
 }
 
 export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
