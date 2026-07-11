@@ -1938,8 +1938,6 @@
           downloadImages={options.downloadImages}
           downloadFiles={options.downloadFiles}
           lang={options.lang || "en"}
-          disableReplies={options.formats.every((f) => f === "txt")}
-          disableReactions={options.formats.every((f) => f === "txt")}
           disableAvatars={options.formats.every((f) => f === "txt" || f === "csv")}
           disableImages={!options.formats.includes("html") && !options.formats.includes("pdf")}
           on:includeRepliesChange={(e) =>

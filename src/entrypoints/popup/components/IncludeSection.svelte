@@ -10,6 +10,10 @@
   export let downloadImages = false;
   export let downloadFiles = false;
   export let lang = 'en';
+  // Replies and reactions are data-level and render in every format (including
+  // TXT and CSV), so the parent never format-gates them; these two stay false.
+  // Avatars and images embed image bytes, which only HTML/PDF can hold, so the
+  // parent disables them for text-only format sets.
   export let disableReplies = false;
   export let disableReactions = false;
   export let disableAvatars = false;
