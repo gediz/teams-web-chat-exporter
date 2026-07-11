@@ -1100,7 +1100,7 @@ function renderTxtTable(t: TableData): string {
   return out.join('\n');
 }
 
-function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
+export function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
   const lines: string[] = [];
   // Partial-export warning: prepend a clearly visible banner so a
   // user opening the .txt file in any editor sees it immediately.
