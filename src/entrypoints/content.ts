@@ -22,6 +22,18 @@ import type { AggregatedItem, ExportMessage, OrderContext, ReplyContext, ScrapeO
 // Typed globals for Firefox builds
 declare const browser: typeof chrome | undefined;
 
+// Resolve after `ms`, or immediately if `signal` aborts first, so a Stop click
+// during a backoff sleep isn't stuck waiting out the full timer.
+function sleepOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise(resolve => {
+        if (signal?.aborted) { resolve(); return; }
+        let timer: ReturnType<typeof setTimeout>;
+        const onAbort = () => { clearTimeout(timer); resolve(); };
+        timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+        signal?.addEventListener('abort', onAbort, { once: true });
+    });
+}
+
 // Bound concurrent shares-API resolves from the page (defence-in-depth on top
 // of the background's resolve cap). A tiny FIFO semaphore.
 const SHARE_RESOLVE_MAX = 4;
@@ -698,11 +710,18 @@ export default defineContentScript({
         // Full-res images are up to 20MB each and the cap is post-download, so a
         // lower pool bounds peak heap when full-res is on.
         const FULLRES_CONCURRENT_FETCHES = 4;
-        // When Teams' urlp proxy starts returning HTTP 429 we drop
-        // concurrency for the rest of the export to give the rate
-        // limit a chance to clear. 4 is empirical: low enough to
-        // unblock most retries, high enough not to halve throughput.
-        const MAX_CONCURRENT_FETCHES_THROTTLED = 8; // [limit-test] was 4
+        // When Teams' urlp proxy starts returning HTTP 429 we drop concurrency
+        // hard for the rest of the export so the per-session rate limit can
+        // clear and the per-image retries below (MAX_429_RETRIES) can recover
+        // the tail instead of dropping it. Only engages after the first 429, so
+        // exports that never rate-limit stay at MAX_CONCURRENT_FETCHES. 2 was
+        // validated against a heavily-rate-limited Firefox multi-chat storm; 4
+        // was not gentle enough to let the limit clear while retries fired.
+        const MAX_CONCURRENT_FETCHES_THROTTLED = 2;
+        // Per-image HTTP 429 retry budget. A single retry dropped the tail of
+        // images under sustained rate-limiting at bundle scale; retry a few
+        // times with escalating backoff (see below) so they recover.
+        const MAX_429_RETRIES = 4;
 
         // Verbose image-fetch debugging. Two ways to enable:
         //   1. Build-time:  WXT_DEBUG_IMAGE_FETCH=1 pnpm build
@@ -1117,18 +1136,21 @@ export default defineContentScript({
                         resp = await fetchUrlpDirect(fetchUrl);
                     }
                 }
-                // 429 retry: a single per-image retry with a small jittered
-                // delay. Teams' urlp proxy rate-limits per session and
-                // returns 429 when too many requests land too quickly. A
-                // brief pause is usually enough to clear it. Sets
-                // sawRateLimit so the batched loop in fetchInlineImages
-                // drops concurrency for the remaining batches in this
-                // export. Honours abort so a Stop click during the wait
-                // bails immediately.
-                if (resp?.status === 429) {
+                // 429 retry: Teams' urlp proxy rate-limits per session and
+                // returns 429 under sustained load (notably a large multi-chat
+                // export where every image goes through the cookie path). Retry
+                // up to MAX_429_RETRIES times with escalating backoff + jitter so
+                // images aren't dropped to a transient or sustained rate limit; a
+                // single retry used to lose the tail. Each 429 flags sawRateLimit
+                // so the batched loop in fetchInlineImages also drops concurrency
+                // for the rest of the export. The backoff sleep is abortable, so
+                // a Stop click during the wait bails immediately (not after up to
+                // 8s).
+                for (let r429 = 0; resp?.status === 429 && r429 < MAX_429_RETRIES; r429++) {
                     sawRateLimit = true;
-                    const delay = 1500 + Math.floor(Math.random() * 600);
-                    await new Promise(r => setTimeout(r, delay));
+                    const backoff = Math.min(1500 * 2 ** r429, 8000);
+                    const delay = backoff + Math.floor(Math.random() * 600);
+                    await sleepOrAbort(delay, currentAbortController?.signal);
                     if (currentAbortController?.signal.aborted) return null;
                     // Retry on the LIVE auth path: if the tenant already flipped
                     // to cookies, don't bounce a just-rescued sibling back onto
@@ -1445,7 +1467,7 @@ export default defineContentScript({
 
         async function fetchInlineImages(
             messages: ExportMessage[],
-            onProgress?: (done: number, total: number) => void,
+            onProgress?: (done: number, total: number, rateLimited?: boolean) => void,
             auth?: { userId: string | null; userRegion: string; ic3Token: string },
             fullResImages = false,
         ): Promise<void> {
@@ -1729,7 +1751,7 @@ export default defineContentScript({
                         if (authProtected && isDirectThumbnail) att.href = undefined;
                     }
                     done++;
-                    onProgress?.(done, tasks.length);
+                    onProgress?.(done, tasks.length, sawRateLimit);
                 }
             };
             await Promise.all(Array.from({ length: MAX_CONCURRENT_FETCHES }, (_, slot) => fetchWorker(slot)));
@@ -3887,8 +3909,11 @@ export default defineContentScript({
                                     // Skipped when the target format won't render them.
                                     if (needImages) {
                                         try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length } }); } catch { /* noop: progress ping is best-effort */ }
-                                        await fetchInlineImages(converted, (done, total) => {
-                                            if (done % 10 === 0 || done === total) {
+                                        await fetchInlineImages(converted, (done, total, rateLimited) => {
+                                            // While rate-limited, emit on every completion (not every
+                                            // 10th) so the bar keeps ticking as retries recover images
+                                            // instead of looking frozen across the backoff windows.
+                                            if (done % 10 === 0 || done === total || rateLimited) {
                                                 try { runtime.sendMessage({ type: 'SCRAPE_PROGRESS', payload: { phase: 'images', messagesVisible: converted.length, imagesDone: done, imagesTotal: total } }); } catch { /* noop: progress ping is best-effort */ }
                                             }
                                         }, { userId: apiResult.userId, userRegion: apiResult.userRegion, ic3Token: apiResult.ic3Token }, fullResImages === true);
