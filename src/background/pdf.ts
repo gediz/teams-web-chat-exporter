@@ -47,6 +47,7 @@ import {
 import fontkit from '@pdf-lib/fontkit';
 import type { Attachment, ExportMessage, ExportMeta, Reaction, ReactorInfo, TableData, MergeRegion } from '../types/shared';
 import { subsetFont } from './font-subset';
+import { imageSummaryLine } from './builders';
 import { rasterizeSvgInDom } from '../utils/svg-rasterize';
 import { rasterizeViaOffscreen } from '../utils/offscreen-client';
 import {
@@ -1722,6 +1723,34 @@ function renderHeader(cursor: Cursor, meta: ExportMeta, ctx: TextCtx) {
     for (const line of bodyLines) {
       baselineY -= lineHeight;
       drawMixed(cursor.page, line, MARGIN + padX, baselineY, fontSize, 'regular', ctx, COLOR_WARN_TEXT);
+    }
+    cursor.y = top - blockH;
+  }
+  // Failed-image summary: a one-line banner below the partial banner, using the
+  // same warning-block visual language, shown only when some images failed.
+  const imgSummary = imageSummaryLine((meta as { attachmentStats?: ExportMeta['attachmentStats'] }).attachmentStats);
+  if (imgSummary) {
+    cursor.y -= ctx.layout.blockGap / 2;
+    const fontSize = ctx.layout.sizeMeta;
+    const lineHeight = ctx.layout.leadMeta;
+    const padY = 8;
+    const padX = 8;
+    const lines = wrapText(`Note: ${imgSummary}`, 'regular', ctx, fontSize, ctx.layout.contentWidth - 16);
+    const blockH = padY * 2 + lines.length * lineHeight;
+    const top = cursor.y;
+    cursor.page.drawRectangle({
+      x: MARGIN,
+      y: top - blockH,
+      width: ctx.layout.contentWidth,
+      height: blockH,
+      color: COLOR_WARN_BG,
+      borderColor: COLOR_WARN_BORDER,
+      borderWidth: 1,
+    });
+    let baselineY = top - padY - fontSize;
+    for (const line of lines) {
+      drawMixed(cursor.page, line, MARGIN + padX, baselineY, fontSize, 'regular', ctx, COLOR_WARN_TEXT);
+      baselineY -= lineHeight;
     }
     cursor.y = top - blockH;
   }

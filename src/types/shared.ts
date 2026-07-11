@@ -176,6 +176,11 @@ export type ExportMeta = {
   //                  of some visible messages.
   // When both apply, 'network' wins (higher-confidence root cause).
   partial?: { reason: 'network' | 'truncation' };
+  // Inline image/attachment fetch outcomes for this export, computed at build
+  // time from each attachment's failReason. Drives the "N of M images not
+  // included" summary banner (all formats) and the structured JSON field.
+  // byReason maps a reason word (expired, sign-in, ...) to its count.
+  attachmentStats?: { total: number; failed: number; byReason: Record<string, number> };
   [key: string]: unknown;
 };
 

@@ -1581,7 +1581,7 @@ export default defineContentScript({
                 if (['bmp', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'tif', 'tiff', 'heic', 'heif'].includes(t)) return true;
                 return !!(att.label && IMAGE_FILE_EXT_RE.test(att.label));
             };
-            const sharePointTasks: { att: { href?: string; dataUrl?: string; type?: string | null }; url: string }[] = [];
+            const sharePointTasks: { att: { href?: string; dataUrl?: string; type?: string | null; failReason?: string }; url: string }[] = [];
             for (const m of messages) {
                 if (!m.attachments) continue;
                 for (const att of m.attachments) {
@@ -1604,6 +1604,7 @@ export default defineContentScript({
                                 // not a code bug. Keeps Chrome's
                                 // Errors panel scoped to extension issues.
                                 console.log(`[Teams Exporter] SharePoint file too large (${result.bytes.byteLength} bytes), skipping: ${url.slice(0, 120)}`);
+                                att.failReason = 'too-large';
                                 return;
                             }
                             att.dataUrl = `data:${result.mime};base64,${uint8ToBase64(result.bytes)}`;
@@ -1614,6 +1615,7 @@ export default defineContentScript({
                             // permission revoked, etc) — that's external
                             // state, not an extension code error.
                             console.log(`[Teams Exporter] SharePoint fetch failed (${result.status} ${result.statusText} — ${result.reason}) for ${url.slice(0, 120)}`);
+                            att.failReason = result.status ? statusToReason(result.status) : 'network';
                         }
                     }));
                 }

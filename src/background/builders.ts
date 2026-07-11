@@ -60,6 +60,75 @@ export function summarizeAttachments(message: ExportMessage, opts: { skipPreview
   return labels.join(' ');
 }
 
+// Aggregate inline image/attachment fetch outcomes for the summary banner and
+// the failed-items manifest. Dedups by href (the same hosted image appears in
+// many messages), and lets a URL that succeeded anywhere cancel a failure it hit
+// elsewhere (the per-URL cache means one success is enough). byReason buckets
+// the distinct failures by their one-word reason. Call on the original messages
+// (before dataUrl stripping) so both dataUrl and failReason are intact.
+export function collectAttachmentOutcomes(
+  messages: ExportMessage[],
+): { total: number; failed: number; byReason: Record<string, number> } {
+  const okHrefs = new Set<string>();
+  const failByHref = new Map<string, string>();
+  let okNoHref = 0;
+  for (const m of messages) {
+    const atts = Array.isArray(m.attachments) ? m.attachments : [];
+    for (const a of atts) {
+      if (a.failReason) {
+        const key = a.href || `no-href#${failByHref.size}`;
+        if (!failByHref.has(key)) failByHref.set(key, a.failReason);
+      } else if (a.dataUrl) {
+        if (a.href) okHrefs.add(a.href); else okNoHref++;
+      }
+    }
+  }
+  for (const href of okHrefs) failByHref.delete(href);
+  const byReason: Record<string, number> = {};
+  for (const reason of failByHref.values()) byReason[reason] = (byReason[reason] || 0) + 1;
+  const failed = failByHref.size;
+  return { total: okHrefs.size + okNoHref + failed, failed, byReason };
+}
+
+// One-line human summary of the failed images/attachments, e.g. "9 of 876
+// images could not be included (7 expired, 2 sign-in)". Empty when nothing
+// failed. Reasons are ordered most-common first.
+export function imageSummaryLine(stats?: ExportMeta['attachmentStats']): string {
+  if (!stats || stats.failed <= 0) return '';
+  const parts = Object.entries(stats.byReason)
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, n]) => `${n} ${reason}`);
+  return `${stats.failed} of ${stats.total} image${stats.total === 1 ? '' : 's'} could not be included${parts.length ? ` (${parts.join(', ')})` : ''}.`;
+}
+
+// TSV manifest of every image/file that could not be fetched, one row per
+// distinct failed item (deduped by href). Empty string when nothing failed.
+// Written as IMAGES_FAILED.txt next to the images/ folder in zip exports.
+export function buildImagesFailedManifest(messages: ExportMessage[]): string {
+  const seen = new Set<string>();
+  const rows: string[] = [];
+  for (const m of messages) {
+    const atts = Array.isArray(m.attachments) ? m.attachments : [];
+    for (const a of atts) {
+      if (!a.failReason) continue;
+      const key = a.href || `${m.id || ''}#${rows.length}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let host = '';
+      try { if (a.href) host = new URL(a.href).hostname; } catch { /* keep blank */ }
+      const clean = (s: string) => s.replace(/[\t\r\n]+/g, ' ').trim();
+      rows.push([clean(m.author || ''), m.timestamp || '', a.failReason, host, clean(a.label || '')].join('\t'));
+    }
+  }
+  if (!rows.length) return '';
+  return [
+    '# Images and file attachments that could not be included in this export.',
+    '# Columns: author\ttimestamp\treason\thost\tlabel',
+    '# expired/removed = gone from Teams; sign-in/no-access = permission; rate-limited/server-error/network = transient, a re-export may recover; too-large/empty/unsupported = not embeddable.',
+    ...rows,
+  ].join('\n');
+}
+
 export function toCSV(messages: ExportMessage[], meta: ExportMeta = {}) {
   // Partial-export warning rendered as a leading comment block. CSV
   // doesn't have a comment syntax in the standard, but most readers
@@ -75,6 +144,10 @@ export function toCSV(messages: ExportMessage[], meta: ExportMeta = {}) {
         '',
       ].join('\n')
     : '';
+  // Failed-image summary as one more '#' comment line in the same tolerated
+  // leading-comment region as the partial banner.
+  const imgSummary = imageSummaryLine(meta.attachmentStats);
+  const imagesBanner = imgSummary ? `# ${imgSummary}\n` : '';
   const header = ['id', 'author', 'timestamp', 'text', 'edited', 'deleted', 'system', 'subject', 'importance', 'mentions', 'reactions_json', 'attachments_json', 'forwarded', 'reply_to', 'reactions', 'is_own', 'message_type'];
 
   const rows = (messages || []).map(m => {
@@ -172,7 +245,7 @@ export function toCSV(messages: ExportMessage[], meta: ExportMeta = {}) {
   // invisible in the content; programmatic readers should open with
   // encoding='utf-8-sig' (which strips it) rather than plain 'utf-8'.
   const BOM = '\uFEFF';
-  return BOM + partialBanner + [header.join(','), ...rows].join('\n');
+  return BOM + partialBanner + imagesBanner + [header.join(','), ...rows].join('\n');
 }
 
 export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
@@ -357,6 +430,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     .participants p{margin:6px 0 0 0; color:var(--text, #111827); line-height:1.6}
     .participants .ext{color:var(--muted); font-size:12px}
     .partial-warning{background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; padding:10px 14px; margin:0 0 14px 0; color:#78350f; font-size:13px; line-height:1.5}
+    .images-warning{background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; padding:8px 12px; margin:0 0 14px 0; color:#1e3a8a; font-size:13px; line-height:1.5}
     .partial-warning strong{color:#7c2d12}
     .partial-warning .partial-tag{font-family:ui-monospace,Menlo,monospace; font-size:11px; color:#92400e; opacity:0.85}
     .toolbar{margin-bottom:12px; display:flex; gap:8px; align-items:center}
@@ -549,11 +623,19 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
          <span class="partial-tag">[${escapeHtml(String(partial.reason || 'partial'))}]</span>
        </div>`
     : '';
+  // Failed-image summary: a quiet info box (role="status", not "alert") under
+  // the partial banner, so a reader learns how many images could not be
+  // included and why without it reading as a whole-export failure.
+  const imgSummary = imageSummaryLine(meta.attachmentStats);
+  const imagesBanner = imgSummary
+    ? `<div class="images-warning" role="status">🖼️ ${escapeHtml(imgSummary)}</div>`
+    : '';
 
   const head = `<h1>${escapeHtml(meta.title || 'Teams Chat Export')}</h1>
     ${metaLine}
     ${participantsBlock}
     ${partialBanner}
+    ${imagesBanner}
     <div class="toolbar"><button type="button" data-toggle-compact>Toggle compact view</button></div><hr/>`;
 
   // Reactor chip (v9 spec, issue #17/#28). Renders emoji + avatar dot

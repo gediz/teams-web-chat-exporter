@@ -1,4 +1,4 @@
-import { blobToDownloadUrl, removeAvatars, revokeDownloadUrl, summarizeAttachments, toCSV, toHTML } from './builders';
+import { blobToDownloadUrl, buildImagesFailedManifest, collectAttachmentOutcomes, imageSummaryLine, removeAvatars, revokeDownloadUrl, summarizeAttachments, toCSV, toHTML } from './builders';
 // Every download URL is minted via blobToDownloadUrl: it returns a blob:
 // URL where one is available, and on an MV3 service worker (no
 // createObjectURL) it routes large payloads through the offscreen document
@@ -343,6 +343,13 @@ function buildExportInternal(options: BuildExportOptions, imageMode: ImageMode):
   const rangeLabel = formatRangeLabel(meta.startAt, meta.endAt);
   if (rangeLabel) enrichedMeta.timeRange = rangeLabel;
 
+  // Inline image/attachment fetch outcomes (from each attachment's failReason),
+  // computed once from the original messages so every builder and the JSON field
+  // read one source. Only attached when something failed; drives the summary
+  // banner and the failed-items manifest.
+  const attachmentStats = collectAttachmentOutcomes(messages);
+  if (attachmentStats.failed > 0) enrichedMeta.attachmentStats = attachmentStats;
+
   const base = computeBaseName(enrichedMeta);
   const baseFolder = base;
 
@@ -556,6 +563,9 @@ export async function buildAndDownloadZip(
       mtime: img.mtime,
     });
   }
+  // Manifest of images/files that could not be fetched, next to the images/.
+  const failManifest = buildImagesFailedManifest(messages);
+  if (failManifest) files.push({ path: `${built.baseFolder}/IMAGES_FAILED.txt`, data: new TextEncoder().encode(failManifest) });
 
   // Report bundled image + avatar bytes as a distinct 'assets' line. The
   // 'html' line above is the index.html document only, so without this the
@@ -689,6 +699,9 @@ export async function buildAndDownloadBundle(
       files.push({ path, data: bytes, mtime: img.mtime });
     }
   }
+  // Manifest of images/files that could not be fetched, next to the images/.
+  const failManifest = buildImagesFailedManifest(messages);
+  if (failManifest) files.push({ path: `${baseFolder}/IMAGES_FAILED.txt`, data: new TextEncoder().encode(failManifest) });
 
   // Bundled image + avatar bytes as a distinct 'assets' line (the per-format
   // lines above are document bytes only). Document files are named
@@ -842,6 +855,9 @@ export async function buildOneChatForBundle(
       formatFailures.push({ format, error: `build:${format} — ${inner}` });
     }
   }
+  // Manifest of images/files that could not be fetched, alongside images/.
+  const failManifest = buildImagesFailedManifest(messages);
+  if (failManifest) out.push({ relativePath: 'IMAGES_FAILED.txt', data: encoder.encode(failManifest) });
 
   return { files: out, formatFailures };
 }
@@ -1130,6 +1146,11 @@ export function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
       '',
     );
   }
+  // Failed-image summary: one plain line so a reader sees at a glance how many
+  // images could not be included and why. Not the big === box, which is
+  // reserved for the whole-export partial alarm.
+  const imgSummary = imageSummaryLine(meta.attachmentStats);
+  if (imgSummary) lines.push(imgSummary, '');
   // Flatten a quote/forward body to one line, truncated with an ellipsis so
   // it is clear the text was shortened (the TXT format keeps quotes brief).
   const clip = (s: string, max: number) => {
