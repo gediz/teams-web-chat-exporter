@@ -53,7 +53,9 @@ export function summarizeAttachments(message: ExportMessage, opts: { skipPreview
     return name ? `[file: ${name}]` : '[file]';
   };
   const MAX = 3;
-  const labels = atts.slice(0, MAX).map(labelFor);
+  // Append the one-word failure reason (expired / sign-in / ...) to any item
+  // that could not be fetched, so a missing image/file reads "[image] (expired)".
+  const labels = atts.slice(0, MAX).map(a => labelFor(a) + (a.failReason ? ` (${a.failReason})` : ''));
   if (atts.length > MAX) labels.push(`[+${atts.length - MAX} more]`);
   return labels.join(' ');
 }
@@ -735,7 +737,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
           if (canLink) {
             return `<div class="att att-missing">🖼️ <a href="${href}" target="_blank" rel="noopener">${label}</a> <span class="att-meta-hint">(open original)</span></div>`;
           }
-          return `<div class="att att-missing">🖼️ ${label} <span class="att-meta-hint">(not included)</span></div>`;
+          return `<div class="att att-missing">🖼️ ${label} <span class="att-meta-hint">(not included${att.failReason ? `, ${escapeHtml(att.failReason)}` : ''})</span></div>`;
         }
         const link = href ? `<a href="${href}" target="_blank" rel="noopener">${label}</a>` : label;
         return `<div class="att">${link}${type}${size}${owner}${metaText}</div>`;

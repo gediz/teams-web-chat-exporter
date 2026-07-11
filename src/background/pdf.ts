@@ -1974,7 +1974,10 @@ async function renderMessage(
       const drewImage = await tryDrawAttachmentImage(cursor, att, ac);
       if (drewImage) continue;
       const label = att.label || att.href || '[attachment]';
-      const attLine = `[attachment] ${label}`;
+      // Append the one-word failure reason (expired / sign-in / ...) when the
+      // fetch failed, so a missing item reads "[attachment] label (expired)".
+      const why = att.failReason ? ` (${att.failReason})` : '';
+      const attLine = `[attachment] ${label}${why}`;
       const wrapped = wrapText(attLine, 'regular', ctx, ctx.layout.sizeMeta, ctx.layout.textWidth);
       const isHttp = !!(att.href && /^https?:\/\//i.test(att.href));
       // When the attachment has an http(s) target, every wrapped line of

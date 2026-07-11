@@ -34,6 +34,20 @@ function sleepOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
     });
 }
 
+// Map an HTTP status from a failed image/file fetch to one short reason word
+// for the placeholder, the summary banner, and the failed-items manifest (see
+// Attachment.failReason). 410 expired / 404 removed / 403 no-access / 401
+// sign-in / 429 rate-limited / 5xx or 408 server-error / else unavailable.
+function statusToReason(status: number): string {
+  if (status === 410) return 'expired';
+  if (status === 404) return 'removed';
+  if (status === 403) return 'no-access';
+  if (status === 401) return 'sign-in';
+  if (status === 429) return 'rate-limited';
+  if (status === 408 || status >= 500) return 'server-error';
+  return 'unavailable';
+}
+
 // Bound concurrent shares-API resolves from the page (defence-in-depth on top
 // of the background's resolve cap). A tiny FIFO semaphore.
 const SHARE_RESOLVE_MAX = 4;
@@ -965,7 +979,7 @@ export default defineContentScript({
             });
         }
 
-        async function fetchImageAsDataUrl(url: string): Promise<string | null> {
+        async function fetchImageAsDataUrl(url: string, outcome?: { reason?: string }): Promise<string | null> {
             // Image fetch routing, in order of attempts:
             //   1. Primary: Teams' authenticated proxy (asyncgw) via Bearer token.
             //   2. If the tenant rejects Bearer or the proxy host is unreachable,
@@ -979,14 +993,22 @@ export default defineContentScript({
             //      fetch with no credentials).
             const host = hostOf(url);
             const hostStats = getHostStats(host);
+            // Record why this fetch failed (one short word) for the caller, which
+            // stamps it onto the attachment for the placeholder + manifest. Never
+            // overwrites a reason already set, and never fires on success/abort.
+            const fail = (r?: string): null => { if (outcome && r && !outcome.reason) outcome.reason = r; return null; };
+            const reasonOf = (rr?: { status?: number; error?: string; sizeReason?: number }): string | undefined =>
+                rr?.status ? statusToReason(rr.status)
+                    : rr?.error ? 'network'
+                    : (typeof rr?.sizeReason === 'number' ? (rr.sizeReason > imgFetchMaxBytes ? 'too-large' : 'empty') : undefined);
             if (!imgFetchAuth?.userId || !imgFetchAuth?.userRegion || !imgFetchAuth?.ic3Token) {
                 imgFetchStats.skippedDomain++;
-                return null;
+                return fail('sign-in');
             }
             const fetchUrl = transformImageUrlToProxy(url, imgFetchAuth.userId, imgFetchAuth.userRegion);
             if (!fetchUrl) {
                 imgFetchStats.skippedDomain++;
-                return null;
+                return fail('unsupported');
             }
             // URL-image proxy paths (/urlp/.../url/image/Thumbnail) auth
             // via cookies set by Teams' login flow on the asyncgw domain
@@ -1073,7 +1095,7 @@ export default defineContentScript({
                             hostStats.tooSmall++;
                         }
                     }
-                    return null;
+                    return fail(reasonOf(direct));
                 }
                 if (useCookies) {
                     resp = await fetchUrlpDirect(fetchUrl);
@@ -1232,7 +1254,7 @@ export default defineContentScript({
                             hostStats.tooSmall++;
                         }
                     }
-                    return null;
+                    return fail(reasonOf(rawAmsResp));
                 }
                 // Image fetch fallback (opt-in feature). When Teams'
                 // proxy/page-helper cannot return a public preview image,
@@ -1335,13 +1357,13 @@ export default defineContentScript({
                         hostStats.tooSmall++;
                     }
                 }
-                return null;
+                return fail(reasonOf(resp));
             } catch (e) {
                 imgFetchStats.threwError++;
                 hostStats.threwError++;
                 if (!imgFetchStats.firstThrow) imgFetchStats.firstThrow = `bg-fetch ${String(e).slice(0, 80)}`;
                 if (hostStats.firstError === undefined) hostStats.firstError = `bg-fetch ${String(e).slice(0, 100)}`;
-                return null;
+                return fail('network');
             }
         }
 
@@ -1438,7 +1460,7 @@ export default defineContentScript({
         // Auth = `authentication: skypetoken=<JWT>` header (same scheme the
         // chat-service proxy uses) + cookies established by ensureSkypeTokenCookies.
         // Returns a base64 data: URL ready to embed, or null on any failure.
-        async function fetchTeamsFreeAmsImage(url: string, jwt: string): Promise<string | null> {
+        async function fetchTeamsFreeAmsImage(url: string, jwt: string, outcome?: { reason?: string }): Promise<string | null> {
             try {
                 const resp = await fetch(url, {
                     headers: { 'authentication': `skypetoken=${jwt}` },
@@ -1450,17 +1472,19 @@ export default defineContentScript({
                     if (!imgFetchStats.firstHttpError) {
                         imgFetchStats.firstHttpError = `HTTP ${resp.status} ${resp.statusText || ''} for ${url.slice(0, 200)}`;
                     }
+                    if (outcome && !outcome.reason) outcome.reason = statusToReason(resp.status);
                     return null;
                 }
                 const buf = await resp.arrayBuffer();
-                if (buf.byteLength > imgFetchMaxBytes) { imgFetchStats.tooLarge++; return null; }
-                if (buf.byteLength < 100) { imgFetchStats.tooSmall++; return null; }
+                if (buf.byteLength > imgFetchMaxBytes) { imgFetchStats.tooLarge++; if (outcome && !outcome.reason) outcome.reason = 'too-large'; return null; }
+                if (buf.byteLength < 100) { imgFetchStats.tooSmall++; if (outcome && !outcome.reason) outcome.reason = 'empty'; return null; }
                 const mime = resp.headers.get('content-type')?.split(';')[0]?.trim() || 'image/jpeg';
                 const bytes = new Uint8Array(buf);
                 return `data:${mime};base64,${uint8ToBase64(bytes)}`;
             } catch (e: any) {
                 imgFetchStats.threwError++;
                 if (!imgFetchStats.firstThrow) imgFetchStats.firstThrow = `tfl-ams ${String(e?.message || e).slice(0, 80)}`;
+                if (outcome && !outcome.reason) outcome.reason = 'network';
                 return null;
             }
         }
@@ -1600,7 +1624,7 @@ export default defineContentScript({
             // Collect attachments whose href is an actual image (or routable through
             // the Teams URL-image proxy). Skip file attachments like SharePoint docs,
             // which have an http href but the proxy returns 415 for them.
-            const tasks: { att: { href?: string; dataUrl?: string; kind?: 'preview'; type?: string | null }; url: string; fallbackUrl?: string }[] = [];
+            const tasks: { att: { href?: string; dataUrl?: string; kind?: 'preview'; type?: string | null; failReason?: string }; url: string; fallbackUrl?: string }[] = [];
             for (const m of messages) {
                 if (!m.attachments) continue;
                 for (const att of m.attachments) {
@@ -1701,32 +1725,44 @@ export default defineContentScript({
                     // One dispatcher owns the routing (Teams Free vs proxy) so the
                     // full-res url and its imgo fallback take the identical path,
                     // cap (imgFetchMaxBytes), and dedup cache.
-                    const fetchOne = (u: string) =>
+                    const fetchOne = (u: string, out?: { reason?: string }) =>
                         (isTeamsFree && /\.asm\.skype\.com\/v1\/objects\//i.test(u) && imgFetchAuth?.ic3Token)
-                            ? fetchTeamsFreeAmsImage(u, imgFetchAuth.ic3Token)
-                            : fetchImageAsDataUrl(u);
+                            ? fetchTeamsFreeAmsImage(u, imgFetchAuth.ic3Token, out)
+                            : fetchImageAsDataUrl(u, out);
                     let dataUrl: string | null | undefined = imageUrlCache.get(url);
+                    // Why the fetch failed (one short word), from the LAST attempt
+                    // (primary, then the imgo fallback if it also failed). A cached
+                    // success or a recovered fallback leaves it undefined. Stamped
+                    // onto att below for the placeholder + failed-items manifest.
+                    let failReason: string | undefined;
                     if (dataUrl === undefined) {
-                        dataUrl = await fetchOne(url);
+                        const out1: { reason?: string } = {};
+                        dataUrl = await fetchOne(url, out1);
                         if (dataUrl) imageUrlCache.set(url, dataUrl);
-                        else if (fallbackUrl) {
-                            // Full-res failed (over 20MB / 404 / error): fall back to
-                            // the imgo view so the image is downscaled, never dropped.
-                            if (currentAbortController?.signal.aborted) return;
-                            dataUrl = imageUrlCache.get(fallbackUrl);
-                            if (dataUrl === undefined) {
-                                dataUrl = await fetchOne(fallbackUrl);
-                                if (dataUrl) imageUrlCache.set(fallbackUrl, dataUrl);
-                            }
-                            if (dataUrl) {
-                                fullResFellBack++;
-                                // The over-cap primary already counted a too-large for
-                                // its host; it recovered via the fallback, so roll that
-                                // back on the aggregate and per-host tallies (over-cap is
-                                // the dominant fallback reason) to keep both honest.
-                                imgFetchStats.tooLarge = Math.max(0, imgFetchStats.tooLarge - 1);
-                                const hs = getHostStats(hostOf(url));
-                                hs.tooLarge = Math.max(0, hs.tooLarge - 1);
+                        else {
+                            failReason = out1.reason;
+                            if (fallbackUrl) {
+                                // Full-res failed (over 20MB / 404 / error): fall back to
+                                // the imgo view so the image is downscaled, never dropped.
+                                if (currentAbortController?.signal.aborted) return;
+                                dataUrl = imageUrlCache.get(fallbackUrl);
+                                if (dataUrl === undefined) {
+                                    const out2: { reason?: string } = {};
+                                    dataUrl = await fetchOne(fallbackUrl, out2);
+                                    if (dataUrl) imageUrlCache.set(fallbackUrl, dataUrl);
+                                    else failReason = out2.reason ?? failReason;
+                                }
+                                if (dataUrl) {
+                                    failReason = undefined;
+                                    fullResFellBack++;
+                                    // The over-cap primary already counted a too-large for
+                                    // its host; it recovered via the fallback, so roll that
+                                    // back on the aggregate and per-host tallies (over-cap is
+                                    // the dominant fallback reason) to keep both honest.
+                                    imgFetchStats.tooLarge = Math.max(0, imgFetchStats.tooLarge - 1);
+                                    const hs = getHostStats(hostOf(url));
+                                    hs.tooLarge = Math.max(0, hs.tooLarge - 1);
+                                }
                             }
                         }
                     }
@@ -1734,6 +1770,7 @@ export default defineContentScript({
                         att.dataUrl = dataUrl;
                         succeeded++;
                     } else {
+                        if (failReason) att.failReason = failReason;
                         // Fetch failed. For previews/videos the href is a
                         // thumbnail the HTML renderer draws directly as <img>,
                         // so a failed auth-protected one must be dropped to

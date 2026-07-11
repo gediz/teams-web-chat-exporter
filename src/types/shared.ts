@@ -33,6 +33,13 @@ export type Attachment = {
   // session cookie for the file's host has gone stale. Stripped before the
   // export is serialized; used only in-flight.
   shareUrl?: string;
+  // Why this image/file could not be fetched, as one short category word
+  // (e.g. "expired", "sign-in", "rate-limited", "too-large", "network").
+  // Set only on a genuine fetch failure; absent on success. Drives the
+  // per-placeholder reason, the export summary banner, and the failed-items
+  // manifest. Kept in output (machine-readable). See statusToReason() in
+  // content.ts for the mapping.
+  failReason?: string;
 };
 
 export type ReplyContext = {
