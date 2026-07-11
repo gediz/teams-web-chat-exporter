@@ -1194,25 +1194,43 @@ function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
     const urgencyTag = m.importance === 'urgent' ? ' [!URGENT]' : m.importance === 'high' ? ' [!IMPORTANT]' : '';
     const subjectLine = m.subject ? `[Subject: ${m.subject}] ` : '';
     // Edited marker + reactions belong to the OUTER message, so build them as a
-    // suffix spliced onto the message's own line — not appended after a forwarded
+    // suffix spliced onto the message's own line, not appended after a forwarded
     // continuation, where they would read as part of the forwarded original.
     // HTML/CSV/JSON already carry both; this keeps the leanest TXT format
-    // consistent. The reply quote stays on its own trailing line below.
+    // consistent. The reply quote is rendered above the body (see below).
     const meta = (m.edited ? ' (edited)' : '') + reactionSummary(m);
+    // Reply quote: rendered on its own indented line BEFORE the body so a reply
+    // reads "quote, then response", matching the HTML and PDF exports and the
+    // Teams UI (the quoted parent sits above the reply). Appending it after the
+    // body, as this once did, inverted that order. clip() flattens the quote to
+    // one line; an empty or placeholder replyTo yields no line.
+    const replyQuote = m.replyTo?.text
+      ? `\n  > ${m.replyTo.author ? `${m.replyTo.author}: ` : ''}${clip(m.replyTo.text, 200)}`
+      : '';
+    // Body + subject + edited/reactions meta as one segment. When a reply quote
+    // precedes it, the body drops to its own 4-space-indented line, uniform with
+    // the multi-line continuation indent above, so the 2-space "  > " quote, the
+    // body, and a column-0 "[ts] author:" header all stay visually distinct.
+    const bodyPart = `${subjectLine}${body}${meta}`;
+    const indentedBody = bodyPart.trim() ? `\n    ${bodyPart}` : '';
     let line: string;
     if (m.forwarded?.originalAuthor) {
       const fwdFrom = `[forwarded from ${m.forwarded.originalAuthor}]`;
       const fwdText = m.forwarded.originalText ? clip(m.forwarded.originalText, 300) : '';
-      line = text
-        ? `[${ts}] ${author}${urgencyTag}: ${subjectLine}${body}${meta}\n  ${fwdFrom}: ${fwdText}`
-        : `[${ts}] ${author}${urgencyTag} ${fwdFrom}: ${subjectLine}${fwdText}${meta}`;
+      // Rare forwarded+reply: stack header, quote, body, then the forwarded
+      // card. The reply quote leads (as in every format); the body stays before
+      // the forwarded card to match the non-reply forwarded layout below, not
+      // PDF/HTML, which draw the forward before the body for this combo. Plain
+      // forwards keep their one-line-plus-continuation shape unchanged.
+      line = replyQuote
+        ? `[${ts}] ${author}${urgencyTag}:${replyQuote}${indentedBody}\n  ${fwdFrom}: ${fwdText}`
+        : text
+          ? `[${ts}] ${author}${urgencyTag}: ${subjectLine}${body}${meta}\n  ${fwdFrom}: ${fwdText}`
+          : `[${ts}] ${author}${urgencyTag} ${fwdFrom}: ${subjectLine}${fwdText}${meta}`;
+    } else if (replyQuote) {
+      line = `[${ts}] ${author}${urgencyTag}:${replyQuote}${indentedBody}`;
     } else {
       line = `[${ts}] ${author}${urgencyTag}: ${subjectLine}${body}${meta}`;
-    }
-    if (m.replyTo?.text) {
-      const quotedText = clip(m.replyTo.text, 200);
-      const attribution = m.replyTo.author ? `${m.replyTo.author}: ` : '';
-      line += `\n  > ${attribution}${quotedText}`;
     }
 
     lines.push(line);
