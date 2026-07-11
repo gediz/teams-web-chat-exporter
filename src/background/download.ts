@@ -1148,11 +1148,11 @@ function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
       const names = ((r.reactors || []) as Array<{ name?: string; self?: boolean } | string>)
         .map(x => (typeof x === 'string' ? x : (x.self ? 'You' : x.name)))
         .filter(Boolean);
-      // Names when known; "+N" for any unnamed reactors so the count isn't lost;
-      // "×count" when no names are known at all.
-      const who = names.length
-        ? ` ${names.join(', ')}${r.count > names.length ? ` +${r.count - names.length}` : ''}`
-        : (r.count ? ` ×${r.count}` : '');
+      // List every reactor by name (API mode always carries the full list).
+      // "×count" is only a fallback for a DOM-scraped summary label ("5
+      // reactions") that carries no individual names; a single unnamed reactor
+      // shows as a bare emoji.
+      const who = names.length ? ` ${names.join(', ')}` : (r.count > 1 ? ` ×${r.count}` : '');
       return `${r.emoji}${who}`;
     });
     return parts.length ? `  [${parts.join(' · ')}]` : '';
