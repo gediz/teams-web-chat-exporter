@@ -1680,14 +1680,16 @@ export default defineContentScript({
             // shared-counter updates race-free.
             // Full-res images are up to 20MB each, fully buffered before the
             // post-download cap can reject them, so cut the pool to bound peak
-            // heap. Already at/below the throttled count, so no further drop on 429.
+            // heap. On a 429 it now drops to MAX_CONCURRENT_FETCHES_THROTTLED (2)
+            // like the standard pool, so the rate limit can clear and the retries
+            // recover the tail (this only lowers peak heap further).
             let target = fullResImages ? FULLRES_CONCURRENT_FETCHES : MAX_CONCURRENT_FETCHES;
             let nextTask = 0;
             let fullResFellBack = 0;
             const fetchWorker = async (slot: number) => {
                 while (true) {
                     if (currentAbortController?.signal.aborted) return;
-                    const throttledTarget = fullResImages ? FULLRES_CONCURRENT_FETCHES : MAX_CONCURRENT_FETCHES_THROTTLED;
+                    const throttledTarget = MAX_CONCURRENT_FETCHES_THROTTLED;
                     if (sawRateLimit && target !== throttledTarget) {
                         target = throttledTarget;
                         console.log(`[Teams Exporter] Rate limit detected (HTTP 429); reducing concurrency to ${target} for the rest of this export`);
