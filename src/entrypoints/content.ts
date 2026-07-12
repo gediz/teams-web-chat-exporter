@@ -4042,6 +4042,9 @@ export default defineContentScript({
                                 console.log('[Teams Exporter] API failed and noDomFallback is set (multi-chat) — reporting failure without DOM scroll');
                                 currentRunStartedAt = null;
                                 currentAbortController = null;
+                                // isNetworkError is a deliberate hook for the deferred end-of-bundle
+                                // re-attempt (IMG-RETRY b): the background loop will read it to retry
+                                // only the network-class per-chat failures. Not consumed yet.
                                 sendResponse({ ok: false, error: 'API scrape failed; DOM fallback disabled in multi-chat mode', isNetworkError: apiFailure?.isNetworkError === true });
                                 return;
                             }

@@ -37,7 +37,8 @@ test('toHTML shows the failed-images banner from meta.attachmentStats', () => {
   expect(out).toContain('1 of 2 images could not be included (1 expired).');
 });
 
-test('toHTML with no messages still returns a valid (non-empty) document', () => {
+test('toHTML with no messages still emits a complete document (the CSS shell is present)', () => {
   const out = html([]);
-  expect(out).toContain('<'); // produces markup, does not throw
+  expect(out).toContain('<style>');        // the style shell is emitted unconditionally
+  expect(out.length).toBeGreaterThan(300); // a real document, not a truncated/empty stub
 });

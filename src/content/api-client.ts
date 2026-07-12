@@ -1902,6 +1902,10 @@ export async function fetchPageWithRetry(
   // chance of stale third-party Skype cookies confusing the server.
   const isTeamsFreeProxy = /teams\.live\.com\/api\/chatsvc\/consumer\b/i.test(url);
   let netRetries = 0;
+  // True only for the ITERATION that is the network retry, so the shorter retry
+  // timeout applies to that attempt alone. A later 429/5xx retry of the SAME page
+  // must keep the full 30s budget (a sticky netRetries>0 gate wrongly shortened it).
+  let shortTimeoutNext = false;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const headers = buildMessagingHeaders(url, token);
     // Always combine the caller's signal with an internal 30 s
@@ -1914,7 +1918,8 @@ export async function fetchPageWithRetry(
     // With the combined signal, fetch reliably aborts at 30 s and
     // the throw bubbles to apiScrape which surfaces the partial
     // signal.
-    const timeoutSignal = AbortSignal.timeout(netRetries > 0 ? NETWORK_RETRY_TIMEOUT_MS : 30_000);
+    const timeoutSignal = AbortSignal.timeout(shortTimeoutNext ? NETWORK_RETRY_TIMEOUT_MS : 30_000);
+    shortTimeoutNext = false; // consumed for this attempt
     const init: RequestInit = {
       headers,
       signal: combineAbortSignals(signal, timeoutSignal),
@@ -1936,6 +1941,7 @@ export async function fetchPageWithRetry(
       // loop end into "Unreachable".
       if ((timedOut || isNetworkError(err)) && netRetries < NETWORK_RETRIES && attempt < MAX_RETRIES) {
         netRetries++;
+        shortTimeoutNext = true; // only the next (retry) attempt gets the shorter timeout
         console.log(`[API] Network ${timedOut ? 'timeout' : 'error'} on page fetch, retrying once in ${NETWORK_RETRY_BACKOFF_MS}ms`);
         await sleep(NETWORK_RETRY_BACKOFF_MS);
         continue;

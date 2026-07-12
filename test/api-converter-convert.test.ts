@@ -19,12 +19,17 @@ test('converts a basic rich-text message to author + text', () => {
   expect(out[0].text).toContain('hello world');
 });
 
-test('re-sorts newest-first API output into chronological (oldest-first) order', () => {
+test('orders by timestamp even when input array order disagrees (reverse+stable-sort, not just reverse)', () => {
+  // Deliberately scrambled: the array order is NOT reverse-chronological, so a plain
+  // reverse() would mis-order these (yield first, third, second). Only the stable
+  // timestamp sort the converter applies after reverse() produces the right order —
+  // this is the re-ranked-tombstone case the sort exists for.
   const out = convertApiMessages([
     richText({ content: '<div>second</div>', imdisplayname: 'A', composetime: '2024-01-01T10:05:00Z' }),
+    richText({ content: '<div>third</div>', imdisplayname: 'A', composetime: '2024-01-01T10:10:00Z' }),
     richText({ content: '<div>first</div>', imdisplayname: 'A', composetime: '2024-01-01T10:00:00Z' }),
   ], opts);
-  expect(out.map((m) => m.text.trim())).toEqual(['first', 'second']);
+  expect(out.map((m) => m.text.trim())).toEqual(['first', 'second', 'third']);
 });
 
 test('collapses the duplicate row Teams emits for one forward (same clientmessageid)', () => {
