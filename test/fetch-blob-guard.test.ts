@@ -10,7 +10,7 @@
 //
 // Runs via `node --test scripts/` (part of `pnpm check`). Node 24
 // strips the types from the .ts import natively.
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { isMicrosoftApiHost } from '../src/utils/teams-urls.ts';
 

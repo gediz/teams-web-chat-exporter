@@ -5,7 +5,7 @@
 //     partial-network flagging still fires.
 //   - fetchAllMessages keeps the pages already fetched when the network drops
 //     mid-pagination (a partial chat) instead of discarding the whole chat.
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { fetchPageWithRetry, fetchAllMessages } from '../src/content/api-client.ts';
 

@@ -5,7 +5,7 @@
 // appended after the body, which inverted the reading order. Also locks the
 // full reactor list (no "+N") and the shapes that must NOT change (plain and
 // forwarded messages).
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { toPlainText } from '../src/background/download.ts';
 

@@ -4,7 +4,7 @@
 //   - CB2: an unresolved reactor shows "(unknown user)", not a raw id slice
 //   - CB9: preview-card dedup only merges a real prefix-up-to-separator, not any
 //          mid-string substring (which used to delete distinct cards)
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { formatDuration, decorateReactions, previewTitlesDuplicate } from '../src/content/api-converter.ts';
 

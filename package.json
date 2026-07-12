@@ -17,8 +17,9 @@
     "zip:firefox": "wxt zip -b firefox",
     "zip:edge": "wxt zip -b edge",
     "zip:safari": "wxt zip -b safari",
-    "check": "node scripts/check-i18n.mjs && node scripts/check-vendor-hashes.mjs && node --import ./scripts/ts-resolver.mjs --test \"scripts/*.test.mjs\" && svelte-check --tsconfig ./tsconfig.json",
-    "test": "node --import ./scripts/ts-resolver.mjs --test \"scripts/*.test.mjs\"",
+    "check": "node scripts/check-i18n.mjs && node scripts/check-vendor-hashes.mjs && vitest run && svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint .",
     "check:i18n": "node scripts/check-i18n.mjs",
     "postinstall": "wxt prepare && node scripts/vendor-twemoji.mjs"
@@ -36,16 +37,20 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/svelte": "^5.4.2",
     "@tsconfig/svelte": "^5.0.6",
     "@types/chrome": "^0.0.268",
     "@types/node": "^22.0.0",
     "eslint": "^10.6.0",
     "eslint-plugin-svelte": "^3.20.0",
     "globals": "^17.7.0",
+    "happy-dom": "^20.10.6",
     "svelte": "^5.43.14",
     "svelte-check": "^4.3.4",
     "svgo": "^4.0.1",
-    "typescript-eslint": "^8.62.1"
+    "typescript-eslint": "^8.62.1",
+    "vitest": "^3.2.7"
   },
   "pnpm": {
     "overrides": {

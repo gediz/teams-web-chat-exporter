@@ -6,7 +6,7 @@
 // Keep these cases in sync with the ranges documented above the regexes:
 //   U+200B-U+200F zero-widths, U+202A-U+202E bidi overrides,
 //   U+2060-U+2064 word joiner + invisible operators, U+FEFF BOM.
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { sanitizeBase, sanitizeFileName } from '../src/utils/messages.ts';
 

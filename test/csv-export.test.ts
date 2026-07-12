@@ -6,7 +6,7 @@
 //   - the leading UTF-8 BOM (so Excel reads emoji/CJK/Turkish, not mojibake)
 //   - RFC 4180 quoting + the OWASP CSV-injection guard (all five triggers)
 //   - the human reactions summary (every reactor by name, no "+N")
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { toCSV } from '../src/background/builders.ts';
 
