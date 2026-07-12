@@ -403,6 +403,16 @@ function buildExportInternal(options: BuildExportOptions, imageMode: ImageMode):
   return { baseFolder, filename, content, mime, inlineImages };
 }
 
+// The PDF format is built outside buildExportInternal, so it never sees the
+// enrichedMeta that carries attachmentStats. Recompute the same outcomes from
+// the messages and attach them so the PDF summary banner renders like the other
+// formats. Cheap and consistent: collectAttachmentOutcomes reads only each
+// attachment's failReason, so this matches what the HTML/CSV/TXT paths show.
+function pdfMetaWithStats(meta: ExportMeta, messages: ExportMessage[]): ExportMeta {
+  const attachmentStats = collectAttachmentOutcomes(messages);
+  return attachmentStats.failed > 0 ? { ...meta, attachmentStats } : meta;
+}
+
 export async function buildAndDownload(
   deps: BuildDownloadDeps,
   options: BuildExportOptions,
@@ -424,7 +434,7 @@ export async function buildAndDownload(
     // internal sharing link cannot reach PDF output. A blanket strip is NOT
     // used because it would also remove att.dataUrl, which the PDF builder
     // needs to embed inline images.
-    const bytes = await buildPdfResilient(messages, meta, (done, total) => {
+    const bytes = await buildPdfResilient(messages, pdfMetaWithStats(meta, messages), (done, total) => {
       onStatus?.({ phase: 'build', filename, messages: messages.length, messagesBuilt: done, messagesTotal: total });
     }, toPdfOptions(options));
     onStatus?.({ phase: 'build', filename, messages: messages.length, messagesBuilt: messages.length, messagesTotal: messages.length });
@@ -652,7 +662,7 @@ export async function buildAndDownloadBundle(
       // actually ticks during the (potentially long) PDF phase.
       const bytes = await buildPdfResilient(
         messages,
-        meta,
+        pdfMetaWithStats(meta, messages),
         (done, total) => {
           onStatus?.({ phase: 'build', filename: `${baseFolder}.zip`, messages: messages.length, messagesBuilt: done, messagesTotal: total });
         },
@@ -816,7 +826,7 @@ export async function buildOneChatForBundle(
     try {
       console.log(`[bundle] building ${format} for "${titleForLog}"`);
       if (format === 'pdf') {
-        const bytes = await buildPdfResilient(messages, meta, onPdfProgress, toPdfOptions(options));
+        const bytes = await buildPdfResilient(messages, pdfMetaWithStats(meta, messages), onPdfProgress, toPdfOptions(options));
         out.push({ relativePath: 'messages.pdf', data: bytes });
         continue;
       }

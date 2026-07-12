@@ -1770,6 +1770,10 @@ export default defineContentScript({
                     }
                     if (dataUrl) {
                         att.dataUrl = dataUrl;
+                        // Clear any reason a prior path (e.g. the SharePoint fetch
+                        // for a .gif) stamped: this attachment did embed, so it is
+                        // not a failure for the count / banner / manifest.
+                        delete att.failReason;
                         succeeded++;
                     } else {
                         if (failReason) att.failReason = failReason;

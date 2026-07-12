@@ -105,26 +105,35 @@ export function imageSummaryLine(stats?: ExportMeta['attachmentStats']): string 
 // distinct failed item (deduped by href). Empty string when nothing failed.
 // Written as IMAGES_FAILED.txt next to the images/ folder in zip exports.
 export function buildImagesFailedManifest(messages: ExportMessage[]): string {
+  // A URL that embedded on ANY message is not a failure (per-URL cache), so
+  // gather succeeded hrefs first and skip them. Keeps the manifest row count
+  // consistent with collectAttachmentOutcomes / the summary banner.
+  const okHrefs = new Set<string>();
+  for (const m of messages) {
+    for (const a of (Array.isArray(m.attachments) ? m.attachments : [])) {
+      if (a.dataUrl && a.href) okHrefs.add(a.href);
+    }
+  }
+  const clean = (s: string) => s.replace(/[\t\r\n]+/g, ' ').trim();
   const seen = new Set<string>();
   const rows: string[] = [];
   for (const m of messages) {
-    const atts = Array.isArray(m.attachments) ? m.attachments : [];
-    for (const a of atts) {
+    for (const a of (Array.isArray(m.attachments) ? m.attachments : [])) {
       if (!a.failReason) continue;
-      const key = a.href || `${m.id || ''}#${rows.length}`;
+      if (a.href && okHrefs.has(a.href)) continue;
+      const key = a.href || `no-href#${rows.length}`;
       if (seen.has(key)) continue;
       seen.add(key);
       let host = '';
       try { if (a.href) host = new URL(a.href).hostname; } catch { /* keep blank */ }
-      const clean = (s: string) => s.replace(/[\t\r\n]+/g, ' ').trim();
-      rows.push([clean(m.author || ''), m.timestamp || '', a.failReason, host, clean(a.label || '')].join('\t'));
+      rows.push([clean(m.author || ''), clean(m.timestamp || ''), a.failReason, host, clean(a.label || '')].join('\t'));
     }
   }
   if (!rows.length) return '';
   return [
     '# Images and file attachments that could not be included in this export.',
     '# Columns: author\ttimestamp\treason\thost\tlabel',
-    '# expired/removed = gone from Teams; sign-in/no-access = permission; rate-limited/server-error/network = transient, a re-export may recover; too-large/empty/unsupported = not embeddable.',
+    '# expired/removed = gone from Teams; sign-in/no-access = permission; rate-limited/server-error/network = transient, a re-export may recover; too-large/empty/unsupported/unavailable = not embeddable.',
     ...rows,
   ].join('\n');
 }
@@ -817,7 +826,10 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
           // a dead link.
           const canLink = !!href && /^https?:\/\//i.test(att.href || '') && !isAmsImage;
           if (canLink) {
-            return `<div class="att att-missing">🖼️ <a href="${href}" target="_blank" rel="noopener">${label}</a> <span class="att-meta-hint">(open original)</span></div>`;
+            // Keep the click-through to the original, but still name the reason
+            // the embed failed so HTML matches the CSV/TXT/PDF surfaces.
+            const why = att.failReason ? `, ${escapeHtml(att.failReason)}` : '';
+            return `<div class="att att-missing">🖼️ <a href="${href}" target="_blank" rel="noopener">${label}</a> <span class="att-meta-hint">(open original${why})</span></div>`;
           }
           return `<div class="att att-missing">🖼️ ${label} <span class="att-meta-hint">(not included${att.failReason ? `, ${escapeHtml(att.failReason)}` : ''})</span></div>`;
         }
