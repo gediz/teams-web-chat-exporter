@@ -133,12 +133,10 @@ function htmlToText(html: string, mentionMris?: Array<string | undefined>): stri
     const duration = video.getAttribute('data-duration') || '';
     let label = alt || 'Video';
     if (duration) {
-      const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/i);
-      if (match) {
-        const m = parseInt(match[2] || '0');
-        const s = parseInt(match[3] || '0');
-        label += ` (${m}:${String(s).padStart(2, '0')})`;
-      }
+      // formatDuration keeps the hours field (e.g. PT1H5M -> "1:05:00"); the old
+      // inline parse read only minutes/seconds and dropped hours past 1h (CB1).
+      const formatted = formatDuration(duration);
+      if (formatted !== duration) label += ` (${formatted})`;
     }
     video.replaceWith(document.createTextNode(`[${label}]`));
   });
@@ -546,7 +544,7 @@ function extractReactorUuid(mri: string): string | null {
 // Turn RawReaction[] into Reaction[] by resolving MRIs to display names,
 // computing the self flag per-reactor and at the reaction level, and
 // wiring avatarId from the meta.avatars map when available.
-function decorateReactions(
+export function decorateReactions(
   raw: RawReaction[],
   mriMap: Map<string, string>,
   selfUserId: string | null | undefined,
@@ -559,7 +557,9 @@ function decorateReactions(
       const uuid = extractReactorUuid(rr.mri);
       const isSelf = !!(uuid && selfUuid && uuid === selfUuid);
       if (isSelf) anySelf = true;
-      const name = mriMap.get(rr.mri) || (uuid ? uuid.slice(0, 8) : rr.mri);
+      // Fall back to the shared "(unknown user)" sentinel, never a raw id slice
+      // or MRI, so an unresolved reactor never surfaces as a hex string (CB2).
+      const name = mriMap.get(rr.mri) || '(unknown user)';
       const avatarId = uuid && avatarIds ? avatarIds.get(uuid) : undefined;
       const info: ReactorInfo = { name };
       if (avatarId) info.avatarId = avatarId;
@@ -733,12 +733,9 @@ function extractVideos(content: string, existingHrefs: Set<string>): Attachment[
     const durMatch = match[0].match(/data-duration="([^"]+)"/);
     let durationLabel = '';
     if (durMatch) {
-      const dm = durMatch[1].match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/i);
-      if (dm) {
-        const m = parseInt(dm[2] || '0');
-        const s = parseInt(dm[3] || '0');
-        durationLabel = ` (${m}:${String(s).padStart(2, '0')})`;
-      }
+      // Keep hours for videos over 1h (CB1); the old inline parse dropped them.
+      const formatted = formatDuration(durMatch[1]);
+      if (formatted !== durMatch[1]) durationLabel = ` (${formatted})`;
     }
 
     const altMatch = match[0].match(/alt="([^"]+)"/);
@@ -833,7 +830,7 @@ function convertLinkPreviews(properties: Record<string, unknown>, existingHrefs:
 /**
  * Parse ISO 8601 duration (e.g. "PT12S" → "0:12", "PT1M30S" → "1:30").
  */
-function formatDuration(iso: string): string {
+export function formatDuration(iso: string): string {
   const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/i);
   if (!match) return iso;
   const h = parseInt(match[1] || '0');
@@ -841,6 +838,19 @@ function formatDuration(iso: string): string {
   const s = parseInt(match[3] || '0');
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+// True when two normalized (lowercased, trimmed) preview-card titles denote the
+// same card: identical, or the shorter is a prefix of the longer up to a strong
+// separator ("title" vs "title - author - site"). The old bidirectional
+// substring test over-matched (CB9): it deleted a distinct "report" against
+// "annual report 2024". Require a real separator boundary, so a plain trailing
+// space ("report" vs "report 2024") is treated as a distinct card.
+export function previewTitlesDuplicate(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  if (!short || !long.startsWith(short)) return false;
+  return /^\s*[-–—|:•·]/.test(long.slice(short.length));
 }
 
 /**
@@ -1198,8 +1208,9 @@ function convertOneMessage(
     if (a.kind !== 'preview' || !a.metaText) return true;
     const title = (a.metaText || '').split('\n')[0].toLowerCase().trim();
     if (!title) return true;
-    // Substring match: "Title" vs "Title - Author - Site" are duplicates
-    const isDupe = previewTitles.some(pt => pt.includes(title) || title.includes(pt));
+    // "Title" vs "Title - Author - Site" are duplicates, but a bare substring
+    // match over-deletes distinct cards (CB9), so match a prefix-to-separator.
+    const isDupe = previewTitles.some(pt => previewTitlesDuplicate(pt, title));
     if (isDupe) return false;
     previewTitles.push(title);
     return true;
