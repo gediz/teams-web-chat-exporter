@@ -17,9 +17,10 @@
     "zip:firefox": "wxt zip -b firefox",
     "zip:edge": "wxt zip -b edge",
     "zip:safari": "wxt zip -b safari",
-    "check": "node scripts/check-i18n.mjs && node scripts/check-vendor-hashes.mjs && vitest run && svelte-check --tsconfig ./tsconfig.json",
+    "check": "node scripts/check-i18n.mjs && node scripts/check-vendor-hashes.mjs && vitest run --coverage && svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
     "lint": "eslint .",
     "check:i18n": "node scripts/check-i18n.mjs",
     "postinstall": "wxt prepare && node scripts/vendor-twemoji.mjs"
