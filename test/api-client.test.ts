@@ -5,14 +5,14 @@
 //     partial-network flagging still fires.
 //   - fetchAllMessages keeps the pages already fetched when the network drops
 //     mid-pagination (a partial chat) instead of discarding the whole chat.
-import { test } from 'vitest';
+//
+// The retry backoff (NETWORK_RETRY_BACKOFF_MS = 2000) is driven with fake timers
+// so these run in milliseconds instead of blocking on real sleeps. The internal
+// 30s AbortSignal.timeout never fires: the fetch mock ignores the signal and
+// resolves/throws synchronously, and we only advance past the 2s backoff.
+import { test, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import { fetchPageWithRetry, fetchAllMessages } from '../src/content/api-client.ts';
-
-// The token-refresh path (getIc3Token) reads localStorage; in node there is
-// none, so stub an empty one — it returns null and fetchAllMessages falls back
-// to config.ic3Token, which is all these transport tests exercise.
-globalThis.localStorage = globalThis.localStorage || { getItem: () => null, setItem() {}, removeItem() {} };
 
 const MS_URL = 'https://apac.ng.msg.teams.microsoft.com/v1/x';
 
@@ -28,6 +28,7 @@ function jsonResponse(body) {
 }
 
 test('fetchPageWithRetry retries once on a transient network throw, then succeeds', async () => {
+  vi.useFakeTimers();
   const orig = global.fetch;
   let calls = 0;
   global.fetch = async () => {
@@ -36,26 +37,31 @@ test('fetchPageWithRetry retries once on a transient network throw, then succeed
     return jsonResponse({ messages: [{ id: 'm1' }] });
   };
   try {
-    const data = await fetchPageWithRetry(MS_URL, 'tok');
+    const p = fetchPageWithRetry(MS_URL, 'tok');
+    await vi.advanceTimersByTimeAsync(2500); // flush the one retry backoff (2000ms)
+    const data = await p;
     assert.equal(calls, 2, 'fetched twice — one retry after the blip');
     assert.equal(data.messages.length, 1);
-  } finally { global.fetch = orig; }
+  } finally { global.fetch = orig; vi.useRealTimers(); }
 });
 
 test('fetchPageWithRetry gives up after the bounded network retry (no infinite loop)', async () => {
+  vi.useFakeTimers();
   const orig = global.fetch;
   let calls = 0;
   global.fetch = async () => { calls++; throw new TypeError('Failed to fetch'); };
   try {
-    await assert.rejects(
-      fetchPageWithRetry(MS_URL, 'tok'),
-      (e) => /NetworkError|Failed to fetch/i.test(String(e && e.message)),
-    );
+    const p = fetchPageWithRetry(MS_URL, 'tok');
+    const settled = p.then(() => null, (e) => e); // capture the rejection so it's never "unhandled"
+    await vi.advanceTimersByTimeAsync(2500);
+    const err = await settled;
+    assert.ok(err && /NetworkError|Failed to fetch/i.test(String(err.message)), 'threw a network error');
     assert.equal(calls, 2, 'initial attempt + exactly one retry, then throw');
-  } finally { global.fetch = orig; }
+  } finally { global.fetch = orig; vi.useRealTimers(); }
 });
 
 test('fetchAllMessages keeps the fetched pages when the network drops mid-pagination', async () => {
+  vi.useFakeTimers();
   const orig = global.fetch;
   let calls = 0;
   global.fetch = async () => {
@@ -70,7 +76,9 @@ test('fetchAllMessages keeps the fetched pages when the network drops mid-pagina
   };
   try {
     const config = { chatServiceUrl: 'https://apac.ng.msg.teams.microsoft.com', ic3Token: 'tok' };
-    const msgs = await fetchAllMessages(config, 'conv1');
+    const p = fetchAllMessages(config, 'conv1');
+    await vi.advanceTimersByTimeAsync(3000); // inter-page delay (150ms) + retry backoff (2000ms)
+    const msgs = await p;
     assert.equal(msgs.length, 2, 'the first page is kept, not discarded');
-  } finally { global.fetch = orig; }
+  } finally { global.fetch = orig; vi.useRealTimers(); }
 });

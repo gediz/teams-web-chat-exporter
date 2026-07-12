@@ -42,6 +42,7 @@
     "@tsconfig/svelte": "^5.0.6",
     "@types/chrome": "^0.0.268",
     "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^3.2.7",
     "eslint": "^10.6.0",
     "eslint-plugin-svelte": "^3.20.0",
     "globals": "^17.7.0",

@@ -34,3 +34,6 @@ Thumbs.db
 # fixtures, anything that shouldn't reach the public repo. Move
 # anything you want to keep around but never publish into here.
 debug/
+
+# Vitest coverage reports (generated)
+coverage/

@@ -10,5 +10,15 @@ export default defineConfig({
     environment: 'happy-dom',
     setupFiles: ['./test/setup.ts'],
     include: ['test/**/*.test.ts', 'src/**/*.test.ts'],
+    coverage: {
+      provider: 'v8',
+      // Report the WHOLE source tree (all: true counts files no test touches as
+      // 0%), so coverage reflects the real codebase, not just imported modules.
+      all: true,
+      include: ['src/**/*.{ts,svelte}'],
+      exclude: ['src/**/*.d.ts', 'src/i18n/locales/**', '**/*.test.ts'],
+      reporter: ['text-summary', 'json-summary', 'html', 'lcov'],
+      reportsDirectory: './coverage',
+    },
   },
 });
