@@ -3937,6 +3937,13 @@ export default defineContentScript({
                             }, { startAtISO: scrapeOpts.startAtISO, signal: abortSignal, conversationId: typeof conversationId === 'string' ? conversationId : null });
 
                             if (apiResult) {
+                                // A salvaged partial chat (a mid-pagination network error kept the
+                                // pages fetched so far) flags the export partial-network, the same
+                                // as the total-failure path below.
+                                if (apiResult.partialNetwork) {
+                                    partialReason = 'network';
+                                    console.warn('[Teams Exporter] API returned a PARTIAL chat after a network error — flagging export as partial-network');
+                                }
                                 const converted = convertApiMessages(apiResult.messages, scrapeOpts, apiResult.userId);
                                 // Two distinct empty cases:
                                 //  - converted.length > 0     : normal — render messages.
@@ -4035,7 +4042,7 @@ export default defineContentScript({
                                 console.log('[Teams Exporter] API failed and noDomFallback is set (multi-chat) — reporting failure without DOM scroll');
                                 currentRunStartedAt = null;
                                 currentAbortController = null;
-                                sendResponse({ ok: false, error: 'API scrape failed; DOM fallback disabled in multi-chat mode' });
+                                sendResponse({ ok: false, error: 'API scrape failed; DOM fallback disabled in multi-chat mode', isNetworkError: apiFailure?.isNetworkError === true });
                                 return;
                             }
                             const replyCollector = createReplyCollector();

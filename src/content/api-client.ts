@@ -1794,6 +1794,15 @@ export async function extractConversationId(): Promise<string | null> {
 const INITIAL_DELAY_MS = 150; // reverted: 40ms tripped 429 on the chatsvc messages endpoint
 const MAX_PAGES = 500; // safety limit (~100k messages)
 const MAX_RETRIES = 5;
+// One short-backoff retry for the fetch-throw class (a 30s timeout or a
+// DNS/reset/offline TypeError). Before this, a single transient blip threw
+// straight through and lost the WHOLE chat (a 346-msg chat was lost to one
+// timeout while the next chat succeeded seconds later). Separate budget from the
+// 429/403 ladders. The retry uses a shorter timeout so a dead network can't
+// stack two full 30s waits into a 60s hang for one page.
+const NETWORK_RETRIES = 1;
+const NETWORK_RETRY_BACKOFF_MS = 2000;
+const NETWORK_RETRY_TIMEOUT_MS = 12_000;
 
 // Credentialed-fetch guard for the messaging path. The server-supplied
 // `backwardLink` and the discovered `chatServiceUrl` both reach fetch() with
@@ -1869,7 +1878,7 @@ function combineAbortSignals(a: AbortSignal | undefined, b: AbortSignal): AbortS
   return ctrl.signal;
 }
 
-async function fetchPageWithRetry(
+export async function fetchPageWithRetry(
   url: string,
   token: string,
   signal?: AbortSignal,
@@ -1892,6 +1901,7 @@ async function fetchPageWithRetry(
   // to keep the pre-v1.4 request shape exactly intact and avoid any
   // chance of stale third-party Skype cookies confusing the server.
   const isTeamsFreeProxy = /teams\.live\.com\/api\/chatsvc\/consumer\b/i.test(url);
+  let netRetries = 0;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const headers = buildMessagingHeaders(url, token);
     // Always combine the caller's signal with an internal 30 s
@@ -1904,7 +1914,7 @@ async function fetchPageWithRetry(
     // With the combined signal, fetch reliably aborts at 30 s and
     // the throw bubbles to apiScrape which surfaces the partial
     // signal.
-    const timeoutSignal = AbortSignal.timeout(30_000);
+    const timeoutSignal = AbortSignal.timeout(netRetries > 0 ? NETWORK_RETRY_TIMEOUT_MS : 30_000);
     const init: RequestInit = {
       headers,
       signal: combineAbortSignals(signal, timeoutSignal),
@@ -1918,12 +1928,23 @@ async function fetchPageWithRetry(
       // apiScrape's catch re-throws AbortError so content.ts treats
       // it as a user cancel rather than as an API failure.
       if (signal?.aborted) throw err;
-      // Our internal timeout fired and the fetch threw AbortError.
-      // Convert to a TypeError with a NetworkError message so
-      // apiScrape's isNetworkError() classifier picks it up — that's
-      // what flips the export to partial=network downstream.
-      if (timeoutSignal.aborted) {
-        throw new TypeError(`NetworkError: fetch timed out after 30s (no network?) for ${url.slice(0, 200)}`, { cause: err });
+      const timedOut = timeoutSignal.aborted;
+      // One short-backoff retry for a transient blip (our 30s timeout, or a
+      // DNS/reset/offline TypeError) before giving up. A timed-out fetch appended
+      // nothing to the page, so re-fetching the SAME url is idempotent. Dedicated
+      // budget (NETWORK_RETRIES), guarded on attempt so it never runs off the
+      // loop end into "Unreachable".
+      if ((timedOut || isNetworkError(err)) && netRetries < NETWORK_RETRIES && attempt < MAX_RETRIES) {
+        netRetries++;
+        console.log(`[API] Network ${timedOut ? 'timeout' : 'error'} on page fetch, retrying once in ${NETWORK_RETRY_BACKOFF_MS}ms`);
+        await sleep(NETWORK_RETRY_BACKOFF_MS);
+        continue;
+      }
+      // Our internal timeout fired and the fetch threw AbortError. Convert to a
+      // TypeError with a NetworkError message so apiScrape's isNetworkError()
+      // classifier picks it up — that's what flips the export to partial=network.
+      if (timedOut) {
+        throw new TypeError(`NetworkError: fetch timed out (no network?) for ${url.slice(0, 200)}`, { cause: err });
       }
       throw err;
     }
@@ -2003,6 +2024,7 @@ export async function fetchAllMessages(
 ): Promise<TeamsApiMessage[]> {
   const startAtMs = startAtISO ? Date.parse(startAtISO) : NaN;
   const allMessages: TeamsApiMessage[] = [];
+  lastFetchTruncatedNetwork = false;
   const encodedConvId = encodeURIComponent(conversationId);
   let nextUrl: string | null =
     `${config.chatServiceUrl}/v1/users/ME/conversations/${encodedConvId}/messages?pageSize=200&startTime=1&view=msnp24Equivalent%7CsupportsMessageProperties`;
@@ -2027,7 +2049,22 @@ export async function fetchAllMessages(
       token = (await getIc3Token()) || config.ic3Token;
     }
 
-    const data = await fetchPageWithRetry(nextUrl, token, signal);
+    let data: MessagesResponse;
+    try {
+      data = await fetchPageWithRetry(nextUrl, token, signal);
+    } catch (err) {
+      // Network/timeout mid-pagination (the in-fetch retry already tried once):
+      // keep the pages already fetched — a partial chat — rather than discarding
+      // them and losing the whole chat. Salvage only with data in hand and a
+      // genuine network error; a user abort or a first-page failure still
+      // propagates so cancel handling / DOM fallback runs unchanged.
+      if (!signal?.aborted && isNetworkError(err) && allMessages.length > 0) {
+        console.warn(`[API] Network error after ${allMessages.length} messages (page ${page}); keeping the partial chat`);
+        lastFetchTruncatedNetwork = true;
+        break;
+      }
+      throw err;
+    }
 
     if (data.errorCode) {
       throw new Error(`Messages API error ${data.errorCode}: ${data.message}`);
@@ -2093,6 +2130,12 @@ type ApiScrapeFailure = {
 let lastApiScrapeFailure: ApiScrapeFailure | null = null;
 export function getLastApiScrapeFailure(): ApiScrapeFailure | null { return lastApiScrapeFailure; }
 
+// Set true when fetchAllMessages salvaged a PARTIAL chat after a mid-pagination
+// network error (kept the pages already fetched instead of discarding them).
+// apiScrape reads it to flag an otherwise-successful result as partial=network,
+// so the export carries the warning banner rather than silently looking whole.
+let lastFetchTruncatedNetwork = false;
+
 // Browsers don't have a reliable "is this a network error" flag — we
 // pattern-match on the canonical error shapes Firefox and Chromium
 // produce when fetch() can't reach the server (DNS fail, offline, TCP
@@ -2108,7 +2151,7 @@ function isNetworkError(err: unknown): boolean {
 export async function apiScrape(
   onProgress?: (p: FetchProgress) => void,
   options?: { signal?: AbortSignal; startAtISO?: string | null; conversationId?: string | null },
-): Promise<{ messages: TeamsApiMessage[]; conversationId: string; userId: string | null; userRegion: string; ic3Token: string; participants?: Participant[]; memberCount?: number } | null> {
+): Promise<{ messages: TeamsApiMessage[]; conversationId: string; userId: string | null; userRegion: string; ic3Token: string; participants?: Participant[]; memberCount?: number; partialNetwork?: boolean } | null> {
   const signal = options?.signal;
   const startAtISO = options?.startAtISO ?? null;
   const explicitConvId = options?.conversationId ?? null;
@@ -2259,7 +2302,7 @@ export async function apiScrape(
     participants.sort((a, b) => a.name.localeCompare(b.name));
 
     const userId = getCurrentUserUuid();
-    return { messages, conversationId, userId, userRegion, ic3Token: messagingAuthToken, participants, memberCount };
+    return { messages, conversationId, userId, userRegion, ic3Token: messagingAuthToken, participants, memberCount, partialNetwork: lastFetchTruncatedNetwork };
   } catch (err: any) {
     // Re-throw an abort so the caller's try/catch can branch on cancellation
     // instead of treating it as a normal API failure (and triggering DOM
