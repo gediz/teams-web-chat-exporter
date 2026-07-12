@@ -10,6 +10,7 @@ import {
   attachmentDatePrefix,
   collectDocumentAttachments,
   toFilesSummaryWire,
+  isTransientReason,
 } from '../src/background/attachment-download.ts';
 
 test('parseExtDenyList splits, trims, strips leading dots, lowercases; keeps multi-dot', () => {
@@ -61,6 +62,16 @@ test('collectDocumentAttachments dedups by href, skips images + non-SharePoint h
   expect(out[0].href).toBe('https://contoso.sharepoint.com/sites/x/report.pdf');
   expect(out[0].name).toBe('report.pdf');
   expect(out[0].itemid).toBe('guid-1'); // adopted from the second (deduped) occurrence
+});
+
+test('isTransientReason marks network-class interrupts retryable but not access/content failures', () => {
+  for (const r of ['NETWORK_FAILED', 'NETWORK_TIMEOUT', 'TIMED_OUT', 'SERVER_FAILED', 'CRASH']) {
+    expect(isTransientReason(r)).toBe(true);
+  }
+  for (const r of ['SERVER_UNAUTHORIZED', 'SERVER_FORBIDDEN', 'SERVER_BAD_CONTENT', 'REQUEST_ACCESS_PAGE', 'USER_CANCELED']) {
+    expect(isTransientReason(r)).toBe(false);
+  }
+  expect(isTransientReason(undefined)).toBe(false);
 });
 
 test('toFilesSummaryWire projects the count fields and drops the failures array', () => {

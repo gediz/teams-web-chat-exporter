@@ -566,7 +566,7 @@ export async function verifyDownloadOnChanged(
 // second attempt (after backoff, and after a bandwidth-hogging sibling
 // download finishes) plausibly succeeds. NOT retried: access denials
 // (SERVER_UNAUTHORIZED/FORBIDDEN), the request-access page, or a user cancel.
-function isTransientReason(reason?: string): boolean {
+export function isTransientReason(reason?: string): boolean {
   if (!reason) return false;
   // Network-layer conditions where a retry after backoff plausibly succeeds
   // (this is the NETWORK_FAILED-during-a-burst case seen live). Deliberately

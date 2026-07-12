@@ -76,7 +76,7 @@ const EMOJI_FONT_RESOURCE_NAME = 'FE';
 // off post-match to avoid "visit..." swallowing the sentence's trailing period.
 const URL_RE = /https?:\/\/[^\s<>"')\]}\u0080-\uFFFF]+/g;
 
-function trimTrailingPunct(url: string): string {
+export function trimTrailingPunct(url: string): string {
   return url.replace(/[.,;:!?)\]}]+$/, '');
 }
 
@@ -273,7 +273,7 @@ type Cursor = {
 
 // ----- helpers that don't need pdf-lib --------------------------------
 
-function formatTimestamp(ts?: string): string {
+export function formatTimestamp(ts?: string): string {
   if (!ts) return '';
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return ts;
@@ -563,7 +563,7 @@ type PreferredWeight = 'regular' | 'bold';
 // (D7B0-D7FF). NotoSansSC contains none of these, so they must route to
 // NotoSansKR or render as tofu (issue #28). U+FFA0 (halfwidth Hangul filler)
 // is the one codepoint in the fullwidth block below that SC lacks but KR has.
-function cpRoutesToKr(cp: number): boolean {
+export function cpRoutesToKr(cp: number): boolean {
   return (
     (cp >= 0x1100 && cp <= 0x11FF) ||
     (cp >= 0x3130 && cp <= 0x318F) ||
@@ -578,7 +578,7 @@ function cpRoutesToKr(cp: number): boolean {
 // punctuation / fullwidth blocks (absent from Latin Noto Sans). NotoSansSC
 // covers every assigned codepoint in these blocks (the lone exception, U+FFA0,
 // is handled by cpRoutesToKr above). Callers must check cpRoutesToKr FIRST.
-function cpRoutesToCjk(cp: number): boolean {
+export function cpRoutesToCjk(cp: number): boolean {
   return (
     (cp >= 0x3000 && cp <= 0x303F) ||
     (cp >= 0x3040 && cp <= 0x30FF) ||
@@ -1012,7 +1012,7 @@ function segmentText(
 
 const DATA_URL_RE = /^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i;
 
-function dataUrlToBytes(dataUrl: string): { mime: string; bytes: Uint8Array } | null {
+export function dataUrlToBytes(dataUrl: string): { mime: string; bytes: Uint8Array } | null {
   const m = dataUrl.match(DATA_URL_RE);
   if (!m) return null;
   try {
@@ -1187,7 +1187,7 @@ function safeWidthOf(text: string, weight: PreferredWeight, ctx: TextCtx, size: 
 //   2. Inside a PDF literal, "\", "(" and ")" are special. Escape them so a
 //      genuine ASCII paren in a URL (e.g. SharePoint "/Doc_(v2)") does not
 //      break the literal either.
-function encodeUriForPdf(url: string): string {
+export function encodeUriForPdf(url: string): string {
   let out = '';
   for (const ch of url) {
     const cp = ch.codePointAt(0) ?? 0;
@@ -1764,14 +1764,14 @@ function renderHeader(cursor: Cursor, meta: ExportMeta, ctx: TextCtx) {
 // the bare "emoji count".
 // Up to two initials from a reactor's display name, mirroring the HTML chip
 // (builders.ts). For CJK names the first character stands in for the initial.
-function reactorInitials(name: string): string {
+export function reactorInitials(name: string): string {
   return (name || '').split(/\s+/).map(p => p[0] || '').join('').slice(0, 2).toUpperCase() || '?';
 }
 
 // Every reactor's name, comma-joined. The PDF has no hover popover, so the
 // full list is the only way to see who reacted; drawReactionLine wraps it
 // onto continuation lines, and the compact fallback wraps it via wrapText.
-function reactorNames(r: Reaction): string {
+export function reactorNames(r: Reaction): string {
   const list = r.reactors;
   if (!list || !list.length) return '';
   const nameOf = (x: ReactorInfo) => (x.self ? 'You' : x.name);
