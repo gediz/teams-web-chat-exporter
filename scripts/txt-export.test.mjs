@@ -62,3 +62,15 @@ test('a forwarded message that is also a reply puts the quote before the forward
   const out = toPlainText([m]);
   assert.ok(out.indexOf('> John: any updates?') < out.indexOf('[forwarded from Ext]'), 'reply precedes forward');
 });
+
+test('renders the failed-image summary line', () => {
+  // Failure-transparency banner in TXT (download.ts toPlainText). Reasons are
+  // ordered most-common first; a dropped/reworded line would otherwise pass.
+  const out = toPlainText([plain], {
+    attachmentStats: { total: 5, failed: 3, byReason: { expired: 2, 'sign-in': 1 } },
+  });
+  assert.ok(
+    out.includes('3 of 5 images could not be included (2 expired, 1 sign-in).'),
+    'TXT carries the failed-image summary line',
+  );
+});

@@ -122,3 +122,16 @@ test('is_own and message_type columns reflect the message', () => {
   assert.equal(rows[1][col('is_own')], 'false', 'absent isOwn -> false');
   assert.equal(rows[1][col('message_type')], '', 'absent messageType -> empty');
 });
+
+test('surfaces the failed-image summary as a leading # comment', () => {
+  // Failure-transparency banner (builders.ts imagesBanner). Reasons are ordered
+  // most-common first. Without this a dropped/reworded banner would pass silently.
+  const csv = toCSV([{ id: '1', author: 'A', text: 'hi' }], {
+    attachmentStats: { total: 5, failed: 3, byReason: { expired: 2, 'sign-in': 1 } },
+  });
+  assert.equal(csv.codePointAt(0), 0xfeff, 'BOM stays first');
+  assert.ok(
+    csv.replace(/^﻿/, '').includes('# 3 of 5 images could not be included (2 expired, 1 sign-in).'),
+    'CSV carries the failed-image summary banner as a # comment',
+  );
+});

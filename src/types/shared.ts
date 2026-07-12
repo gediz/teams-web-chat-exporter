@@ -40,6 +40,11 @@ export type Attachment = {
   // manifest. Kept in output (machine-readable). See statusToReason() in
   // content.ts for the mapping.
   failReason?: string;
+  // The image's original href, retained only so the failure count / manifest can
+  // still dedup by URL (and show the host) after a failed auth-protected
+  // thumbnail has its render href cleared in content.ts. In-flight only;
+  // stripped before the export is serialized.
+  failHref?: string;
 };
 
 export type ReplyContext = {

@@ -1626,7 +1626,7 @@ export default defineContentScript({
             // Collect attachments whose href is an actual image (or routable through
             // the Teams URL-image proxy). Skip file attachments like SharePoint docs,
             // which have an http href but the proxy returns 415 for them.
-            const tasks: { att: { href?: string; dataUrl?: string; kind?: 'preview'; type?: string | null; failReason?: string }; url: string; fallbackUrl?: string }[] = [];
+            const tasks: { att: { href?: string; dataUrl?: string; kind?: 'preview'; type?: string | null; failReason?: string; failHref?: string }; url: string; fallbackUrl?: string }[] = [];
             for (const m of messages) {
                 if (!m.attachments) continue;
                 for (const att of m.attachments) {
@@ -1793,7 +1793,12 @@ export default defineContentScript({
                             || /\/urlp\//i.test(url)
                             || /(asyncgw\.teams\.microsoft\.com|\.asm\.skype\.com)/i.test(url);
                         const isDirectThumbnail = att.kind === 'preview' || att.type === 'video' || att.type === 'audio';
-                        if (authProtected && isDirectThumbnail) att.href = undefined;
+                        // Clear the render href so the HTML doesn't draw a broken
+                        // auth-protected <img>, but keep the URL in failHref so the
+                        // failure count / manifest can still dedup by it and show
+                        // the host (otherwise N copies of one failed thumbnail count
+                        // as N distinct failures).
+                        if (authProtected && isDirectThumbnail) { att.failHref = att.href; att.href = undefined; }
                     }
                     done++;
                     onProgress?.(done, tasks.length, sawRateLimit);
@@ -4304,9 +4309,11 @@ export default defineContentScript({
                                         if (a.dataUrl && a.dataUrl.length > SINGLE_CHUNK_MAX) {
                                             console.warn(`[Teams Exporter] One image is too large to stream even alone (~${Math.round(a.dataUrl.length / 1048576)}MB); dropped to placeholder`);
                                             delete a.dataUrl;
+                                            a.failReason = a.failReason || 'too-large';
                                         } else if (a.href && a.href.startsWith('data:') && a.href.length > SINGLE_CHUNK_MAX) {
                                             console.warn(`[Teams Exporter] One image is too large to stream even alone (~${Math.round(a.href.length / 1048576)}MB); dropped to placeholder`);
                                             a.href = undefined;
+                                            a.failReason = a.failReason || 'too-large';
                                         }
                                     }
                                 }

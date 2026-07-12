@@ -213,9 +213,10 @@ function collectAvatarFiles(meta: ExportMeta): { files: InlineImage[]; meta: Exp
 }
 
 function stripAttachmentDataUrl(att: Attachment) {
-  // shareUrl is an internal sharing link for the Files-phase resolver; like
-  // dataUrl it must never reach the serialized export output.
-  const { dataUrl, shareUrl, ...rest } = att;
+  // shareUrl is an internal sharing link for the Files-phase resolver; failHref
+  // is an internal dedup aid for the failure manifest. Like dataUrl, neither
+  // must reach the serialized export output.
+  const { dataUrl, shareUrl, failHref, ...rest } = att;
   return rest;
 }
 

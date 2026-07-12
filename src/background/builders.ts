@@ -76,7 +76,7 @@ export function collectAttachmentOutcomes(
     const atts = Array.isArray(m.attachments) ? m.attachments : [];
     for (const a of atts) {
       if (a.failReason) {
-        const key = a.href || `no-href#${failByHref.size}`;
+        const key = a.href || a.failHref || `no-href#${failByHref.size}`;
         if (!failByHref.has(key)) failByHref.set(key, a.failReason);
       } else if (a.dataUrl) {
         if (a.href) okHrefs.add(a.href); else okNoHref++;
@@ -120,12 +120,13 @@ export function buildImagesFailedManifest(messages: ExportMessage[]): string {
   for (const m of messages) {
     for (const a of (Array.isArray(m.attachments) ? m.attachments : [])) {
       if (!a.failReason) continue;
-      if (a.href && okHrefs.has(a.href)) continue;
-      const key = a.href || `no-href#${rows.length}`;
+      const dedupHref = a.href || a.failHref;
+      if (dedupHref && okHrefs.has(dedupHref)) continue;
+      const key = dedupHref || `no-href#${rows.length}`;
       if (seen.has(key)) continue;
       seen.add(key);
       let host = '';
-      try { if (a.href) host = new URL(a.href).hostname; } catch { /* keep blank */ }
+      try { if (dedupHref) host = new URL(dedupHref).hostname; } catch { /* keep blank */ }
       rows.push([clean(m.author || ''), clean(m.timestamp || ''), a.failReason, host, clean(a.label || '')].join('\t'));
     }
   }
