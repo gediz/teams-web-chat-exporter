@@ -3927,6 +3927,11 @@ export default defineContentScript({
                         // 'truncation' if both fire (network is the higher-
                         // confidence root cause).
                         let partialReason: 'network' | 'truncation' | null = null;
+                        // Id of the chat whose messages the API actually fetched.
+                        // A bundle export asks for chats other than the one open
+                        // in the tab, so meta.conversationId must come from here,
+                        // not from the tab's current URL/state.
+                        let apiConvId: string | null = null;
 
                         try {
                             const apiResult = await apiScrape((p) => {
@@ -3962,6 +3967,7 @@ export default defineContentScript({
                                 //    surface them differently — keep the existing
                                 //    fall-through behaviour for that case.
                                 if (converted.length > 0 || apiResult.messages.length === 0) {
+                                    apiConvId = apiResult.conversationId || null;
                                     // Fetch inline images (content script has auth cookies, URLs expire).
                                     // Skipped when the target format won't render them.
                                     if (needImages) {
@@ -4215,8 +4221,12 @@ export default defineContentScript({
                         // background can pin the persisted outcome snapshot
                         // to this specific chat (Teams is an SPA; tabId
                         // alone doesn't distinguish conversations).
-                        let scrapeConvId: string | null = null;
-                        try { scrapeConvId = await extractConversationId(); } catch { /* best-effort */ }
+                        // API mode: the id that was fetched. DOM-scroll fallback
+                        // reads the open chat, so the tab's id is correct there.
+                        let scrapeConvId: string | null = apiConvId;
+                        if (!scrapeConvId) {
+                            try { scrapeConvId = await extractConversationId(); } catch { /* best-effort */ }
+                        }
                         const meta: Record<string, unknown> = {
                             count: messages.length,
                             title,
