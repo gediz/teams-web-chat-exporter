@@ -82,3 +82,43 @@ test('fetchAllMessages keeps the fetched pages when the network drops mid-pagina
     assert.equal(msgs.length, 2, 'the first page is kept, not discarded');
   } finally { global.fetch = orig; vi.useRealTimers(); }
 });
+
+test('fetchAllMessages preserves Teams Free auth headers on a msgapi syncState page', async () => {
+  vi.useFakeTimers();
+  const orig = global.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const syncStateUrl = 'https://msgapi.teams.live.com/v1/users/ME/conversations/conv1/messages?startTime=1&syncState=next&pageSize=200&view=msnp24Equivalent';
+  global.fetch = async (input, init) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (calls.length === 1) {
+      return jsonResponse({
+        messages: [{ id: 'page-1' }],
+        _metadata: { backwardLink: syncStateUrl },
+      }) as Response;
+    }
+    return jsonResponse({ messages: [{ id: 'page-2' }] }) as Response;
+  };
+
+  try {
+    const config = {
+      chatServiceUrl: 'https://teams.live.com/api/chatsvc/consumer',
+      ic3Token: 'test-token',
+    };
+    const pending = fetchAllMessages(config, 'conv1');
+    await vi.advanceTimersByTimeAsync(200);
+    const messages = await pending;
+
+    assert.equal(messages.length, 2, 'both pages are exported');
+    assert.equal(calls.length, 2, 'the syncState page is requested');
+    assert.equal(calls[1].url, syncStateUrl);
+
+    const headers = calls[1].init?.headers as Record<string, string>;
+    assert.equal(headers.authentication, 'skypetoken=test-token');
+    assert.equal(headers.behavioroverride, 'redirectAs404');
+    assert.equal(headers['ms-ic3-product'], 'tfl');
+    assert.equal(headers['ms-ic3-additional-product'], 'Sfl');
+    assert.equal(headers['x-ms-request-priority'], '0');
+    assert.equal(headers.Authorization, undefined, 'Teams Free must not fall back to Bearer auth');
+  } finally { global.fetch = orig; vi.useRealTimers(); }
+});

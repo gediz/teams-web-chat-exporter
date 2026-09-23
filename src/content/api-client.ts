@@ -1839,19 +1839,32 @@ const SHORT_RETRY_BACKOFF_MS = [1000, 2000, 4000];
 //  - Work / School (`*.asm.skype.com`, `*.ic3.teams.office.com`, …):
 //        Authorization: Bearer <token>
 //
-//  - Teams Free (proxied via `teams.live.com/api/chatsvc/consumer/...`):
+//  - Teams Free (`teams.live.com/api/chatsvc/consumer/...` proxy or the
+//    `msgapi.teams.live.com` backend returned in pagination links):
 //    the consumer chat service expects the raw Skype token in a
 //    lowercase `authentication` header — NOT `Authorization`, and NO
 //    `Bearer` prefix. Plus a few client-identification headers that
 //    the consumer service appears to require (or at least Teams' own
 //    UI always sends them; verified from HAR capture of the live
 //    request that returns 200).
+function isTeamsFreeMessagingUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    return hostname === 'msgapi.teams.live.com'
+      || (hostname === 'teams.live.com'
+        && /^\/api\/chatsvc\/consumer(?:\/|$)/i.test(parsed.pathname));
+  } catch {
+    return false;
+  }
+}
+
 function buildMessagingHeaders(url: string, token: string): Record<string, string> {
-  if (/teams\.live\.com\/api\/chatsvc\/consumer\b/i.test(url)) {
-    // The proxy expects the literal scheme `skypetoken=<JWT>` in the
+  if (isTeamsFreeMessagingUrl(url)) {
+    // Teams Free expects the literal scheme `skypetoken=<JWT>` in the
     // lowercase `authentication` header — verified against a Teams UI
     // HAR capture. The other four headers identify the client (Teams
-    // Free / SfL surface); the proxy 401s without them.
+    // Free / SfL surface); the consumer service 401s without them.
     return {
       'authentication': `skypetoken=${token}`,
       'behavioroverride': 'redirectAs404',
