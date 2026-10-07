@@ -2308,7 +2308,7 @@ export async function apiScrape(
     participants.sort((a, b) => a.name.localeCompare(b.name));
 
     const userId = getCurrentUserUuid();
-    return { messages, conversationId, userId, userRegion, ic3Token: messagingAuthToken, participants, memberCount, partialNetwork: lastFetchTruncatedNetwork };
+    return { messages, conversationId, userId, userRegion, ic3Token: isTeamsFree ? messagingAuthToken : ((await getIc3Token()) || messagingAuthToken), participants, memberCount, partialNetwork: lastFetchTruncatedNetwork };
   } catch (err: any) {
     // Re-throw an abort so the caller's try/catch can branch on cancellation
     // instead of treating it as a normal API failure (and triggering DOM
