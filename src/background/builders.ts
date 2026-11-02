@@ -158,7 +158,7 @@ export function toCSV(messages: ExportMessage[], meta: ExportMeta = {}) {
   // leading-comment region as the partial banner.
   const imgSummary = imageSummaryLine(meta.attachmentStats);
   const imagesBanner = imgSummary ? `# ${imgSummary}\n` : '';
-  const header = ['id', 'author', 'timestamp', 'text', 'edited', 'deleted', 'system', 'subject', 'importance', 'mentions', 'reactions_json', 'attachments_json', 'forwarded', 'reply_to', 'reactions', 'is_own', 'message_type'];
+  const header = ['id', 'author', 'timestamp', 'text', 'edited', 'deleted', 'system', 'subject', 'importance', 'mentions', 'reactions_json', 'attachments_json', 'forwarded', 'reply_to', 'reactions', 'is_own', 'message_type', 'via'];
 
   const rows = (messages || []).map(m => {
     const row = [];
@@ -232,6 +232,8 @@ export function toCSV(messages: ExportMessage[], meta: ExportMeta = {}) {
     // can be filtered out from real messages.
     row.push(m.isOwn ? 'true' : 'false');
     row.push(m.messageType ?? '');
+    // via: the app that posted on the author's behalf (e.g. "Updates").
+    row.push(m.via ?? '');
 
     // RFC 4180 escaping: wrap every field in double quotes and double any
     // internal quote. Quoting every cell means embedded commas and newlines
@@ -462,6 +464,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     .hdr{color:var(--muted); font-size:12px; margin-bottom:6px}
     .hdr .rel{margin-left:6px; font-style:italic}
     .hdr .edited{font-style:italic}
+    .hdr .via{font-style:italic}
     .deleted-body{color:var(--muted); font-style:italic}
     .reply{background:#f8fafc; border-left:3px solid #d1d5db; padding:8px 10px; border-radius:8px; margin:8px 0; font-size:13px; color:#374151}
     .reply .reply-meta{display:flex; flex-wrap:wrap; gap:6px; font-size:12px; color:#6b7280; margin-bottom:4px}
@@ -890,7 +893,7 @@ export function toHTML(rows: ExportMessage[], meta: ExportMeta = {}): string[] {
     return `<div class="${msgClass}" id="msg-${idx}">
       <div class="avt">${avatar}</div>
       <div class="main">
-        <div class="hdr">${escapeHtml(m.author || '')} · <span title="${escapeHtml(ts)}">${tsLabel}</span>${rel ? `<span class="rel">(${rel})</span>` : ''}${m.edited ? ' <span class="edited">• edited</span>' : ''}${m.importance === 'urgent' ? '<span class="badge-urgent">URGENT</span>' : m.importance === 'high' ? '<span class="badge-important">IMPORTANT</span>' : ''}</div>
+        <div class="hdr">${escapeHtml(m.author || '')}${m.via ? ` <span class="via">via ${escapeHtml(m.via)}</span>` : ''} · <span title="${escapeHtml(ts)}">${tsLabel}</span>${rel ? `<span class="rel">(${rel})</span>` : ''}${m.edited ? ' <span class="edited">• edited</span>' : ''}${m.importance === 'urgent' ? '<span class="badge-urgent">URGENT</span>' : m.importance === 'high' ? '<span class="badge-important">IMPORTANT</span>' : ''}</div>
         ${m.subject ? `<div class="subject">${escapeHtml(m.subject)}</div>` : ''}
         ${forwardHtml}${replyHtml}
         ${bodyHtml}

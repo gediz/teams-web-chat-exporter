@@ -110,6 +110,9 @@ export type ExportMessage = {
   id?: string;
   threadId?: string | null;
   author?: string;
+  // App that posted the message on the author's behalf, e.g. "Updates" for a
+  // check-in Teams shows as "Jane Doe via Updates". Unset for normal messages.
+  via?: string;
   timestamp?: string;
   text?: string;
   contentHtml?: string;           // Raw HTML content (API mode only)

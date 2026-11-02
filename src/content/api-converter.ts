@@ -10,6 +10,7 @@ import type { TeamsApiMessage } from './api-client';
 import { cleanAltText } from './text';
 import { resolveReactionEmoji, reactionFallbackLabel } from './reaction-emoji';
 import { parseBodyBlocksFromHtml } from './table-model';
+import { base64ToUtf8 } from '../utils/base64';
 
 // Parse an HTML fragment into a detached, inert <body> for safe traversal.
 // DOMParser produces an inert document, so script tags do not execute,
@@ -853,6 +854,196 @@ export function previewTitlesDuplicate(a: string, b: string): boolean {
   return /^\s*[-–—|:•·]/.test(long.slice(short.length));
 }
 
+type CardNode = Record<string, unknown>;
+
+// Card and onbehalfof JSON comes from third-party apps. Read a field as text
+// only when it is a string, number or boolean: String() on an arbitrary object
+// can throw (a "toString" key that is not a function), and one bad card must
+// not fail the whole export.
+function cardString(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
+}
+
+// Adaptive Card text functions ({{DATE(2024-01-02T03:04:05Z, SHORT)}}) render
+// as a localized date or time in Teams. Cards often pair them on one value
+// ("{{DATE(x, SHORT)}} {{TIME(x)}}"), so DATE keeps the date part of an ISO
+// value and TIME the time and zone ("2024-01-02 03:04 UTC"); any other value
+// is kept as is. The classes exclude the delimiters, so each scan stops at
+// the next "{{" or "(" and hostile input with many openers still runs in
+// linear time.
+const CARD_ISO_TIME = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/;
+
+function expandCardTextFunctions(text: string): string {
+  return text.replace(/\{\{(DATE|TIME)\(([^,(){}]*)(?:,[^(){}]*)?\)\}\}/g, (_m, fn: string, value: string) => {
+    const iso = value.trim().match(CARD_ISO_TIME);
+    if (!iso) return value.trim();
+    return fn === 'DATE' ? iso[1] : `${iso[2]} ${iso[3] === 'Z' ? 'UTC' : iso[3]}`;
+  });
+}
+
+function hasToggleAction(el: CardNode): boolean {
+  const action = el.selectAction;
+  return !!action && typeof action === 'object' && (action as CardNode).type === 'Action.ToggleVisibility';
+}
+
+// Labels of show/hide toggles ("See more" / "See less"), which are UI chrome.
+// Collapsible cards also put real content (a headline, a status row) in a
+// clickable toggle header, so a toggle is dropped only when its text is one
+// of these labels.
+const TOGGLE_LABEL = /^(?:(?:see|show|view|read|hide)\s+(?:more|less|all|fewer|details?)|more|less|expand|collapse)$/i;
+
+function isToggleLabel(text: string): boolean {
+  return TOGGLE_LABEL.test(text.replace(/[\s.\u2026\u25b4\u25b2\u25be\u25bc\u2303\u2304]+$/u, '').trim());
+}
+
+// Real cards nest a handful of levels. Each element level costs two steps
+// (its child array, then the element), so this allows 32 element levels and
+// stops a hostile card from exhausting the stack during an export.
+const MAX_CARD_DEPTH = 64;
+
+/**
+ * Collect the readable lines of an Adaptive Card element tree in document
+ * order, at any depth: TextBlock, RichTextBlock, FactSet ("title: value"), and
+ * the children of ColumnSet, Column, Container and Table. Buttons (ActionSet)
+ * and show/hide toggles are skipped. Hidden (isVisible: false) elements are
+ * kept, because cards use them for the full text behind a "See more" toggle.
+ */
+export function collectAdaptiveText(node: unknown, out: string[] = [], depth = 0): string[] {
+  if (depth > MAX_CARD_DEPTH) return out;
+  const pushLine = (line: string) => {
+    const t = line.trim();
+    if (t) out.push(t);
+  };
+  const expanded = (value: unknown) => expandCardTextFunctions(cardString(value)).trim();
+  if (Array.isArray(node)) {
+    for (const child of node) collectAdaptiveText(child, out, depth + 1);
+    return out;
+  }
+  if (!node || typeof node !== 'object') return out;
+  const el = node as CardNode;
+  if (el.type === 'ActionSet') return out;
+  if (hasToggleAction(el)) {
+    // A show/hide toggle is UI chrome when its only text is a toggle label;
+    // a toggle header that carries real content keeps it.
+    const inner = collectAdaptiveText({ ...el, selectAction: undefined }, [], depth + 1);
+    if (!(inner.length === 1 && isToggleLabel(inner[0]))) out.push(...inner);
+    return out;
+  }
+
+  if (el.type === 'TextBlock') {
+    pushLine(expanded(el.text));
+  } else if (el.type === 'RichTextBlock') {
+    const inlines = Array.isArray(el.inlines) ? el.inlines : [];
+    pushLine(expanded(inlines.map(i => {
+      if (!i || typeof i !== 'object') return cardString(i);
+      const text = cardString((i as CardNode).text);
+      // An inline "See more" TextRun with a toggle action is chrome too.
+      return hasToggleAction(i as CardNode) && isToggleLabel(text) ? '' : text;
+    }).join('')));
+  } else if (el.type === 'FactSet') {
+    for (const f of Array.isArray(el.facts) ? el.facts : []) {
+      if (!f || typeof f !== 'object') continue;
+      const title = expanded((f as CardNode).title);
+      const value = expanded((f as CardNode).value);
+      pushLine(title && value ? `${title}: ${value}` : title || value);
+    }
+  } else if (el.type === 'ColumnSet') {
+    collectAdaptiveText(el.columns, out, depth + 1);
+  } else if (el.type === 'Table') {
+    // Cell text is already expanded by the recursive call; join it as is.
+    for (const row of Array.isArray(el.rows) ? el.rows : []) {
+      if (!row || typeof row !== 'object') continue;
+      const cells = (row as CardNode).cells;
+      const texts = (Array.isArray(cells) ? cells : []).map(c =>
+        (c && typeof c === 'object' ? collectAdaptiveText((c as CardNode).items, [], depth + 2) : []).join(' '));
+      pushLine(texts.filter(Boolean).join(' | '));
+    }
+  } else if (Array.isArray(el.items)) {
+    // Container, Column, TableCell, and any future element with children.
+    collectAdaptiveText(el.items, out, depth + 1);
+  }
+  return out;
+}
+
+// Remove every quote (reply or plain blockquote) from a message's HTML.
+function withoutBlockquotes(html: string): string {
+  if (!/<blockquote/i.test(html)) return html;
+  const body = parseHtmlFragment(html);
+  body.querySelectorAll('blockquote').forEach(q => q.remove());
+  return body.innerHTML;
+}
+
+/**
+ * App and connector cards (Updates check-ins, Workflows, pipeline alerts) can
+ * arrive as RichText/Media_Card with no properties.cards. Their content is a
+ * "Card - access it on https://go.skype.com/cards.unsupported" stub plus the
+ * real card, base64-encoded JSON in a <Swift b64="..."> element. Return the
+ * card attachments ({contentType, content}), or [] when there is none or it
+ * does not decode.
+ */
+export function decodeSwiftCards(content: string): CardNode[] {
+  const m = content ? content.match(/<Swift\b[^<>]*?\bb64="([^"<>]+)"/i) : null;
+  if (!m) return [];
+  try {
+    const payload = JSON.parse(base64ToUtf8(decodeXmlEntities(m[1]))) as unknown;
+    const list = Array.isArray(payload)
+      ? payload
+      : payload && typeof payload === 'object' ? (payload as CardNode).attachments : undefined;
+    if (!Array.isArray(list)) return [];
+    return list.filter((a): a is CardNode =>
+      !!a && typeof a === 'object' && !!(a as CardNode).content && typeof (a as CardNode).content === 'object');
+  } catch {
+    return [];
+  }
+}
+
+// Connector card fields are plain text, markdown or a little HTML.
+function cardFieldText(value: unknown): string {
+  const s = cardString(value).trim();
+  return /<[a-z][^<>]*>/i.test(s) ? htmlToText(s).trim() : s;
+}
+
+/**
+ * Readable text for a list of card attachments: one line per text element,
+ * cards separated by a blank line. Handles Adaptive Cards, hero and thumbnail
+ * cards, and Office 365 connector cards; other card types contribute nothing.
+ */
+export function cardsToText(cards: CardNode[]): string {
+  const blocks: string[] = [];
+  for (const card of cards) {
+    const type = cardString(card.contentType);
+    const c = card.content as CardNode;
+    const lines: string[] = [];
+    const add = (v: unknown) => { const t = cardFieldText(v); if (t) lines.push(t); };
+    if (type === 'application/vnd.microsoft.card.adaptive') {
+      collectAdaptiveText(c.body, lines);
+    } else if (type === 'application/vnd.microsoft.card.hero' || type === 'application/vnd.microsoft.card.thumbnail') {
+      add(c.title); add(c.subtitle); add(c.text);
+    } else if (type === 'application/vnd.microsoft.teams.card.o365connector') {
+      add(c.title);
+      add(c.text);
+      for (const sec of Array.isArray(c.sections) ? c.sections : []) {
+        if (!sec || typeof sec !== 'object') continue;
+        const section = sec as CardNode;
+        add(section.activityTitle); add(section.activitySubtitle); add(section.activityText);
+        add(section.title); add(section.text);
+        for (const f of Array.isArray(section.facts) ? section.facts : []) {
+          if (!f || typeof f !== 'object') continue;
+          const name = cardFieldText((f as CardNode).name);
+          const value = cardFieldText((f as CardNode).value);
+          if (name || value) lines.push(name && value ? `${name}: ${value}` : name || value);
+        }
+      }
+      // summary is the notification fallback, not shown in the card itself.
+      if (!lines.length) add(c.summary);
+    }
+    if (lines.length) blocks.push(lines.join('\n'));
+  }
+  return blocks.join('\n\n');
+}
+
 /**
  * Extract attachments from properties.cards (audio cards, adaptive cards).
  * Most cards entries are empty arrays; only non-empty ones are processed.
@@ -882,9 +1073,10 @@ function convertCards(properties: Record<string, unknown>, existingHrefs: Set<st
 
     // Audio card (voice message)
     if (contentType === 'application/vnd.microsoft.card.audio') {
-      const duration = content.duration ? formatDuration(String(content.duration)) : '';
-      const media = content.media as Array<Record<string, string>> | undefined;
-      const mediaUrl = media?.[0]?.url || '';
+      const rawDuration = cardString(content.duration);
+      const duration = rawDuration ? formatDuration(rawDuration) : '';
+      const media = Array.isArray(content.media) ? content.media[0] : undefined;
+      const mediaUrl = media && typeof media === 'object' ? cardString((media as CardNode).url) : '';
       if (!mediaUrl || existingHrefs.has(mediaUrl)) continue;
       existingHrefs.add(mediaUrl);
 
@@ -904,41 +1096,43 @@ function convertCards(properties: Record<string, unknown>, existingHrefs: Set<st
       const body = content.body as Array<Record<string, unknown>> | undefined;
       if (!Array.isArray(body) || !body.length) continue;
 
-      // Extract text blocks for title/description
-      const textBlocks: string[] = [];
+      // The title is still the first top-level TextBlock (or one directly
+      // inside a top-level Container) when there is one, so de-duplication
+      // against link previews is unchanged for cards that already had a title;
+      // {{DATE()}} / {{TIME()}} are expanded. A card with no such TextBlock now
+      // takes its first nested line. The description comes from every depth
+      // (ColumnSet, nested Container, FactSet, ...).
+      let title = '';
       let imageUrl = '';
       for (const item of body) {
-        if (item.type === 'TextBlock' && item.text) {
-          textBlocks.push(String(item.text).trim());
-        }
+        if (!item || typeof item !== 'object') continue;
+        if (!title && item.type === 'TextBlock') title = expandCardTextFunctions(cardString(item.text)).trim();
         if (item.type === 'Container') {
-          const bg = item.backgroundImage as Record<string, string> | undefined;
-          if (bg?.url && !imageUrl) imageUrl = bg.url;
-          // Check nested items
-          const items = item.items as Array<Record<string, unknown>> | undefined;
-          if (items) {
-            for (const sub of items) {
-              if (sub.type === 'TextBlock' && sub.text) {
-                textBlocks.push(String(sub.text).trim());
-              }
-            }
-          }
+          const items = Array.isArray(item.items) ? item.items as CardNode[] : [];
+          const first = items.find(sub => !!sub && typeof sub === 'object' && sub.type === 'TextBlock' && cardString(sub.text).trim());
+          if (!title && first) title = expandCardTextFunctions(cardString(first.text)).trim();
+          const bg = item.backgroundImage;
+          const bgUrl = bg && typeof bg === 'object' ? cardString((bg as CardNode).url) : '';
+          if (bgUrl && !imageUrl) imageUrl = bgUrl;
         }
-        if (item.type === 'Image' && item.url && !imageUrl) {
-          imageUrl = String(item.url);
+        if (item.type === 'Image' && cardString(item.url) && !imageUrl) {
+          imageUrl = cardString(item.url);
         }
       }
+      const lines = collectAdaptiveText(body);
+      if (!title) title = lines[0] || '';
+      const titleAt = lines.indexOf(title);
+      if (titleAt >= 0) lines.splice(titleAt, 1);
+      const description = lines.join('\n');
 
       // Get action URL
-      const action = content.selectAction as Record<string, string> | undefined;
-      const actionUrl = action?.url || '';
+      const action = content.selectAction;
+      const actionUrl = action && typeof action === 'object' ? cardString((action as CardNode).url) : '';
 
-      const title = textBlocks[0] || '';
-      const description = textBlocks.slice(1).filter(Boolean).join('\n');
       if (!title && !imageUrl) continue;
 
       // Source label from app name or action URL domain
-      const appName = (card.appName || '') as string;
+      const appName = cardString(card.appName);
       let sourceLabel = appName;
       if (!sourceLabel && actionUrl) {
         try { sourceLabel = new URL(actionUrl).hostname; } catch { sourceLabel = ''; }
@@ -979,17 +1173,83 @@ function extractMri(fromField: string): string {
   return fromField;
 }
 
+// A display name is one line of plain text. Replace control and line-separator
+// characters, so a hostile app cannot start a fake message line in the TXT
+// or CSV export, and cap the length.
+function cleanDisplayName(value: unknown): string {
+  const flat = Array.from(cardString(value), ch => {
+    const c = ch.codePointAt(0) ?? 0;
+    return c < 0x20 || (c >= 0x7f && c <= 0x9f) || c === 0x2028 || c === 0x2029 ? ' ' : ch;
+  }).join('');
+  return Array.from(flat.replace(/\s+/g, ' ').trim()).slice(0, 256).join('');
+}
+
+/**
+ * The person an app posted a message for. Apps such as Updates or Workflows
+ * send the app as the sender and name the person in properties.onbehalfof
+ * (a JSON string or array of mention-like entries); Teams shows the message
+ * as "<person> via <app>". Returns null when there is no such person.
+ */
+export function parseOnBehalfOf(properties: Record<string, unknown> | undefined): { mri?: string; displayName: string } | null {
+  const raw = properties?.onbehalfof;
+  if (!raw) return null;
+  let list: unknown;
+  try {
+    list = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch {
+    return null;
+  }
+  for (const entry of Array.isArray(list) ? list : [list]) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    if (e.mentionType && e.mentionType !== 'person') continue;
+    const displayName = cleanDisplayName(e.displayName);
+    if (displayName) return { mri: cardString(e.mri) || undefined, displayName };
+  }
+  return null;
+}
+
+// Bots and apps post from a "28:" MRI. Only their messages can be on someone's
+// behalf: onbehalfof on a person's own message is ignored, so a crafted
+// message cannot credit someone else.
+function isAppSender(from: string | undefined): boolean {
+  return !!from && /(?:^|\/contacts\/)28:/i.test(from);
+}
+
+/**
+ * parseOnBehalfOf for a raw message sent by an app, skipping system and
+ * forwarded messages the way convertOneMessage does, so the converter, the MRI
+ * map and the avatar lookup all agree on who a message is credited to.
+ */
+export function appPostedFor(msg: { from?: string; messagetype?: string; properties?: Record<string, unknown> }): { mri?: string; displayName: string } | null {
+  const properties = msg.properties;
+  if (!isAppSender(msg.from)) return null;
+  if (isSystemMessageType(msg.messagetype || '') || properties?.forwardTemplateId) return null;
+  return parseOnBehalfOf(properties);
+}
+
 /** Build a map of MRI → displayName for resolving reactors and system messages. */
 function buildMentionMap(messages: TeamsApiMessage[]): Map<string, string> {
+  // Three passes, so a sender's own name always wins over the name an app
+  // posted for (gated to app senders), and both win over a mention name,
+  // whatever the message order. A mention can be a partial name (Teams splits "Jane Doe"
+  // into "@Jane" + "@Doe" spans) and its text is set by whoever wrote the
+  // message, so it only fills what the first two leave open.
   const map = new Map<string, string>();
   for (const msg of messages) {
     // Map sender MRI → display name (extract MRI from full URL)
     if (msg.from && msg.imdisplayname) {
-      const mri = extractMri(msg.from);
-      map.set(mri, msg.imdisplayname);
+      map.set(extractMri(msg.from), msg.imdisplayname);
       map.set(msg.from, msg.imdisplayname); // also store full URL key
     }
-    // Map mention MRIs → display names
+  }
+  for (const msg of messages) {
+    // A person an app posted for may never post directly; name their MRI so
+    // their reactions resolve, without replacing a sender's own name.
+    const onBehalfOf = appPostedFor(msg);
+    if (onBehalfOf?.mri && !map.has(onBehalfOf.mri)) map.set(onBehalfOf.mri, onBehalfOf.displayName);
+  }
+  for (const msg of messages) {
     const rawMentions = msg.properties?.mentions;
     if (!rawMentions) continue;
     let mentions: Array<{ mri?: string; displayName?: string }>;
@@ -998,10 +1258,6 @@ function buildMentionMap(messages: TeamsApiMessage[]): Map<string, string> {
     } catch { continue; }
     if (!Array.isArray(mentions)) continue;
     for (const m of mentions) {
-      // Only fill an MRI no sender has already named. A sender's imdisplayname
-      // is the canonical full name; a mention can be a partial (Teams splits
-      // "Jane Doe" into "@Jane" + "@Doe" spans), and letting the last
-      // part overwrite the sender name made reactors/system msgs read "Doe".
       if (m.mri && m.displayName && !map.has(m.mri)) map.set(m.mri, m.displayName);
     }
   }
@@ -1063,6 +1319,17 @@ function convertOneMessage(
     }
   }
 
+  // An app posting for a person (an Updates check-in, a Workflows post) sends
+  // the app as the sender. Credit the person and keep the app as `via`, the
+  // way Teams labels it ("Jane Doe via Updates"). `via` is always set, so an
+  // app post never reads as the person's own direct message.
+  const onBehalfOf = appPostedFor(msg);
+  let via: string | undefined;
+  if (onBehalfOf) {
+    via = cleanDisplayName(author) || 'app';
+    author = onBehalfOf.displayName;
+  }
+
   // Content + reply extraction
   const rawContent = msg.content || '';
   let text = '';
@@ -1074,6 +1341,9 @@ function convertOneMessage(
   // MRI per mention index, so htmlToText can collapse a person's split mention
   // ("@First @Last" -> "@First Last") without merging two different people.
   const mentionMris = mentionMrisFromProps(properties);
+  // Text of an app card (RichText/Media_Card), read from its <Swift b64>
+  // payload instead of the "cards.unsupported" stub. Set in the HTML branch.
+  let cardText = '';
 
   // Build forward context for forwarded messages
   let forwardCtx: ForwardContext | undefined;
@@ -1162,19 +1432,28 @@ function convertOneMessage(
     }
   } else if (messageType === 'RichText/Html' || rawContent.startsWith('<')) {
     // Extract reply from blockquote if present
-    if (opts.includeReplies !== false) {
-      const replyResult = extractReplyFromHtml(rawContent);
-      if (replyResult) {
-        replyTo = replyResult.replyTo;
-        bodyHtml = replyResult.cleanHtml;
-        text = htmlToText(replyResult.cleanHtml, mentionMris);
-      } else {
-        bodyHtml = rawContent;
-        text = htmlToText(rawContent, mentionMris);
+    let html = rawContent;
+    const replyResult = opts.includeReplies !== false ? extractReplyFromHtml(rawContent) : null;
+    if (replyResult) {
+      replyTo = replyResult.replyTo;
+      html = replyResult.cleanHtml;
+    }
+    // App cards are RichText/Media_Card. Their card is read with every quote
+    // removed, so a quoted card never stands in for the message's own card.
+    if (messageType === 'RichText/Media_Card') {
+      // A card that fails to decode or convert keeps the stub text below.
+      try {
+        cardText = cardsToText(decodeSwiftCards(withoutBlockquotes(rawContent)));
+      } catch {
+        cardText = '';
       }
+    }
+    if (cardText) {
+      // bodyHtml stays empty: the URIObject stub has no tables to rebuild.
+      text = cardText;
     } else {
-      bodyHtml = rawContent;
-      text = htmlToText(rawContent, mentionMris);
+      bodyHtml = html;
+      text = htmlToText(html, mentionMris);
     }
   } else {
     text = rawContent;
@@ -1198,7 +1477,14 @@ function convertOneMessage(
   const gifs = extractGifs(rawContent, existingHrefs);
   const videoAtts = extractVideos(rawContent, existingHrefs);
   const linkPreviews = convertLinkPreviews(properties, existingHrefs);
-  const cardAttachments = convertCards(properties, existingHrefs);
+  // Card JSON comes from third-party apps; a card that breaks the parser is
+  // skipped rather than failing the whole export.
+  let cardAttachments: Attachment[];
+  try {
+    cardAttachments = convertCards(properties, existingHrefs);
+  } catch {
+    cardAttachments = [];
+  }
   // Deduplicate preview cards: adaptive cards may duplicate link previews for the same URL
   const previewTitles = linkPreviews
     .filter(a => a.kind === 'preview' && a.metaText)
@@ -1206,6 +1492,11 @@ function convertOneMessage(
     .filter(Boolean);
   const dedupedCards = cardAttachments.filter(a => {
     if (a.kind !== 'preview' || !a.metaText) return true;
+    // Already in the message text (a card decoded from <Swift>).
+    if (cardText) {
+      const cardLines = new Set(cardText.split('\n').map(l => l.trim()).filter(Boolean));
+      if (a.metaText.split('\n').every(l => !l.trim() || cardLines.has(l.trim()))) return false;
+    }
     const title = (a.metaText || '').split('\n')[0].toLowerCase().trim();
     if (!title) return true;
     // "Title" vs "Title - Author - Site" are duplicates, but a bare substring
@@ -1274,9 +1565,12 @@ function convertOneMessage(
   // "Own message" detection. Teams' msg.from is a full MRI URL ending in
   // an "8:orgid:<uuid>" segment; selfUserId is just the uuid. Extract and
   // compare. System messages don't get flagged — they're not "from" anyone.
+  // An app post made for the user counts as the user's own (the sender is
+  // the app, the person is in onbehalfof).
   let isOwn: boolean | undefined;
-  if (!isSystem && selfUserId && msg.from) {
-    const uuidMatch = msg.from.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
+  const ownerRef = onBehalfOf ? onBehalfOf.mri : msg.from;
+  if (!isSystem && selfUserId && ownerRef) {
+    const uuidMatch = ownerRef.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
     if (uuidMatch && uuidMatch[1].toLowerCase() === selfUserId.toLowerCase()) {
       isOwn = true;
     }
@@ -1297,6 +1591,7 @@ function convertOneMessage(
   return {
     id: msg.id || msg.clientmessageid || '',
     author,
+    via,
     timestamp,
     text,
     contentHtml: deleted ? undefined : (rawContent || undefined),
@@ -1378,6 +1673,23 @@ export function convertApiMessages(
   });
   keyed.sort((a, b) => a.ts.localeCompare(b.ts) || a.i - b.i);
   const ordered = keyed.map(k => k.m);
+
+  // A reply quoting an app post names the app ("Updates"), but the post is
+  // credited to the person; name the person in the quote too. The quoted post
+  // is looked up in the raw batch, so this also works when the post is just
+  // before the range start (on the last fetched page). Quotes reference the
+  // server id, so only that id is used.
+  const appPostById = new Map<string, { app: string; person: string }>();
+  for (const raw of apiMessages) {
+    const person = appPostedFor(raw);
+    if (person && raw.id) appPostById.set(raw.id, { app: cleanDisplayName(raw.imdisplayname).toLowerCase(), person: person.displayName });
+  }
+  for (const m of ordered) {
+    const quoted = m.replyTo?.id ? appPostById.get(m.replyTo.id) : undefined;
+    if (m.replyTo && quoted?.app && m.replyTo.author.trim().toLowerCase() === quoted.app) {
+      m.replyTo.author = quoted.person;
+    }
+  }
 
   // Pair each CallRecording message with its matching Meeting started/ended events
   // (same callId in the Event/Call XML) so the recording card can show the

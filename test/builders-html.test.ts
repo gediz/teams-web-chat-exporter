@@ -42,3 +42,8 @@ test('toHTML with no messages still emits a complete document (the CSS shell is 
   expect(out).toContain('<style>');        // the style shell is emitted unconditionally
   expect(out.length).toBeGreaterThan(300); // a real document, not a truncated/empty stub
 });
+
+test('toHTML shows "via <app>" after the author, outside the timestamp span', () => {
+  const out = html([{ author: 'Test Person', via: 'Updates <app>', timestamp: '2024-01-01T10:00:00Z', text: 'x' }]);
+  expect(out).toContain('Test Person <span class="via">via Updates &lt;app&gt;</span> · <span title=');
+});

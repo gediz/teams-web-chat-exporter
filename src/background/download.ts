@@ -1191,7 +1191,7 @@ export function toPlainText(messages: ExportMessage[], meta: ExportMeta = {}) {
   };
   for (const m of messages) {
     const ts = m.timestamp || '';
-    const author = m.author || '[unknown]';
+    const author = (m.author || '[unknown]') + (m.via ? ` via ${m.via}` : '');
     let text = (m.text || '').replace(/\r\n/g, '\n').replace(/\n{2,}/g, '\n\n');
     // API mode: rebuild the body from ordered text/table blocks so pasted
     // tables render as aligned grids in their original positions instead of

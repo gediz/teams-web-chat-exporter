@@ -765,6 +765,7 @@ function scanDocument(
       }
     }
     visit(m.author);
+    visit(m.via);
     visit(m.subject);
     visit(m.replyTo?.text);
     visit(m.replyTo?.author);
@@ -787,6 +788,7 @@ function scanDocument(
   visit('[URGENT]');
   visit('[IMPORTANT]');
   visit('(edited)');
+  visit(' via ');
   visit('[forwarded from ]');
   visit('[attachment] ');
   visit('Subject: ');
@@ -1870,7 +1872,7 @@ async function renderMessage(
   cursor.y -= 4;
 
   // Author + timestamp headline on one baseline.
-  const author = (m.author || '[unknown]').trim();
+  const author = (m.author || '[unknown]').trim() + (m.via ? ` via ${m.via.trim()}` : '');
   const ts = formatTimestamp(m.timestamp);
   const urgency = m.importance === 'urgent' ? ' [URGENT]' : m.importance === 'high' ? ' [IMPORTANT]' : '';
   const editedTag = m.edited ? ' (edited)' : '';

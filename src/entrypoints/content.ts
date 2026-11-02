@@ -14,7 +14,7 @@ import { extractChatTitle, extractChannelTitle } from '../content/title';
 import { extractAvatarId } from '../utils/avatars';
 import { TEAMS_MATCH_PATTERNS } from '../utils/teams-urls';
 import { apiScrape, discover, ensureSkypeTokenCookies, extractConversationId, fetchSharePointFile, getGraphToken, getIc3Token, getLastApiScrapeFailure, getSkypeToken, listConversationsFromIdb, listConversationsFromIdbQuick, resolveAvatarPhotos } from '../content/api-client';
-import { convertApiMessages } from '../content/api-converter';
+import { convertApiMessages, appPostedFor } from '../content/api-converter';
 import { runStandaloneProbes } from '../content/probes';
 import type { ProbeResult } from '../utils/diagnostics';
 import type { AggregatedItem, ExportMessage, OrderContext, ReplyContext, ScrapeOptions } from '../types/shared';
@@ -1909,7 +1909,7 @@ export default defineContentScript({
          */
         async function fetchApiAvatars(
             messages: ExportMessage[],
-            rawMessages: Array<{ from?: string; imdisplayname?: string }>,
+            rawMessages: Array<{ from?: string; imdisplayname?: string; messagetype?: string; properties?: Record<string, unknown> }>,
         ): Promise<void> {
             const graphToken = await getGraphToken();
             if (!graphToken) return;
@@ -1918,10 +1918,21 @@ export default defineContentScript({
 
             // Build author → UUID map from raw API messages
             const authorToUuid = new Map<string, string>();
+            const uuidOf = (ref?: string) => ref?.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i)?.[1];
+            const appPosts: Array<{ mri?: string; displayName: string }> = [];
             for (const m of rawMessages) {
-                if (!m.from || !m.imdisplayname) continue;
-                const uuidMatch = m.from.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
-                if (uuidMatch) authorToUuid.set(m.imdisplayname, uuidMatch[1]);
+                // An app post made for a person is authored as that person
+                // (see convertOneMessage); its sender is the app, not them.
+                const onBehalfOf = appPostedFor(m);
+                if (onBehalfOf) { appPosts.push(onBehalfOf); continue; }
+                const uuid = uuidOf(m.from);
+                if (uuid && m.imdisplayname) authorToUuid.set(m.imdisplayname, uuid);
+            }
+            // Key the photo by the person, but never replace a name a direct
+            // sender already resolved: onbehalfof comes from the app.
+            for (const p of appPosts) {
+                const uuid = uuidOf(p.mri);
+                if (uuid && !authorToUuid.has(p.displayName)) authorToUuid.set(p.displayName, uuid);
             }
 
             if (!authorToUuid.size) return;
