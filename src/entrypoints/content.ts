@@ -18,6 +18,7 @@ import { convertApiMessages, appPostedFor } from '../content/api-converter';
 import { runStandaloneProbes } from '../content/probes';
 import type { ProbeResult } from '../utils/diagnostics';
 import type { AggregatedItem, ExportMessage, OrderContext, ReplyContext, ScrapeOptions } from '../types/shared';
+import { apiScrapeOutcome } from '../utils/scrape-outcome';
 
 // Typed globals for Firefox builds
 declare const browser: typeof chrome | undefined;
@@ -3938,6 +3939,9 @@ export default defineContentScript({
                         // 'truncation' if both fire (network is the higher-
                         // confidence root cause).
                         let partialReason: 'network' | 'truncation' | null = null;
+                        // Set when the API had messages but none fall inside the
+                        // requested date range (a dated bundle export).
+                        let noneInRange = false;
 
                         try {
                             const apiResult = await apiScrape((p) => {
@@ -3971,8 +3975,13 @@ export default defineContentScript({
                                 //    raw API had messages but our filter dropped them
                                 //    all (system-only chat etc.). DOM scroll might
                                 //    surface them differently — keep the existing
-                                //    fall-through behaviour for that case.
-                                if (converted.length > 0 || apiResult.messages.length === 0) {
+                                //    fall-through behaviour for that case, except in
+                                //    a multi-chat bundle (no DOM fallback), where it
+                                //    means nothing in the date range: see
+                                //    apiScrapeOutcome.
+                                const outcome = apiScrapeOutcome(converted.length, apiResult.messages.length, noDomFallback === true);
+                                noneInRange = outcome === 'none-in-range';
+                                if (outcome !== 'dom-fallback') {
                                     // Fetch inline images (content script has auth cookies, URLs expire).
                                     // Skipped when the target format won't render them.
                                     if (needImages) {
@@ -4244,6 +4253,7 @@ export default defineContentScript({
                         // SOME messages — empty exports aren't "partial",
                         // they're just empty and the bundle's NO_HISTORY.txt
                         // already covers that case.
+                        if (noneInRange) meta.noneInRange = true;
                         if (partialReason && messages.length > 0) {
                             meta.partial = { reason: partialReason };
                             console.warn(`[Teams Exporter] Export flagged as partial (${partialReason}); meta.partial set on streamed result`);

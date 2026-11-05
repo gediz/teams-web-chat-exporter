@@ -184,6 +184,9 @@ export type ExportMeta = {
   //                  of some visible messages.
   // When both apply, 'network' wins (higher-confidence root cause).
   partial?: { reason: 'network' | 'truncation' };
+  // The chat has messages, but none in the requested date range (dated
+  // multi-chat export). The bundle skips it instead of listing it as empty.
+  noneInRange?: boolean;
   // Inline image/attachment fetch outcomes for this export, computed at build
   // time from each attachment's failReason. Drives the "N of M images not
   // included" summary banner (all formats) and the structured JSON field.

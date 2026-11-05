@@ -1365,7 +1365,8 @@ function handleStartBundleExportMessage(msg: any, sendResponse: (res: any) => vo
             // because the API call succeeded; the chat is simply empty
             // server-side.
             if (totalMessages === 0) {
-                noHistory.push({ folderName, conversationId: conv.id });
+                // Nothing new in a dated export is not "no history".
+                if (!scrapeRes.meta?.noneInRange) noHistory.push({ folderName, conversationId: conv.id });
                 continue;
             }
 
