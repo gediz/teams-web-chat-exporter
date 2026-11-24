@@ -31,3 +31,14 @@ export function uint8ToBase64(bytes: Uint8Array): string {
   }
   return btoa(parts.join(''));
 }
+
+// base64 -> UTF-8 text. atob() alone returns one char per byte, which turns any
+// non-ASCII text into mojibake ("Café" becomes "CafÃ©"), so decode the bytes
+// as UTF-8. Accepts base64url and missing padding. Throws on invalid input.
+export function base64ToUtf8(b64: string): string {
+  const s = b64.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(s + '='.repeat((4 - (s.length % 4)) % 4));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder('utf-8').decode(bytes);
+}

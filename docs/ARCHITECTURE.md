@@ -196,6 +196,7 @@ Authoritative definition: `ExportMessage` in `src/types/shared.ts`.
 | `id` | `string?` |
 | `threadId` | `string \| null?` |
 | `author` | `string?` |
+| `via` | `string?` (app that posted on the author's behalf, e.g. `"Updates"`) |
 | `timestamp` | `string?` |
 | `text` | `string?` |
 | `contentHtml` | `string?` (raw HTML, API mode only) |

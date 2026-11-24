@@ -1,7 +1,7 @@
 // Behavior lock for toCSV in src/background/builders.ts.
 //
 // Covers the format contract that spreadsheet/programmatic consumers rely on:
-//   - the column set and order (new: reply_to, reactions, is_own, message_type)
+//   - the column set and order (new: reply_to, reactions, is_own, message_type, via)
 //   - one cell per header column on every data row (no dropped/extra push)
 //   - the leading UTF-8 BOM (so Excel reads emoji/CJK/Turkish, not mojibake)
 //   - RFC 4180 quoting + the OWASP CSV-injection guard (all five triggers)
@@ -13,7 +13,7 @@ import { toCSV } from '../src/background/builders.ts';
 const HEADER = [
   'id', 'author', 'timestamp', 'text', 'edited', 'deleted', 'system', 'subject',
   'importance', 'mentions', 'reactions_json', 'attachments_json', 'forwarded',
-  'reply_to', 'reactions', 'is_own', 'message_type',
+  'reply_to', 'reactions', 'is_own', 'message_type', 'via',
 ];
 
 // Header line with the BOM stripped, split into column names.
@@ -134,4 +134,11 @@ test('surfaces the failed-image summary as a leading # comment', () => {
     csv.replace(/^﻿/, '').includes('# 3 of 5 images could not be included (2 expired, 1 sign-in).'),
     'CSV carries the failed-image summary banner as a # comment',
   );
+});
+
+test('via column carries the app that posted on the author\'s behalf', () => {
+  const csv = toCSV([{ author: 'Test Person', via: 'Updates', text: 'x' }, { author: 'Alice', text: 'y' }] as never);
+  const rows = csv.replace(/^\uFEFF/, '').trim().split('\n');
+  assert.ok(rows[1].endsWith('"Updates"'));
+  assert.ok(rows[2].endsWith('""'));
 });

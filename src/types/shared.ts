@@ -110,6 +110,9 @@ export type ExportMessage = {
   id?: string;
   threadId?: string | null;
   author?: string;
+  // App that posted the message on the author's behalf, e.g. "Updates" for a
+  // check-in Teams shows as "Jane Doe via Updates". Unset for normal messages.
+  via?: string;
   timestamp?: string;
   text?: string;
   contentHtml?: string;           // Raw HTML content (API mode only)
@@ -181,6 +184,9 @@ export type ExportMeta = {
   //                  of some visible messages.
   // When both apply, 'network' wins (higher-confidence root cause).
   partial?: { reason: 'network' | 'truncation' };
+  // The chat has messages, but none in the requested date range (dated
+  // multi-chat export). The bundle skips it instead of listing it as empty.
+  noneInRange?: boolean;
   // Inline image/attachment fetch outcomes for this export, computed at build
   // time from each attachment's failReason. Drives the "N of M images not
   // included" summary banner (all formats) and the structured JSON field.

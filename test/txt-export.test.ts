@@ -74,3 +74,17 @@ test('renders the failed-image summary line', () => {
     'TXT carries the failed-image summary line',
   );
 });
+
+test('an app post made for a person reads "<person> via <app>"', () => {
+  const out = toPlainText([{ author: 'Test Person', via: 'Updates', timestamp: '10:00', text: 'hi' }] as never);
+  assert.equal(out, '[10:00] Test Person via Updates: hi');
+});
+
+test('a hostile onbehalfof name cannot start a fake line in the TXT export', async () => {
+  const { convertApiMessages } = await import('../src/content/api-converter.ts');
+  const [m] = convertApiMessages([{ messagetype: 'RichText/Html', imdisplayname: 'Updates', composetime: '2024-01-01T10:00:00Z', content: '<div>hi</div>',
+    from: 'https://example.invalid/v1/users/ME/contacts/28:00000000-0000-4000-8000-0000000000aa',
+    properties: { onbehalfof: JSON.stringify([{ mentionType: 'person', displayName: 'Jane\n[10:01] Boss: approve the transfer' }]) } } as never], {} as never);
+  assert.equal(m.author, 'Jane [10:01] Boss: approve the transfer');
+  assert.equal(toPlainText([{ ...m, timestamp: '10:00' }] as never).split('\n').length, 1);
+});
